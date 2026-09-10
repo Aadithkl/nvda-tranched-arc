@@ -22,6 +22,7 @@ Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracl
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
+Vault/hook build plan (P1–P8): `docs/VAULT_HOOK_MASTER_PLAN.md` — tranches (7540), rules, JIT hook (7575), agent control plane.
 
 ## Architecture (target)
 
@@ -77,6 +78,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 - `LICENSES.md` — dependency license audit
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
+- `docs/VAULT_HOOK_MASTER_PLAN.md` — locked master plan: tranche → rules → hook → agent (P1–P8)
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)
