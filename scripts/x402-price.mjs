@@ -22,7 +22,7 @@ const arcTestnet = defineChain({
   id: 5042002,
   name: "Arc Testnet",
   nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.testnet.arc.io"] } },
+  rpcUrls: { default: { http: ["https://rpc.testnet.arc.network"] } },
   blockExplorers: { default: { name: "ArcScan", url: "https://testnet.arcscan.app" } },
   testnet: true,
 });
@@ -145,6 +145,7 @@ async function fetchWithStandardX402(url, payerKey, maxPaymentUsdc) {
   const account = privateKeyToAccount(payerKey);
   const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
     schemes: [{ network: "eip155:*", client: new ExactEvmScheme(account) }],
+    spendControls: false,
     paymentRequirementsSelector: (_version, accepts) => selectWithinCap(accepts, maxPaymentUsdc),
   });
   return fetchWithPayment(url, { method: "GET" });
@@ -241,17 +242,37 @@ async function main() {
   if (useGateway) {
     try {
       const result = await fetchWithGateway(url, payerKey);
-      response = result.response ?? new Response(JSON.stringify(result.data ?? result));
       const payload = result.data ?? result;
       if (payload) {
         const price = extractPrice(payload);
         if (price !== null) {
-          console.log(JSON.stringify({ mode: "gateway", price, url, payload }, null, 2));
+          const gatewayPaymentRef = result.transaction
+            ? keccak256(stringToHex(result.transaction))
+            : keccak256(stringToHex(`${url}:${Date.now()}`));
+          console.log(
+            JSON.stringify(
+              { mode: "gateway", price, paid: result.formattedAmount, settlementId: result.transaction, paymentRef: gatewayPaymentRef, url, payload },
+              null,
+              2
+            )
+          );
           if (save && !push) {
             fs.mkdirSync("test/fixtures", { recursive: true });
             fs.writeFileSync(
               "test/fixtures/x402-nvda-price.json",
-              JSON.stringify({ price, marketStatus: marketStatusEt(), fetchedAt: new Date().toISOString(), source: "gateway", url }, null, 2)
+              JSON.stringify(
+                {
+                  price,
+                  marketStatus: marketStatusEt(),
+                  paymentRef: gatewayPaymentRef,
+                  settlementId: result.transaction,
+                  fetchedAt: new Date().toISOString(),
+                  source: "gateway",
+                  url,
+                },
+                null,
+                2
+              )
             );
           }
           if (!push) return;
@@ -259,7 +280,7 @@ async function main() {
             price,
             marketStatus: marketStatusEt(),
             sourceTimestamp: Math.floor(Date.now() / 1000),
-            paymentRef: keccak256(stringToHex(`${url}:${Date.now()}`)),
+            paymentRef: gatewayPaymentRef,
           });
           return;
         }

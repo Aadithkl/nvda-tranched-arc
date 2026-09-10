@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {IUnlockCallback} from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
-import {IERC20Minimal} from "v4-core/src/interfaces/external/IERC20Minimal.sol";
+import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
+import { IUnlockCallback } from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import { PoolKey } from "v4-core/src/types/PoolKey.sol";
+import { Currency } from "v4-core/src/types/Currency.sol";
+import { BalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
+import { TickMath } from "v4-core/src/libraries/TickMath.sol";
+import { IERC20Minimal } from "v4-core/src/interfaces/external/IERC20Minimal.sol";
 
 contract DemoRouter is IUnlockCallback {
     using BalanceDeltaLibrary for BalanceDelta;
@@ -86,7 +86,9 @@ contract DemoRouter is IUnlockCallback {
         int256 liquidityDelta,
         address recipient
     ) external returns (BalanceDelta delta) {
-        delta = _modifyLiquidity(key, tickLower, tickUpper, liquidityDelta, type(uint256).max, type(uint256).max, recipient);
+        delta = _modifyLiquidity(
+            key, tickLower, tickUpper, liquidityDelta, type(uint256).max, type(uint256).max, recipient
+        );
     }
 
     function _modifyLiquidity(

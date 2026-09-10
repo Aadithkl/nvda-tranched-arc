@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
-import {PoolManager} from "v4-core/src/PoolManager.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
-import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
-import {DemoRouter} from "../../src/router/DemoRouter.sol";
-import {MockToken} from "../../src/test-only/MockToken.sol";
+import { Test } from "forge-std/Test.sol";
+import { PoolManager } from "v4-core/src/PoolManager.sol";
+import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
+import { PoolKey } from "v4-core/src/types/PoolKey.sol";
+import { Currency } from "v4-core/src/types/Currency.sol";
+import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
+import { TickMath } from "v4-core/src/libraries/TickMath.sol";
+import { BalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
+import { DemoRouter } from "../../src/router/DemoRouter.sol";
+import { MockToken } from "../../src/test-only/MockToken.sol";
 
 contract DemoRouterTest is Test {
     using BalanceDeltaLibrary for BalanceDelta;
@@ -54,7 +54,13 @@ contract DemoRouterTest is Test {
 
     function _addDefaultLiquidity() internal {
         router.addLiquidity(
-            key, initialTick - 6000, initialTick + 6000, int256(LIQUIDITY), type(uint256).max, type(uint256).max, address(this)
+            key,
+            initialTick - 6000,
+            initialTick + 6000,
+            int256(LIQUIDITY),
+            type(uint256).max,
+            type(uint256).max,
+            address(this)
         );
     }
 
