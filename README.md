@@ -19,6 +19,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
 
 Indexing: The Graph subgraph scaffolded and building (`subgraph/`, `arc-testnet`) for oracle + pool values; deploy pending a Graph Studio key.
+x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update, tx `0xb2ce…443bf`).
 
 ## Architecture (target)
 
@@ -42,6 +43,7 @@ forge build && forge test             # contracts
 npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
+node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
 node scripts/fetch-report.mjs         # Chainlink Data Streams fixtures (needs API key)
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
