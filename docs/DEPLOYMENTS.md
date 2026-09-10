@@ -8,6 +8,21 @@
 |---|---|---|
 | Data Streams VerifierProxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` | Live onchain; `s_feeManager() == 0` (no fee manager) |
 
+### x402 / Circle Gateway (Arc Testnet)
+
+| Item | Value |
+|---|---|
+| Gateway Wallet | `0x0077777d7EBA4688BDeF3E311b846F25870A19B9` |
+| Gateway Minter | `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B` |
+| Gateway Domain ID | `26` |
+| Testnet facilitator | `https://gateway-api-testnet.circle.com` |
+| Demo seller (`scripts/x402-seller.mjs`) | `0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3` |
+| First onchain x402 price update | tx `0xb2ce0293f856a4dd1d2aef22bf9d526fe5af360a12cb120233aeca2b947443bf` (block `61454517`, mid 218.36e8, status 3 = post-market) |
+
+Flow verified end-to-end: Gateway payment settled on Arc ($0.001, balance 0.998 → 0.997)
+→ NVDA quote returned by the seller → `updateX402Price` on the oracle → `getPriceFrom(X402)`
+returns `valid = true`.
+
 ### Oracle (M1)
 
 | Contract | Address |
@@ -18,6 +33,7 @@
 - Feeds configured: Regular / Extended / Overnight, 300s Chainlink staleness
 - x402 staleness: 300s; `primarySource = 1` (ChainlinkStreams)
 - Writer (x402 push): `0x749E3A3a743889beC27584C1C8212f4cf926b431`
+- Latest x402 point: mid `218.36e8`, status `3` (Extended), paymentRef `0x5218…`
 - Deploy txs: `broadcast/DeployOracle.s.sol/5042002/run-latest.json`
 
 ### Uniswap v4 fork (M2a)

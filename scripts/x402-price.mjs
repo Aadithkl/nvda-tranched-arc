@@ -150,9 +150,23 @@ async function fetchWithStandardX402(url, payerKey, maxPaymentUsdc) {
   return fetchWithPayment(url, { method: "GET" });
 }
 
-async function fetchWithGateway(url, payerKey) {
+async function createGateway(payerKey) {
   const { GatewayClient } = await import("@circle-fin/x402-batching/client");
-  const gateway = new GatewayClient({ chain: "arcTestnet", privateKey: payerKey });
+  return new GatewayClient({
+    chain: "arcTestnet",
+    privateKey: payerKey,
+    rpcUrl: process.env.ARC_RPC_URL,
+  });
+}
+
+async function fetchWithGateway(url, payerKey) {
+  const gateway = await createGateway(payerKey);
+  const payer = privateKeyToAccount(payerKey).address;
+  const support = await gateway.supports(url);
+  const payTo = support.requirements?.payTo ?? support.requirements?.accepts?.[0]?.payTo;
+  if (support.supported && typeof payTo === "string" && payTo.toLowerCase() === payer.toLowerCase()) {
+    throw new Error("self_transfer rejected by Gateway: seller payTo equals payer (use a distinct seller wallet)");
+  }
   const result = await gateway.pay(url);
   return result;
 }
@@ -169,7 +183,7 @@ async function probe(url) {
 async function pushOnchain({ price, marketStatus, sourceTimestamp, paymentRef }) {
   const oracleAddress = process.env.ORACLE_ADDRESS;
   if (!oracleAddress) throw new Error("ORACLE_ADDRESS not set (required for --push)");
-  const payerKey = process.env.X402_PAYER_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATE_KEY;
+  const payerKey = process.env.X402_PAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
   if (!payerKey) throw new Error("X402_PAYER_PRIVATE_KEY or DEPLOYER_PRIVATE_KEY not set");
 
   const account = privateKeyToAccount(payerKey);
@@ -192,7 +206,7 @@ async function main() {
   loadEnv();
   const url = process.env.X402_STOCK_URL ?? DEFAULT_STOCK_URL;
   const maxPaymentUsdc = process.env.X402_MAX_PAYMENT_USDC ?? DEFAULT_MAX_PAYMENT_USDC;
-  const payerKey = process.env.X402_PAYER_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATE_KEY;
+  const payerKey = process.env.X402_PAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
   const useGateway = Boolean(arg("--gateway", false)) || process.env.X402_USE_GATEWAY === "1";
   const save = Boolean(arg("--save", false));
   const push = Boolean(arg("--push", false));
@@ -202,10 +216,17 @@ async function main() {
     return;
   }
 
+  if (arg("--gateway-balances", false)) {
+    if (!payerKey) throw new Error("payer key not set");
+    const gateway = await createGateway(payerKey);
+    const balances = await gateway.getBalances();
+    console.log(JSON.stringify(balances, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2));
+    return;
+  }
+
   if (arg("--gateway-deposit", false)) {
     if (!payerKey) throw new Error("payer key not set");
-    const { GatewayClient } = await import("@circle-fin/x402-batching/client");
-    const gateway = new GatewayClient({ chain: "arcTestnet", privateKey: payerKey });
+    const gateway = await createGateway(payerKey);
     const amount = String(arg("--gateway-deposit", "1"));
     const result = await gateway.deposit(amount);
     console.log(`gateway deposit: ${result.formattedAmount} USDC (${result.depositTxHash})`);

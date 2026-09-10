@@ -52,8 +52,10 @@ price onchain via `updateX402Price(mid, marketStatus, sourceTimestamp, paymentRe
 node scripts/x402-price.mjs --probe            # show the 402 challenge (no payment)
 node scripts/x402-price.mjs --save             # pay, print price, save fixture
 node scripts/x402-price.mjs --push             # pay and push to ORACLE_ADDRESS
-node scripts/x402-price.mjs --gateway --push   # Circle Gateway payment, then push
+node scripts/x402-price.mjs --gateway --push   # Circle Gateway payment on Arc, then push
 node scripts/x402-price.mjs --gateway-deposit 1  # fund Gateway (Arc testnet, gas-free)
+node scripts/x402-price.mjs --gateway-balances   # wallet + Gateway balances
+node scripts/x402-seller.mjs                   # local Gateway-accepting seller (demo)
 ```
 
 ### Payment rails
@@ -69,6 +71,27 @@ node scripts/x402-price.mjs --gateway-deposit 1  # fund Gateway (Arc testnet, ga
   on one of those chains.
 - Keeper flow (`--gateway`): pay on Arc → parse price from the 200 response → push
   `updateX402Price(mid, marketStatus, sourceTimestamp, paymentRef)` on Arc.
+
+**Verified end-to-end on Arc Testnet (2026-09-10):** local Gateway-accepting seller
+(`scripts/x402-seller.mjs`) → keeper paid $0.001 from Arc Gateway balance → NVDA quote
+returned → oracle updated in tx
+`0xb2ce0293f856a4dd1d2aef22bf9d526fe5af360a12cb120233aeca2b947443bf`. Gateway balance
+0.998 → 0.997; oracle `getPriceFrom(X402)` returned `valid = true` at 218.36.
+
+### Circle Gateway gotchas (Arc Testnet)
+
+- **Facilitator URL defaults to mainnet.** `BatchFacilitatorClient` / seller middleware
+  default to `https://gateway-api.circle.com`; for Arc Testnet pass
+  `https://gateway-api-testnet.circle.com` (env `GATEWAY_FACILITATOR_URL`). The buyer
+  `GatewayClient` auto-selects the testnet API for `chain: "arcTestnet"`.
+- **Self-transfer is rejected** (`INVALID (self_transfer)`): the seller `payTo` address
+  must differ from the payer wallet. Generated demo seller:
+  `0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3`.
+- **Amounts are atomic (6 decimals):** `$0.001 = "1000"`, `$0.01 = "10000"`.
+- **Deposit first:** buyers must deposit USDC into Gateway before paying
+  (`--gateway-deposit 1`); raw wallet balance cannot sign Gateway authorizations.
+- Gateway contracts (Arc Testnet): wallet `0x0077777d7EBA4688BDeF3E311b846F25870A19B9`,
+  minter `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B`, domain `26`.
 
 ### Indexed values (The Graph)
 
