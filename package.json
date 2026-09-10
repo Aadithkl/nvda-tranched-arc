@@ -1,0 +1,19 @@
+{
+  "name": "nvda-tranched-arc-tools",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "fetch-report": "node scripts/fetch-report.mjs",
+    "x402:price": "node scripts/x402-price.mjs",
+    "x402:probe": "node scripts/x402-price.mjs --probe"
+  },
+  "dependencies": {
+    "@circle-fin/x402-batching": "3.4.0",
+    "@x402/evm": "2.25.0",
+    "@x402/fetch": "2.25.0",
+    "viem": "2.56.3"
+  }
+}

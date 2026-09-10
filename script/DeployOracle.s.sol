@@ -13,18 +13,28 @@ contract DeployOracle is Script {
 
     function run() external {
         address verifier = vm.envOr("CHAINLINK_VERIFIER", ARC_TESTNET_VERIFIER);
-        address oracleOwner = vm.envOr("ORACLE_OWNER", msg.sender);
+        address oracleOwner = vm.envOr("ORACLE_OWNER", vm.envAddress("DEPLOYER_ADDRESS"));
+        address x402Writer = vm.envOr("X402_WRITER", address(0));
         uint32 maxStaleness = uint32(vm.envOr("ORACLE_MAX_STALENESS", uint256(300)));
+        uint32 x402MaxStaleness = uint32(vm.envOr("X402_MAX_STALENESS", uint256(300)));
+        NVDAPriceOracle.Source primarySource = NVDAPriceOracle.Source(vm.envOr("PRIMARY_SOURCE", uint256(1)));
 
         vm.startBroadcast();
         NVDAPriceOracle oracle = new NVDAPriceOracle(verifier, 8, oracleOwner);
         oracle.configureFeed(REGULAR_FEED, NVDAPriceOracle.Session.Regular, maxStaleness);
         oracle.configureFeed(EXTENDED_FEED, NVDAPriceOracle.Session.Extended, maxStaleness);
         oracle.configureFeed(OVERNIGHT_FEED, NVDAPriceOracle.Session.Overnight, maxStaleness);
+        oracle.setX402MaxStaleness(x402MaxStaleness);
+        oracle.setPrimarySource(primarySource);
+        if (x402Writer != address(0)) {
+            oracle.setWriter(x402Writer, true);
+        }
         vm.stopBroadcast();
 
         console2.log("NVDAPriceOracle:", address(oracle));
         console2.log("verifier:", verifier);
-        console2.log("maxStaleness:", maxStaleness);
+        console2.log("owner:", oracleOwner);
+        console2.log("x402Writer:", x402Writer);
+        console2.log("primarySource:", uint256(primarySource));
     }
 }
