@@ -44,7 +44,21 @@ Expected: oracle `valid = true` during market hours; all periphery accessors ret
 `0xFc41…Ae67` (PoolManager) / permit2 `0x0000…78BA3` / descriptor `0x449d…7a4f`;
 hook `swapCount = 1` and `lastHookDataHash = keccak256(0xfeed)`.
 
-## 3. x402 payment loop (Circle Gateway on Arc)
+## 3. USDC/EURC FX pool
+
+```bash
+node scripts/seed-usdc-eurc.mjs            # read-only status
+node scripts/seed-usdc-eurc.mjs --execute  # idempotent: approve/init/add
+cast call 0xb60F573748341F202818B09730d59333392b8CcC \
+  "getSlot0(bytes32)(uint160,int24,uint24,uint24)" \
+  0xa88885c010d00afae2cc9db9e7f6c56e6c5a8fbaa22a1141fedbbdda6993ebd4 --rpc-url $RPC
+```
+
+Expected: `initialized = true`, `liquidity = 214639290`, `lpFee = 100`, tick near `-1499`.
+Note: real-USDC flows must be sent via the viem script or `cast send` — Foundry's local
+EVM does not emulate Arc's compliance precompile used by USDC `transferFrom`.
+
+## 4. x402 payment loop (Circle Gateway on Arc)
 
 ```bash
 node scripts/x402-price.mjs --gateway-balances
@@ -62,7 +76,7 @@ equal to `keccak256(settlementId)`.
 
 If Gateway balance is empty: `node scripts/x402-price.mjs --gateway-deposit 1`.
 
-## 4. Subgraph
+## 5. Subgraph
 
 ```bash
 cd subgraph
@@ -80,6 +94,6 @@ GRAPH_URL="https://api.studio.thegraph.com/query/<id>/nvda-tranched-arc/<version
 GRAPH_API_KEY=<key> npm run graph:query
 ```
 
-## 5. CI
+## 6. CI
 
 `.github/workflows/ci.yml` runs contract checks and subgraph builds on every push.
