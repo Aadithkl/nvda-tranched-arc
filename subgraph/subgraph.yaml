@@ -29,9 +29,9 @@ dataSources:
     name: PoolManager
     network: arc-testnet
     source:
-      address: "0xF570d08D4388D6487E348C28c00D714a347D33c4"
+      address: "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67"
       abi: PoolManager
-      startBlock: 61452715
+      startBlock: 61459445
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
