@@ -18,11 +18,13 @@ oracle-valid windows under an agent-operated strategy controller.
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | pending |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
 
+Indexing: The Graph subgraph scaffolded and building (`subgraph/`, `arc-testnet`) for oracle + pool values; deploy pending a Graph Studio key.
+
 ## Architecture (target)
 
 - **Price**: two variables — stock price (Chainlink Data Streams testnet NVDA, V11,
-  verified via the Arc Testnet `VerifierProxy`, plus an x402-purchased keeper push)
-  and the Uniswap v4 AMM price. See `docs/PRICE_SOURCES.md`.
+  verified via the Arc Testnet `VerifierProxy`, plus an x402 keeper push paid through
+  Circle Gateway nanopayments on Arc) and the Uniswap v4 AMM price. See `docs/PRICE_SOURCES.md`.
 - **Execution**: forked Uniswap v4 `PoolManager` + `TrancheJITHook` (multi-bucket JIT,
   `beforeSwap`/`afterSwap`, no custom-accounting return-delta flags).
 - **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
@@ -30,14 +32,19 @@ oracle-valid windows under an agent-operated strategy controller.
 - **Agent**: role-based EOA calling a bounded `StrategyController` — can reallocate
   between venues, pause swaps and adjust distribution within caps; can never withdraw
   funds to arbitrary addresses or mint/burn user shares.
+- **Indexing**: The Graph subgraph on Arc Testnet for fast reads of prices, pool state
+  and swaps (`docs/GRAPH.md`); RPC remains the trust layer.
 
 ## Tools
 
 ```shell
-forge build && forge test          # contracts
-npm install                        # keeper tooling
+forge build && forge test             # contracts
+npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
+node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
 node scripts/fetch-report.mjs         # Chainlink Data Streams fixtures (needs API key)
+npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
+cd subgraph && npm install && npm run build    # subgraph codegen + compile
 ```
 
 ## Setup
@@ -61,6 +68,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 ## Docs
 
 - `LICENSES.md` — dependency license audit
-- `docs/PRICE_SOURCES.md` — Chainlink Data Streams + x402 dual-source design, keeper commands, payment rail notes
+- `docs/PRICE_SOURCES.md` — Chainlink Data Streams + x402 dual-source design, keeper commands, payment rails
+- `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
-- `docs/` — architecture, security, agent, frontend pack (added through M2–M6)
+- `docs/` — architecture, security, agent, frontend pack (added through M3–M6)

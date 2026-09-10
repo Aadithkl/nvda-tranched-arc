@@ -1,0 +1,16 @@
+{
+  "name": "nvda-tranched-subgraph",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "deploy:studio": "graph deploy --studio nvda-tranched-arc"
+  },
+  "dependencies": {
+    "@graphprotocol/graph-ts": "0.38.2"
+  },
+  "devDependencies": {
+    "@graphprotocol/graph-cli": "0.98.1"
+  }
+}
