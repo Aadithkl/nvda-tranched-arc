@@ -1,7 +1,7 @@
 # Foundry
 out/
 cache/
-broadcast/*/dry-run/
+broadcast/**/dry-run/
 
 # Secrets - never commit
 .env
