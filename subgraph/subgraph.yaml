@@ -6,9 +6,9 @@ dataSources:
     name: NVDAPriceOracle
     network: arc-testnet
     source:
-      address: "0xa2c6489fA9b1dba1ec63f410AB042543c86aa15F"
+      address: "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A"
       abi: NVDAPriceOracle
-      startBlock: 61452836
+      startBlock: 61455183
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -20,14 +20,10 @@ dataSources:
         - name: NVDAPriceOracle
           file: ./abis/NVDAPriceOracle.json
       eventHandlers:
-        - event: "PriceUpdated(indexed bytes32,uint8,int192,int192,int192,uint32,uint32,uint256)"
+        - event: "PriceUpdated(indexed address,int192,uint32,uint32,bytes32,uint256)"
           handler: handlePriceUpdated
-        - event: "X402PriceUpdated(indexed address,int192,uint32,uint32,bytes32,uint256)"
-          handler: handleX402PriceUpdated
         - event: "MarketStatusUpdated(uint32)"
           handler: handleMarketStatusUpdated
-        - event: "PrimarySourceUpdated(uint8)"
-          handler: handlePrimarySourceUpdated
       file: ./src/oracle.ts
   - kind: ethereum
     name: PoolManager

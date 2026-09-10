@@ -2,11 +2,11 @@
 
 Indexes the protocol on **Arc Testnet** (`arc-testnet`, chainId 5042002):
 
-- `NVDAPriceOracle` — `PriceUpdated` (Chainlink Data Streams), `X402PriceUpdated`,
-  `MarketStatusUpdated`, `PrimarySourceUpdated`
+- `NVDAPriceOracle` — x402 price pushes (`PriceUpdated`) and market status changes
 - `PoolManager` — `Initialize`, `Swap` (Uniswap v4 fork)
 
-Entities: `OracleState` (latest values, singleton), `PriceUpdate`, `Pool`, `PoolSwap`.
+Entities: `OracleState` (latest values, singleton), `PriceUpdate` (one row per x402
+push with its payment reference), `Pool`, `PoolSwap`.
 
 ## Build
 

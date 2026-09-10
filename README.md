@@ -10,7 +10,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | Milestone | Scope | State |
 |---|---|---|
 | M0 | Env, repo, Foundry, deps, license audit | done |
-| M1 | Chainlink Data Streams NVDA oracle + x402 price path + updater | oracle + tests done; live fixture pending Data Streams key |
+| M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork (PoolManager + router) on Arc Testnet | done — live demo pool + swap |
 | M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
@@ -18,14 +18,14 @@ oracle-valid windows under an agent-operated strategy controller.
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | pending |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
 
-Indexing: The Graph subgraph scaffolded and building (`subgraph/`, `arc-testnet`) for oracle + pool values; deploy pending a Graph Studio key.
-x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update, tx `0xb2ce…443bf`).
+Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
+x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 
 ## Architecture (target)
 
-- **Price**: two variables — stock price (Chainlink Data Streams testnet NVDA, V11,
-  verified via the Arc Testnet `VerifierProxy`, plus an x402 keeper push paid through
-  Circle Gateway nanopayments on Arc) and the Uniswap v4 AMM price. See `docs/PRICE_SOURCES.md`.
+- **Price**: two variables — stock price pushed onchain from x402 purchases (USDC paid
+  on Arc via Circle Gateway nanopayments) and the Uniswap v4 AMM price. See
+  `docs/PRICE_SOURCES.md`. No Chainlink anywhere in the price path.
 - **Execution**: forked Uniswap v4 `PoolManager` + `TrancheJITHook` (multi-bucket JIT,
   `beforeSwap`/`afterSwap`, no custom-accounting return-delta flags).
 - **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
@@ -44,7 +44,6 @@ npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
 node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
-node scripts/fetch-report.mjs         # Chainlink Data Streams fixtures (needs API key)
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
 ```
@@ -70,7 +69,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 ## Docs
 
 - `LICENSES.md` — dependency license audit
-- `docs/PRICE_SOURCES.md` — Chainlink Data Streams + x402 dual-source design, keeper commands, payment rails
+- `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/` — architecture, security, agent, frontend pack (added through M3–M6)

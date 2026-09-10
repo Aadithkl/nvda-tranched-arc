@@ -28,7 +28,7 @@ const arcTestnet = defineChain({
 });
 
 const oracleAbi = parseAbi([
-  "function updateX402Price(int192 mid, uint32 marketStatus, uint32 sourceTimestamp, bytes32 paymentRef)",
+  "function updatePrice(int192 mid, uint32 marketStatus, uint32 sourceTimestamp, bytes32 paymentRef)",
 ]);
 
 function loadEnv(file = ".env") {
@@ -194,7 +194,7 @@ async function pushOnchain({ price, marketStatus, sourceTimestamp, paymentRef })
   const hash = await wallet.writeContract({
     address: oracleAddress,
     abi: oracleAbi,
-    functionName: "updateX402Price",
+    functionName: "updatePrice",
     args: [mid, marketStatus, sourceTimestamp, paymentRef],
   });
   const receipt = await publicClient.waitForTransactionReceipt({ hash });

@@ -1,8 +1,8 @@
 {
   "arc-testnet": {
     "NVDAPriceOracle": {
-      "address": "0xa2c6489fA9b1dba1ec63f410AB042543c86aa15F",
-      "startBlock": 61452836
+      "address": "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
+      "startBlock": 61455183
     },
     "PoolManager": {
       "address": "0xF570d08D4388D6487E348C28c00D714a347D33c4",
