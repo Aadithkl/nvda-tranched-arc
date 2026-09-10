@@ -50,6 +50,26 @@
 - Verified wiring: `PositionManager.poolManager()/permit2()/tokenDescriptor()`, `StateView.poolManager()`, `V4Quoter.poolManager()`, `PositionDescriptor.wrappedNative()` → MockWETH9.
 - Deploy txs: `broadcast/DeployV4Stack.s.sol/5042002/run-latest.json`
 
+### USDC/EURC FX pool (real tokens)
+
+| Item | Value |
+|---|---|
+| Pair | USDC `0x3600…0000` / EURC `0x89B5…D72a` (both 6d) |
+| PoolId | `0xa88885c010d00afae2cc9db9e7f6c56e6c5a8fbaa22a1141fedbbdda6993ebd4` |
+| Params | fee `100` (0.01%), tickSpacing `1`, no hook |
+| Liquidity | `214,639,290` in range `[-1987, -1062]` |
+| Seeded | 4.9998 USDC + 4.8 EURC |
+| Initial price | tick `-1499` = 1.1617 USD/EUR (live EURUSD at seed time) |
+| Current price | tick `-1543` ≈ 1.1668 USD/EUR after a 0.5 USDC → EURC demo swap |
+| Txs | init `0x155fe13d…`, add `0xdbbdc3a7…`, swap `0xd9059d74…` |
+| Tool | `node scripts/seed-usdc-eurc.mjs [--execute] [--swap]` |
+
+**Important (Arc quirk):** Arc's USDC `transferFrom` calls a compliance precompile
+(`0x1800…0001 isBlocklisted`) that Foundry's local EVM does not emulate, so
+`forge script` cannot simulate/broadcast real-USDC flows (even with
+`--skip-simulation`, because scripts are replayed locally). Use the viem script or
+`cast send`; the Arc node itself executes the precompile fine.
+
 ### Hook proof (SmokeHook, test-only)
 
 | Item | Value |

@@ -47,6 +47,7 @@ npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
 node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
+npm run seed:eurc                     # USDC/EURC FX pool status (--execute to seed)
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
 ```
