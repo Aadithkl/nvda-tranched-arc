@@ -11,7 +11,7 @@ oracle-valid windows under an agent-operated strategy controller.
 |---|---|---|
 | M0 | Env, repo, Foundry, deps, license audit | done |
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
-| M2a | Uniswap v4 fork (PoolManager + router) on Arc Testnet | done — live demo pool + swap |
+| M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
@@ -20,14 +20,17 @@ oracle-valid windows under an agent-operated strategy controller.
 
 Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
+Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 
 ## Architecture (target)
 
 - **Price**: two variables — stock price pushed onchain from x402 purchases (USDC paid
   on Arc via Circle Gateway nanopayments) and the Uniswap v4 AMM price. See
   `docs/PRICE_SOURCES.md`. No Chainlink anywhere in the price path.
-- **Execution**: forked Uniswap v4 `PoolManager` + `TrancheJITHook` (multi-bucket JIT,
-  `beforeSwap`/`afterSwap`, no custom-accounting return-delta flags).
+- **Execution**: full Uniswap v4 fork on Arc — core `PoolManager` + periphery
+  (`PositionManager`, `PositionDescriptor`, `StateView`, `V4Quoter`, `ReservesLens`) +
+  `TrancheJITHook` (multi-bucket JIT, `beforeSwap`/`afterSwap`, no custom-accounting
+  return-delta flags). Hook deploy path proven with `SmokeHook`.
 - **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
 - **Vaults**: Senior/Junior as ERC-7540 async vaults; hook strategy receipt as ERC-7575.
 - **Agent**: role-based EOA calling a bounded `StrategyController` — can reallocate
@@ -61,10 +64,11 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 ## Dependencies (pinned)
 
-- `Uniswap/v4-core` — `v4.0.0` (BUSL-1.1, change date 2027-06-15; testnet/dev use — see `LICENSES.md`)
+- `Uniswap/v4-core` — `59d3ecf53afa9264a16bba0e38f4c5d2231f80bc` (BUSL-1.1, change date 2027-06-15; testnet/dev use — see `LICENSES.md`)
 - `Uniswap/v4-periphery` — commit `dce236d4e2057422d0791d9a973a58765eb46f65` (MIT)
 - `OpenZeppelin/openzeppelin-contracts` — `v5.7.0` (MIT)
 - `foundry-rs/forge-std` (MIT)
+- Build note: `via_ir = true`, global `optimizer_runs = 200`, `bytecode_hash = "none"` so the periphery fits under EIP-170.
 
 ## Docs
 

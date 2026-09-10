@@ -6,6 +6,7 @@ import { IUnlockCallback } from "v4-core/src/interfaces/callback/IUnlockCallback
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
 import { Currency } from "v4-core/src/types/Currency.sol";
 import { BalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
+import { ModifyLiquidityParams, SwapParams } from "v4-core/src/types/PoolOperation.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { IERC20Minimal } from "v4-core/src/interfaces/external/IERC20Minimal.sol";
 
@@ -28,6 +29,7 @@ contract DemoRouter is IUnlockCallback {
         int256 amountSpecified;
         uint256 minAmountOut;
         address recipient;
+        bytes hookData;
     }
 
     struct ModifyData {
@@ -39,6 +41,7 @@ contract DemoRouter is IUnlockCallback {
         uint256 amount0Max;
         uint256 amount1Max;
         address recipient;
+        bytes hookData;
     }
 
     constructor(IPoolManager poolManager_) {
@@ -56,13 +59,25 @@ contract DemoRouter is IUnlockCallback {
         uint256 minAmountOut,
         address recipient
     ) external returns (BalanceDelta delta) {
+        return swapExactIn(key, zeroForOne, amountIn, minAmountOut, recipient, bytes(""));
+    }
+
+    function swapExactIn(
+        PoolKey calldata key,
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        address recipient,
+        bytes memory hookData
+    ) public returns (BalanceDelta delta) {
         SwapData memory data = SwapData({
             payer: msg.sender,
             key: key,
             zeroForOne: zeroForOne,
             amountSpecified: -int256(amountIn),
             minAmountOut: minAmountOut,
-            recipient: recipient
+            recipient: recipient,
+            hookData: hookData
         });
         delta = abi.decode(poolManager.unlock(abi.encode(ACTION_SWAP, abi.encode(data))), (BalanceDelta));
     }
@@ -76,7 +91,20 @@ contract DemoRouter is IUnlockCallback {
         uint256 amount1Max,
         address recipient
     ) external returns (BalanceDelta delta) {
-        delta = _modifyLiquidity(key, tickLower, tickUpper, liquidityDelta, amount0Max, amount1Max, recipient);
+        return addLiquidity(key, tickLower, tickUpper, liquidityDelta, amount0Max, amount1Max, recipient, bytes(""));
+    }
+
+    function addLiquidity(
+        PoolKey calldata key,
+        int24 tickLower,
+        int24 tickUpper,
+        int256 liquidityDelta,
+        uint256 amount0Max,
+        uint256 amount1Max,
+        address recipient,
+        bytes memory hookData
+    ) public returns (BalanceDelta delta) {
+        delta = _modifyLiquidity(key, tickLower, tickUpper, liquidityDelta, amount0Max, amount1Max, recipient, hookData);
     }
 
     function removeLiquidity(
@@ -86,8 +114,19 @@ contract DemoRouter is IUnlockCallback {
         int256 liquidityDelta,
         address recipient
     ) external returns (BalanceDelta delta) {
+        return removeLiquidity(key, tickLower, tickUpper, liquidityDelta, recipient, bytes(""));
+    }
+
+    function removeLiquidity(
+        PoolKey calldata key,
+        int24 tickLower,
+        int24 tickUpper,
+        int256 liquidityDelta,
+        address recipient,
+        bytes memory hookData
+    ) public returns (BalanceDelta delta) {
         delta = _modifyLiquidity(
-            key, tickLower, tickUpper, liquidityDelta, type(uint256).max, type(uint256).max, recipient
+            key, tickLower, tickUpper, liquidityDelta, type(uint256).max, type(uint256).max, recipient, hookData
         );
     }
 
@@ -98,7 +137,8 @@ contract DemoRouter is IUnlockCallback {
         int256 liquidityDelta,
         uint256 amount0Max,
         uint256 amount1Max,
-        address recipient
+        address recipient,
+        bytes memory hookData
     ) internal returns (BalanceDelta delta) {
         ModifyData memory data = ModifyData({
             payer: msg.sender,
@@ -108,7 +148,8 @@ contract DemoRouter is IUnlockCallback {
             liquidityDelta: liquidityDelta,
             amount0Max: amount0Max,
             amount1Max: amount1Max,
-            recipient: recipient
+            recipient: recipient,
+            hookData: hookData
         });
         delta = abi.decode(poolManager.unlock(abi.encode(ACTION_MODIFY, abi.encode(data))), (BalanceDelta));
     }
@@ -124,12 +165,12 @@ contract DemoRouter is IUnlockCallback {
         SwapData memory data = abi.decode(payload, (SwapData));
         BalanceDelta delta = poolManager.swap(
             data.key,
-            IPoolManager.SwapParams({
+            SwapParams({
                 zeroForOne: data.zeroForOne,
                 amountSpecified: data.amountSpecified,
                 sqrtPriceLimitX96: data.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
-            ""
+            data.hookData
         );
 
         int128 amount0 = delta.amount0();
@@ -157,13 +198,13 @@ contract DemoRouter is IUnlockCallback {
         ModifyData memory data = abi.decode(payload, (ModifyData));
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             data.key,
-            IPoolManager.ModifyLiquidityParams({
+            ModifyLiquidityParams({
                 tickLower: data.tickLower,
                 tickUpper: data.tickUpper,
                 liquidityDelta: data.liquidityDelta,
                 salt: bytes32(0)
             }),
-            ""
+            data.hookData
         );
 
         int128 amount0 = delta.amount0();

@@ -5,8 +5,9 @@ libs = ["lib"]
 solc = "0.8.26"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 20000
-via_ir = false
+optimizer_runs = 200
+via_ir = true
+bytecode_hash = "none"
 fs_permissions = [{ access = "read", path = "./test/fixtures" }]
 gas_reports = ["*"]
 
