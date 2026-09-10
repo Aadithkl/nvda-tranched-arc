@@ -3,8 +3,8 @@
 The subgraph in `subgraph/` indexes the protocol on **Arc Testnet** and provides fast
 read access to:
 
-- latest NVDA stock price (Chainlink Data Streams or x402 source, with session/status)
-- every price update with its onchain payment reference (x402 audit trail)
+- latest NVDA stock price pushed over x402, with market session and status
+- every price update with its onchain payment reference (payment audit trail)
 - v4 pool state (`sqrtPriceX96`, `tick`, `liquidity`) and every swap
 
 **Philosophy:** the subgraph is a *speed layer* for the frontend/agent. Security-sensitive
@@ -15,8 +15,8 @@ subgraph is never the trust layer.
 
 | Entity | What it holds |
 |---|---|
-| `OracleState` (`id: "global"`) | latest `mid`/`bid`/`ask`, `marketStatus`, `primarySource`, `lastSource`, `lastPaymentRef`, `totalUpdates` |
-| `PriceUpdate` | one row per update: source, values, session, writer, paymentRef, tx |
+| `OracleState` (`id: "global"`) | latest `mid`/`bid`/`ask`, `marketStatus`, `lastSourceTimestamp`, `lastUpdatedAt`, `lastWriter`, `lastPaymentRef`, `totalUpdates` |
+| `PriceUpdate` | one row per x402 push: values, session, writer, paymentRef, tx |
 | `Pool` | pool key, current `sqrtPriceX96` / `tick` / `liquidity`, volume, swap count |
 | `PoolSwap` | per-swap amounts, price after swap, fee, sender, tx |
 
@@ -27,29 +27,29 @@ Latest stock price state:
 ```graphql
 {
   oracleState(id: "global") {
-    primarySource
-    lastSource
     marketStatus
     lastMid
     lastBid
     lastAsk
-    lastObservationsTimestamp
+    lastSourceTimestamp
+    lastUpdatedAt
+    lastWriter
     lastPaymentRef
     totalUpdates
   }
 }
 ```
 
-Recent updates (with payment refs):
+Recent x402 price updates (with payment refs):
 
 ```graphql
 {
   priceUpdates(first: 10, orderBy: timestamp, orderDirection: desc) {
-    source
     mid
     session
     marketStatus
     paymentRef
+    writer
     transactionHash
     timestamp
   }
@@ -82,7 +82,7 @@ Pool state + recent swaps:
 
 ## Price conversion
 
-- Oracle `mid` uses 8 decimals (e.g. `3000e8` = $3,000).
+- Oracle `mid` uses 8 decimals (e.g. `218.36e8`).
 - Pool price: `price = 1.0001^tick`, then adjust for token decimals (mNVDA 18d,
   mUSDC 6d). Deviation between the two variables is computed client-side from
   `OracleState.lastMid` and `Pool.tick`.
@@ -100,7 +100,7 @@ Or pass a query file: `node scripts/graph-query.mjs path/to/query.graphql`.
 ## Keyless / x402-paid alternative
 
 The Graph can also be queried through x402-paid gateways (for example PayQL), which
-matches this project's x402 payment rail: the payment *is* the auth, no API key needed.
+matches this project's payment rail: the payment *is* the auth, no API key needed.
 
 ## Fallback behavior (for the frontend)
 

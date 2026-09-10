@@ -1,8 +1,3 @@
-enum PriceSource {
-  ChainlinkStreams
-  X402
-}
-
 enum MarketSession {
   None
   Regular
@@ -12,13 +7,11 @@ enum MarketSession {
 
 type OracleState @entity(immutable: false) {
   id: ID!
-  primarySource: PriceSource!
   marketStatus: Int!
   lastMid: BigInt!
   lastBid: BigInt!
   lastAsk: BigInt!
-  lastSource: PriceSource!
-  lastObservationsTimestamp: BigInt!
+  lastSourceTimestamp: BigInt!
   lastUpdatedAt: BigInt!
   lastWriter: Bytes
   lastPaymentRef: Bytes
@@ -27,16 +20,15 @@ type OracleState @entity(immutable: false) {
 
 type PriceUpdate @entity(immutable: true) {
   id: ID!
-  source: PriceSource!
   mid: BigInt!
   bid: BigInt!
   ask: BigInt!
   marketStatus: Int!
   session: MarketSession!
-  observationsTimestamp: BigInt!
+  sourceTimestamp: BigInt!
   updatedAt: BigInt!
-  writer: Bytes
-  paymentRef: Bytes
+  writer: Bytes!
+  paymentRef: Bytes!
   transactionHash: Bytes!
   timestamp: BigInt!
   blockNumber: BigInt!

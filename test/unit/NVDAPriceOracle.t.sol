@@ -1,132 +1,88 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { Test } from "forge-std/Test.sol";
-import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
-import { DataStreamsV11 } from "../../src/oracle/libraries/DataStreamsV11.sol";
-import { MockVerifierProxy } from "../../src/test-only/MockVerifierProxy.sol";
+import {Test} from "forge-std/Test.sol";
+import {NVDAPriceOracle} from "../../src/oracle/NVDAPriceOracle.sol";
 
 contract NVDAPriceOracleTest is Test {
-    MockVerifierProxy internal verifier;
     NVDAPriceOracle internal oracle;
 
-    bytes32 internal constant REGULAR_FEED = 0x000b1d444945231e44dd47736c6abe288b10cb1b53941c7c68012fbdd2b1755c;
-    bytes32 internal constant EXTENDED_FEED = 0x000bf689e4aa5c006c89c207eb155ae99184e433a518753eb745cc552391a743;
-    bytes32 internal constant OVERNIGHT_FEED = 0x000b99b86a91cc317e2db8370f1466844dd9460cb51c3bf12fcc8d19d53d97bb;
-    bytes32 internal constant UNKNOWN_FEED = bytes32(uint256(0xdead));
-
     uint32 internal constant STALENESS = 300;
+    address internal constant WRITER = address(0xA11CE);
+    address internal constant STRANGER = address(0xBAD);
+    bytes32 internal constant PAYMENT_REF = keccak256("x402-payment-receipt");
 
     function setUp() public {
-        verifier = new MockVerifierProxy();
-        oracle = new NVDAPriceOracle(address(verifier), 8, address(this));
-        oracle.configureFeed(REGULAR_FEED, NVDAPriceOracle.Session.Regular, STALENESS);
-        oracle.configureFeed(EXTENDED_FEED, NVDAPriceOracle.Session.Extended, STALENESS);
-        oracle.configureFeed(OVERNIGHT_FEED, NVDAPriceOracle.Session.Overnight, STALENESS);
+        oracle = new NVDAPriceOracle(8, address(this));
+        oracle.setWriter(WRITER, true);
+        oracle.setMaxStaleness(STALENESS);
     }
 
-    function _push(bytes32 feedId, int192 mid, uint32 status) internal returns (DataStreamsV11.Report memory) {
-        DataStreamsV11.Report memory report = DataStreamsV11.Report({
-            feedId: feedId,
-            validFromTimestamp: uint32(block.timestamp),
-            observationsTimestamp: uint32(block.timestamp),
-            nativeFee: 0,
-            linkFee: 0,
-            expiresAt: uint32(block.timestamp + 3600),
-            mid: mid,
-            lastSeenTimestampNs: 0,
-            bid: mid - 1,
-            bidVolume: 0,
-            ask: mid + 1,
-            askVolume: 0,
-            lastTradedPrice: mid,
-            marketStatus: status
-        });
-        verifier.setResponse(abi.encode(report));
-        return oracle.verifyAndUpdate(hex"00");
+    function _push(int192 mid, uint32 status) internal {
+        vm.prank(WRITER);
+        oracle.updatePrice(mid, status, uint32(block.timestamp), PAYMENT_REF);
     }
 
     function test_configDefaults() public view {
-        assertEq(oracle.feedCount(), 3);
         assertEq(oracle.decimals(), 8);
         assertEq(oracle.owner(), address(this));
+        assertTrue(oracle.writers(WRITER));
+        assertEq(oracle.maxStaleness(), STALENESS);
         assertEq(oracle.marketStatus(), 0);
+        assertFalse(oracle.paused());
     }
 
-    function test_pushRegular_valid() public {
-        DataStreamsV11.Report memory report = _push(REGULAR_FEED, 3000e8, 2);
-        assertEq(report.feedId, REGULAR_FEED);
+    function test_update_valid() public {
+        _push(3000e8, 2);
 
         NVDAPriceOracle.PriceData memory data = oracle.getPrice();
         assertTrue(data.valid);
-        assertEq(uint8(data.session), uint8(NVDAPriceOracle.Session.Regular));
         assertEq(data.mid, 3000e8);
-        assertEq(data.bid, 3000e8 - 1);
-        assertEq(data.ask, 3000e8 + 1);
+        assertEq(data.bid, 3000e8);
+        assertEq(data.ask, 3000e8);
         assertEq(data.marketStatus, 2);
+        assertEq(uint8(data.session), uint8(NVDAPriceOracle.Session.Regular));
+        assertEq(data.paymentRef, PAYMENT_REF);
+        assertEq(oracle.marketStatus(), 2);
     }
 
-    function test_pushExtendedDuringPreMarket_valid() public {
-        _push(EXTENDED_FEED, 3001e8, 1);
+    function test_update_extended_sessions() public {
+        _push(3000e8, 1);
+        assertEq(uint8(oracle.getPrice().session), uint8(NVDAPriceOracle.Session.Extended));
+
+        _push(3001e8, 3);
         NVDAPriceOracle.PriceData memory data = oracle.getPrice();
         assertTrue(data.valid);
         assertEq(uint8(data.session), uint8(NVDAPriceOracle.Session.Extended));
     }
 
-    function test_pushExtendedDuringPostMarket_valid() public {
-        _push(EXTENDED_FEED, 3002e8, 3);
-        NVDAPriceOracle.PriceData memory data = oracle.getPrice();
-        assertTrue(data.valid);
-        assertEq(uint8(data.session), uint8(NVDAPriceOracle.Session.Extended));
-    }
-
-    function test_pushOvernight_valid() public {
-        _push(OVERNIGHT_FEED, 2999e8, 4);
+    function test_update_overnight() public {
+        _push(2999e8, 4);
         NVDAPriceOracle.PriceData memory data = oracle.getPrice();
         assertTrue(data.valid);
         assertEq(uint8(data.session), uint8(NVDAPriceOracle.Session.Overnight));
     }
 
-    function test_rejectUnknownFeed() public {
-        DataStreamsV11.Report memory report = DataStreamsV11.Report({
-            feedId: UNKNOWN_FEED,
-            validFromTimestamp: 0,
-            observationsTimestamp: uint32(block.timestamp),
-            nativeFee: 0,
-            linkFee: 0,
-            expiresAt: 0,
-            mid: 1,
-            lastSeenTimestampNs: 0,
-            bid: 1,
-            bidVolume: 0,
-            ask: 1,
-            askVolume: 0,
-            lastTradedPrice: 1,
-            marketStatus: 2
-        });
-        verifier.setResponse(abi.encode(report));
-        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.UnknownFeed.selector, UNKNOWN_FEED));
-        oracle.verifyAndUpdate(hex"00");
+    function test_update_onlyWriter() public {
+        vm.prank(STRANGER);
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotWriter.selector, STRANGER));
+        oracle.updatePrice(3000e8, 2, uint32(block.timestamp), PAYMENT_REF);
     }
 
-    function test_rejectSessionMismatch() public {
-        verifier.setResponse(abi.encode(_report(EXTENDED_FEED, 3000e8, 2)));
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                NVDAPriceOracle.SessionMismatch.selector, NVDAPriceOracle.Session.Extended, uint32(2)
-            )
-        );
-        oracle.verifyAndUpdate(hex"00");
-    }
-
-    function test_rejectNonPositiveMid() public {
-        verifier.setResponse(abi.encode(_report(REGULAR_FEED, 0, 2)));
+    function test_update_rejectsNonPositivePrice() public {
+        vm.prank(WRITER);
         vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.InvalidPrice.selector, int192(0)));
-        oracle.verifyAndUpdate(hex"00");
+        oracle.updatePrice(0, 2, uint32(block.timestamp), PAYMENT_REF);
     }
 
-    function test_stalePriceInvalidates() public {
-        _push(REGULAR_FEED, 3000e8, 2);
+    function test_update_rejectsInvalidStatus() public {
+        vm.prank(WRITER);
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.InvalidMarketStatus.selector, uint32(6)));
+        oracle.updatePrice(3000e8, 6, uint32(block.timestamp), PAYMENT_REF);
+    }
+
+    function test_staleInvalidates() public {
+        _push(3000e8, 2);
         assertTrue(oracle.getPrice().valid);
 
         skip(STALENESS + 1);
@@ -137,14 +93,14 @@ contract NVDAPriceOracleTest is Test {
     }
 
     function test_freshBoundaryStillValid() public {
-        _push(REGULAR_FEED, 3000e8, 2);
+        _push(3000e8, 2);
         skip(STALENESS);
         assertTrue(oracle.getPrice().valid);
     }
 
     function test_closedStatusInvalidates() public {
-        _push(REGULAR_FEED, 3000e8, 2);
-        _push(REGULAR_FEED, 3000e8, 5);
+        _push(3000e8, 2);
+        _push(3000e8, 5);
 
         NVDAPriceOracle.PriceData memory data = oracle.getPrice();
         assertFalse(data.valid);
@@ -153,66 +109,54 @@ contract NVDAPriceOracleTest is Test {
     }
 
     function test_unknownStatusInvalidates() public {
-        _push(OVERNIGHT_FEED, 3000e8, 4);
-        _push(OVERNIGHT_FEED, 3000e8, 0);
+        _push(3000e8, 4);
+        _push(3000e8, 0);
         assertFalse(oracle.getPrice().valid);
-    }
-
-    function test_configureOnlyOwner() public {
-        vm.prank(address(0xdead));
-        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotOwner.selector, address(0xdead)));
-        oracle.configureFeed(UNKNOWN_FEED, NVDAPriceOracle.Session.Regular, STALENESS);
     }
 
     function test_pauseBlocksUpdates() public {
         oracle.setPaused(true);
-        verifier.setResponse(abi.encode(_report(REGULAR_FEED, 3000e8, 2)));
+        vm.prank(WRITER);
         vm.expectRevert(NVDAPriceOracle.IsPaused.selector);
-        oracle.verifyAndUpdate(hex"00");
+        oracle.updatePrice(3000e8, 2, uint32(block.timestamp), PAYMENT_REF);
     }
 
-    function test_pauseOnlyOwner() public {
-        vm.prank(address(0xdead));
-        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotOwner.selector, address(0xdead)));
-        oracle.setPaused(true);
+    function test_setWriter_onlyOwner() public {
+        vm.prank(STRANGER);
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotOwner.selector, STRANGER));
+        oracle.setWriter(STRANGER, true);
     }
 
-    function test_latestRoundDataRevertsWithoutPrice() public {
-        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NoPriceData.selector, NVDAPriceOracle.Session.None));
+    function test_setMaxStaleness_onlyOwner() public {
+        vm.prank(STRANGER);
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotOwner.selector, STRANGER));
+        oracle.setMaxStaleness(60);
+    }
+
+    function test_revokedWriter_reverts() public {
+        oracle.setWriter(WRITER, false);
+        vm.prank(WRITER);
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotWriter.selector, WRITER));
+        oracle.updatePrice(3000e8, 2, uint32(block.timestamp), PAYMENT_REF);
+    }
+
+    function test_latestRoundData_revertsWithoutPrice() public {
+        vm.expectRevert(NVDAPriceOracle.NoPriceData.selector);
         oracle.latestRoundData();
     }
 
-    function test_latestRoundDataAfterUpdate() public {
-        _push(REGULAR_FEED, 3000e8, 2);
+    function test_latestRoundData_afterUpdate() public {
+        _push(3000e8, 2);
         (, int256 answer,, uint256 updatedAt,) = oracle.latestRoundData();
         assertEq(answer, 3000e8);
         assertEq(updatedAt, block.timestamp);
     }
 
-    function testFuzz_pushRegular_valid(uint192 mid) public {
-        mid = uint192(bound(mid, 2, uint256(int256(type(int192).max)) - 1));
-        _push(REGULAR_FEED, int192(mid), 2);
+    function testFuzz_update_valid(uint192 mid) public {
+        mid = uint192(bound(mid, 1, uint256(int256(type(int192).max))));
+        _push(int192(mid), 2);
         NVDAPriceOracle.PriceData memory data = oracle.getPrice();
         assertTrue(data.valid);
         assertEq(data.mid, int192(mid));
-    }
-
-    function _report(bytes32 feedId, int192 mid, uint32 status) internal view returns (DataStreamsV11.Report memory) {
-        return DataStreamsV11.Report({
-            feedId: feedId,
-            validFromTimestamp: uint32(block.timestamp),
-            observationsTimestamp: uint32(block.timestamp),
-            nativeFee: 0,
-            linkFee: 0,
-            expiresAt: uint32(block.timestamp + 3600),
-            mid: mid,
-            lastSeenTimestampNs: 0,
-            bid: mid,
-            bidVolume: 0,
-            ask: mid,
-            askVolume: 0,
-            lastTradedPrice: mid,
-            marketStatus: status
-        });
     }
 }
