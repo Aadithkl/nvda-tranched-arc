@@ -21,6 +21,7 @@ oracle-valid windows under an agent-operated strategy controller.
 Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
+Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
 
 ## Architecture (target)
 
@@ -48,6 +49,7 @@ node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challeng
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
 node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
 npm run seed:eurc                     # USDC/EURC FX pool status (--execute to seed)
+npm run export:pack                   # regenerate ABIs + deployment manifest
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
 ```
@@ -77,5 +79,6 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
+- `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)
 - `docs/VERIFICATION.md` — copy-paste checks for contracts, deployments, x402 loop, subgraph
 - `docs/` — architecture, security, agent, frontend pack (added through M3–M6)

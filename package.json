@@ -11,6 +11,7 @@
     "x402:seller": "node scripts/x402-seller.mjs",
     "x402:probe": "node scripts/x402-price.mjs --probe",
     "seed:eurc": "node scripts/seed-usdc-eurc.mjs",
+    "export:pack": "node scripts/export-frontend-pack.mjs",
     "graph:query": "node scripts/graph-query.mjs"
   },
   "dependencies": {
