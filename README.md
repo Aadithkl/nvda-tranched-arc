@@ -9,8 +9,8 @@ oracle-valid windows under an agent-operated strategy controller.
 
 | Milestone | Scope | State |
 |---|---|---|
-| M0 | Env, repo, Foundry, deps, license audit | in progress |
-| M1 | Chainlink Data Streams NVDA oracle + updater | pending |
+| M0 | Env, repo, Foundry, deps, license audit | done |
+| M1 | Chainlink Data Streams NVDA oracle + x402 price path + updater | oracle + tests done; live fixture pending Data Streams key |
 | M2a | Uniswap v4 fork (PoolManager + router) on Arc Testnet | pending |
 | M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
@@ -20,8 +20,9 @@ oracle-valid windows under an agent-operated strategy controller.
 
 ## Architecture (target)
 
-- **Price**: Chainlink Data Streams testnet NVDA (Regular/Extended/Overnight, V11),
-  verified onchain through the Arc Testnet `VerifierProxy`.
+- **Price**: two variables — stock price (Chainlink Data Streams testnet NVDA, V11,
+  verified via the Arc Testnet `VerifierProxy`, plus an x402-purchased keeper push)
+  and the Uniswap v4 AMM price. See `docs/PRICE_SOURCES.md`.
 - **Execution**: forked Uniswap v4 `PoolManager` + `TrancheJITHook` (multi-bucket JIT,
   `beforeSwap`/`afterSwap`, no custom-accounting return-delta flags).
 - **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
@@ -29,6 +30,15 @@ oracle-valid windows under an agent-operated strategy controller.
 - **Agent**: role-based EOA calling a bounded `StrategyController` — can reallocate
   between venues, pause swaps and adjust distribution within caps; can never withdraw
   funds to arbitrary addresses or mint/burn user shares.
+
+## Tools
+
+```shell
+forge build && forge test          # contracts
+npm install                        # keeper tooling
+node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
+node scripts/fetch-report.mjs         # Chainlink Data Streams fixtures (needs API key)
+```
 
 ## Setup
 
@@ -51,4 +61,5 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 ## Docs
 
 - `LICENSES.md` — dependency license audit
-- `docs/` — architecture, Chainlink integration, security, agent, frontend pack (added through M1–M6)
+- `docs/PRICE_SOURCES.md` — Chainlink Data Streams + x402 dual-source design, keeper commands, payment rail notes
+- `docs/` — architecture, security, agent, frontend pack (added through M2–M6)
