@@ -4,7 +4,7 @@ Audited during M0. Re-check whenever a dependency is updated.
 
 | Dependency | Version / Commit | License | Notes |
 |---|---|---|---|
-| `Uniswap/v4-core` | `v4.0.0` | **BUSL-1.1** (some files MIT) | `SPDX-License-Identifier: BUSL-1.1` on `PoolManager.sol` and core libraries. Change License: MIT; Change Date: earlier of **2027-06-15** or as specified. BUSL permits non-production use (development, testing, testnets). **Production/mainnet deployment of a v4-core fork before the change date requires a commercial license from Uniswap Labs.** |
+| `Uniswap/v4-core` | `59d3ecf53afa9264a16bba0e38f4c5d2231f80bc` (1.0.2-era) | **BUSL-1.1** (some files MIT) | `SPDX-License-Identifier: BUSL-1.1` on `PoolManager.sol` and core libraries. Change License: MIT; Change Date: earlier of **2027-06-15** or as specified. BUSL permits non-production use (development, testing, testnets). **Production/mainnet deployment of a v4-core fork before the change date requires a commercial license from Uniswap Labs.** |
 | `Uniswap/v4-periphery` | `dce236d4e2057422d0791d9a973a58765eb46f65` | MIT | Repo `LICENSE` is MIT. Note: current version no longer ships `BaseHook.sol`; hooks implement `IHooks` directly. `HookMiner` is in `test/shared/`. |
 | `OpenZeppelin/openzeppelin-contracts` | `v5.7.0` | MIT | OK |
 | `foundry-rs/forge-std` | pinned via `forge init` | MIT | OK |
