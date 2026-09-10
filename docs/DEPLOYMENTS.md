@@ -60,8 +60,8 @@
 | Liquidity | `214,639,290` in range `[-1987, -1062]` |
 | Seeded | 4.9998 USDC + 4.8 EURC |
 | Initial price | tick `-1499` = 1.1617 USD/EUR (live EURUSD at seed time) |
-| Current price | tick `-1543` ≈ 1.1668 USD/EUR after a 0.5 USDC → EURC demo swap |
-| Txs | init `0x155fe13d…`, add `0xdbbdc3a7…`, swap `0xd9059d74…` |
+| Current price | tick `-1499` = **1.1617 USD/EUR** (re-anchored after demo swaps) |
+| Txs | init `0x155fe13d…`, add `0xdbbdc3a7…`, swap `0xd9059d74…`, re-anchor swap `0xbba663b0…` |
 | Tool | `node scripts/seed-usdc-eurc.mjs [--execute] [--swap]` |
 
 **Important (Arc quirk):** Arc's USDC `transferFrom` calls a compliance precompile
