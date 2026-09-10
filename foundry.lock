@@ -1,0 +1,17 @@
+{
+  "lib\\openzeppelin-contracts": {
+    "tag": {
+      "name": "v5.7.0",
+      "rev": "cab19933c33c2ad1d4c7a84864a3601dddfd16f3"
+    }
+  },
+  "lib\\v4-core": {
+    "tag": {
+      "name": "v4.0.0",
+      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
+    }
+  },
+  "lib\\v4-periphery": {
+    "rev": "dce236d4e2057422d0791d9a973a58765eb46f65"
+  }
+}
