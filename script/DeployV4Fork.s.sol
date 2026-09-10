@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {PoolManager} from "v4-core/src/PoolManager.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
-import {TickMath} from "v4-core/src/libraries/TickMath.sol";
-import {DemoRouter} from "../src/router/DemoRouter.sol";
-import {MockToken} from "../src/test-only/MockToken.sol";
+import { Script, console2 } from "forge-std/Script.sol";
+import { PoolManager } from "v4-core/src/PoolManager.sol";
+import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
+import { PoolKey } from "v4-core/src/types/PoolKey.sol";
+import { Currency } from "v4-core/src/types/Currency.sol";
+import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
+import { TickMath } from "v4-core/src/libraries/TickMath.sol";
+import { DemoRouter } from "../src/router/DemoRouter.sol";
+import { MockToken } from "../src/test-only/MockToken.sol";
 
 contract DeployV4Fork is Script {
     uint256 internal constant LIQUIDITY = 1e12;
@@ -53,9 +53,8 @@ contract DeployV4Fork is Script {
         address token0 = address(deployment.mockUsdc) < address(deployment.mockNvda)
             ? address(deployment.mockUsdc)
             : address(deployment.mockNvda);
-        address token1 = token0 == address(deployment.mockUsdc)
-            ? address(deployment.mockNvda)
-            : address(deployment.mockUsdc);
+        address token1 =
+            token0 == address(deployment.mockUsdc) ? address(deployment.mockNvda) : address(deployment.mockUsdc);
         usdcIsToken0 = token0 == address(deployment.mockUsdc);
 
         PoolKey memory key = PoolKey({
@@ -68,9 +67,10 @@ contract DeployV4Fork is Script {
 
         int24 tick = usdcIsToken0 ? int24(196260) : int24(-196260);
         deployment.router.initializePool(key, TickMath.getSqrtPriceAtTick(tick));
-        deployment.router.addLiquidity(
-            key, tick - 6000, tick + 6000, int256(LIQUIDITY), type(uint256).max, type(uint256).max, deployer
-        );
+        deployment.router
+            .addLiquidity(
+                key, tick - 6000, tick + 6000, int256(LIQUIDITY), type(uint256).max, type(uint256).max, deployer
+            );
         deployment.router.swapExactIn(key, usdcIsToken0, 1e6, 0, deployer);
     }
 }

@@ -128,8 +128,8 @@ contract NVDAPriceOracle {
         data.sourceTimestamp = _sourceTimestamp;
         data.updatedAt = _updatedAt;
         data.paymentRef = _paymentRef;
-        data.valid = _mid > 0 && session != Session.None && _updatedAt != 0
-            && block.timestamp - _updatedAt <= maxStaleness;
+        data.valid =
+            _mid > 0 && session != Session.None && _updatedAt != 0 && block.timestamp - _updatedAt <= maxStaleness;
     }
 
     function latestRoundData()

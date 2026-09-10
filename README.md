@@ -72,4 +72,5 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
+- `docs/VERIFICATION.md` — copy-paste checks for contracts, deployments, x402 loop, subgraph
 - `docs/` — architecture, security, agent, frontend pack (added through M3–M6)

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {NVDAPriceOracle} from "../src/oracle/NVDAPriceOracle.sol";
+import { Script, console2 } from "forge-std/Script.sol";
+import { NVDAPriceOracle } from "../src/oracle/NVDAPriceOracle.sol";
 
 contract DeployOracle is Script {
     function run() external {

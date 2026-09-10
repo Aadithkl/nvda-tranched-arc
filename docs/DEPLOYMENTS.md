@@ -11,7 +11,7 @@
 | Gateway Domain ID | `26` |
 | Testnet facilitator | `https://gateway-api-testnet.circle.com` |
 | Demo seller (`scripts/x402-seller.mjs`) | `0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3` |
-| Latest x402 oracle update | tx `0xe559c8475e5e6a44e5a41947414b1a0e2b78f02e708db7d9068812ebf9726ca0` (block `61455589`, mid 218.36e8, status 3 = post-market) |
+| Latest x402 oracle update | tx `0x63640b6d9cc19814b1578cfdea1bb1b022d4228c2085c0936617ab10199f0264` (block `61456133`, mid 218.36e8, status 3 = post-market; paymentRef `0x1a1a…4f72` = keccak256 of the Circle settlement id) |
 
 ### Oracle — `NVDAPriceOracle` (x402 push, no Chainlink)
 
@@ -24,6 +24,7 @@
 - Writer (x402 push): `0x749E3A3a743889beC27584C1C8212f4cf926b431`
 - `maxStaleness`: 300s
 - Deploy txs: `broadcast/DeployOracle.s.sol/5042002/run-latest.json`
+- Deprecated: `0xa2c6489fA9b1dba1ec63f410AB042543c86aa15F` (Chainlink-era oracle, unused — do not integrate)
 
 ### Uniswap v4 fork (M2a)
 

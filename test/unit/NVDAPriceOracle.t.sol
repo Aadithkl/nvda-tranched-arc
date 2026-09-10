@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import {Test} from "forge-std/Test.sol";
-import {NVDAPriceOracle} from "../../src/oracle/NVDAPriceOracle.sol";
+import { Test } from "forge-std/Test.sol";
+import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 
 contract NVDAPriceOracleTest is Test {
     NVDAPriceOracle internal oracle;
