@@ -193,7 +193,7 @@ async function main() {
   const url = process.env.X402_STOCK_URL ?? DEFAULT_STOCK_URL;
   const maxPaymentUsdc = process.env.X402_MAX_PAYMENT_USDC ?? DEFAULT_MAX_PAYMENT_USDC;
   const payerKey = process.env.X402_PAYER_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATE_KEY;
-  const useGateway = Boolean(arg("--gateway", false));
+  const useGateway = Boolean(arg("--gateway", false)) || process.env.X402_USE_GATEWAY === "1";
   const save = Boolean(arg("--save", false));
   const push = Boolean(arg("--push", false));
 

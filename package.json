@@ -8,7 +8,8 @@
   "scripts": {
     "fetch-report": "node scripts/fetch-report.mjs",
     "x402:price": "node scripts/x402-price.mjs",
-    "x402:probe": "node scripts/x402-price.mjs --probe"
+    "x402:probe": "node scripts/x402-price.mjs --probe",
+    "graph:query": "node scripts/graph-query.mjs"
   },
   "dependencies": {
     "@circle-fin/x402-batching": "3.4.0",

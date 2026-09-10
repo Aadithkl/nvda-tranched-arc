@@ -1,0 +1,75 @@
+enum PriceSource {
+  ChainlinkStreams
+  X402
+}
+
+enum MarketSession {
+  None
+  Regular
+  Extended
+  Overnight
+}
+
+type OracleState @entity(immutable: false) {
+  id: ID!
+  primarySource: PriceSource!
+  marketStatus: Int!
+  lastMid: BigInt!
+  lastBid: BigInt!
+  lastAsk: BigInt!
+  lastSource: PriceSource!
+  lastObservationsTimestamp: BigInt!
+  lastUpdatedAt: BigInt!
+  lastWriter: Bytes
+  lastPaymentRef: Bytes
+  totalUpdates: BigInt!
+}
+
+type PriceUpdate @entity(immutable: true) {
+  id: ID!
+  source: PriceSource!
+  mid: BigInt!
+  bid: BigInt!
+  ask: BigInt!
+  marketStatus: Int!
+  session: MarketSession!
+  observationsTimestamp: BigInt!
+  updatedAt: BigInt!
+  writer: Bytes
+  paymentRef: Bytes
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type Pool @entity(immutable: false) {
+  id: ID!
+  currency0: Bytes!
+  currency1: Bytes!
+  fee: BigInt!
+  tickSpacing: BigInt!
+  hooks: Bytes!
+  sqrtPriceX96: BigInt!
+  tick: BigInt!
+  liquidity: BigInt!
+  volume0: BigInt!
+  volume1: BigInt!
+  swapCount: BigInt!
+  initializedAtTimestamp: BigInt!
+  updatedAtTimestamp: BigInt!
+}
+
+type PoolSwap @entity(immutable: true) {
+  id: ID!
+  pool: Pool!
+  sender: Bytes!
+  amount0: BigInt!
+  amount1: BigInt!
+  sqrtPriceX96: BigInt!
+  liquidity: BigInt!
+  tick: BigInt!
+  fee: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}

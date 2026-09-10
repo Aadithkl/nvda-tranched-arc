@@ -56,20 +56,26 @@ node scripts/x402-price.mjs --gateway --push   # Circle Gateway payment, then pu
 node scripts/x402-price.mjs --gateway-deposit 1  # fund Gateway (Arc testnet, gas-free)
 ```
 
-### Payment rail reality (verified 2026-09-10)
+### Payment rails
 
-- The default provider (`agent402.tools`) offers x402 v2 accepts on Base, Polygon,
-  Arbitrum, OP, Robinhood Chain, Celo, Avalanche, plus non-EVM chains — **no Arc and
-  no testnets**. Payment must come from a funded mainnet wallet on one of those chains
-  (`X402_PREFERRED_NETWORK`, default `eip155:8453`).
-- Circle Gateway nanopayments work from **Arc Testnet** (`@circle-fin/x402-batching`,
-  `chain: "arcTestnet"`, ~0.5s deposits) — but only against sellers that accept the
-  Gateway batching scheme. Circle's hosted facilitator currently returns
-  `unsupported_network` for `eip155:5042002` on some paths (known issue), and the
-  major public stock providers do not advertise Gateway yet.
-- Therefore: fund `X402_PAYER_PRIVATE_KEY` on Base (a few dollars covers thousands of
-  calls at ~$0.001–$0.005), or keep `PRIMARY_SOURCE=1` (Chainlink) and use x402 as the
-  fallback until the payer is funded.
+- **Primary (Arc Testnet): Circle Gateway nanopayments** via `@circle-fin/x402-batching`
+  (`chain: "arcTestnet"`, gas-free, ~0.5s deposits). Enable with `--gateway` or
+  `X402_USE_GATEWAY=1`; the client automatically falls back to standard x402 if the
+  seller does not advertise the Gateway batching scheme.
+- **Fallback (external providers): standard x402 on their accepted mainnet chains.**
+  Probed 2026-09-10: agent402, x402stock, and klymax402 accept Base, Polygon, Arbitrum,
+  Robinhood Chain, Celo, Avalanche (plus non-EVM) — no Arc, no testnets. Set
+  `X402_PREFERRED_NETWORK` (default `eip155:8453`) and fund `X402_PAYER_PRIVATE_KEY`
+  on one of those chains.
+- Keeper flow (`--gateway`): pay on Arc → parse price from the 200 response → push
+  `updateX402Price(mid, marketStatus, sourceTimestamp, paymentRef)` on Arc.
+
+### Indexed values (The Graph)
+
+The Graph subgraph (`subgraph/`, network `arc-testnet`) indexes `NVDAPriceOracle`
+events and PoolManager swaps so the frontend/agent can read latest stock price, price
+history, pool state, and swaps without RPC scans. See `docs/GRAPH.md`. The subgraph is
+a speed layer; RPC reads remain the trust layer for any transaction-gating logic.
 
 ### Env
 

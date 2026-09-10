@@ -1,0 +1,46 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "bytes32", "name": "feedId", "type": "bytes32" },
+      { "indexed": false, "internalType": "enum NVDAPriceOracle.Session", "name": "session", "type": "uint8" },
+      { "indexed": false, "internalType": "int192", "name": "mid", "type": "int192" },
+      { "indexed": false, "internalType": "int192", "name": "bid", "type": "int192" },
+      { "indexed": false, "internalType": "int192", "name": "ask", "type": "int192" },
+      { "indexed": false, "internalType": "uint32", "name": "marketStatus", "type": "uint32" },
+      { "indexed": false, "internalType": "uint32", "name": "observationsTimestamp", "type": "uint32" },
+      { "indexed": false, "internalType": "uint256", "name": "updatedAt", "type": "uint256" }
+    ],
+    "name": "PriceUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "writer", "type": "address" },
+      { "indexed": false, "internalType": "int192", "name": "mid", "type": "int192" },
+      { "indexed": false, "internalType": "uint32", "name": "marketStatus", "type": "uint32" },
+      { "indexed": false, "internalType": "uint32", "name": "sourceTimestamp", "type": "uint32" },
+      { "indexed": false, "internalType": "bytes32", "name": "paymentRef", "type": "bytes32" },
+      { "indexed": false, "internalType": "uint256", "name": "updatedAt", "type": "uint256" }
+    ],
+    "name": "X402PriceUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": false, "internalType": "uint32", "name": "marketStatus", "type": "uint32" }
+    ],
+    "name": "MarketStatusUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": false, "internalType": "enum NVDAPriceOracle.Source", "name": "source", "type": "uint8" }
+    ],
+    "name": "PrimarySourceUpdated",
+    "type": "event"
+  }
+]
