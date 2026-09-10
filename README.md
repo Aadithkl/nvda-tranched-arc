@@ -11,7 +11,7 @@ oracle-valid windows under an agent-operated strategy controller.
 |---|---|---|
 | M0 | Env, repo, Foundry, deps, license audit | done |
 | M1 | Chainlink Data Streams NVDA oracle + x402 price path + updater | oracle + tests done; live fixture pending Data Streams key |
-| M2a | Uniswap v4 fork (PoolManager + router) on Arc Testnet | pending |
+| M2a | Uniswap v4 fork (PoolManager + router) on Arc Testnet | done — live demo pool + swap |
 | M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
@@ -62,4 +62,5 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 - `LICENSES.md` — dependency license audit
 - `docs/PRICE_SOURCES.md` — Chainlink Data Streams + x402 dual-source design, keeper commands, payment rail notes
+- `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/` — architecture, security, agent, frontend pack (added through M2–M6)

@@ -19,7 +19,7 @@ contract DeployOracle is Script {
         uint32 x402MaxStaleness = uint32(vm.envOr("X402_MAX_STALENESS", uint256(300)));
         NVDAPriceOracle.Source primarySource = NVDAPriceOracle.Source(vm.envOr("PRIMARY_SOURCE", uint256(1)));
 
-        vm.startBroadcast();
+        vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
         NVDAPriceOracle oracle = new NVDAPriceOracle(verifier, 8, oracleOwner);
         oracle.configureFeed(REGULAR_FEED, NVDAPriceOracle.Session.Regular, maxStaleness);
         oracle.configureFeed(EXTENDED_FEED, NVDAPriceOracle.Session.Extended, maxStaleness);
