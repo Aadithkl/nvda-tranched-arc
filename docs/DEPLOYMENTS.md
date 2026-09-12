@@ -70,6 +70,26 @@
 `--skip-simulation`, because scripts are replayed locally). Use the viem script or
 `cast send`; the Arc node itself executes the precompile fine.
 
+### Lending — Aave V2 semi-fork (ours, MIT)
+
+| Contract | Address |
+|---|---|
+| `LendingPoolAddressesProvider` | `0xd70165E2eC57c8367f6D93eB8F576978d3b75529` |
+| `PeggedPriceOracle` | `0x6DC2A77B42B4049f96593b5Aa979227580aA510b` |
+| `LendingPool` | `0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8` |
+| `LendingPoolConfigurator` | `0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe` |
+| `DefaultReserveInterestRateStrategy` | `0xdd4DdB9a2f33de6eb6b53B064CC09c60F82381Dc` |
+| `aUSDC` / `dUSDC` | `0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1` / `0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6` |
+| `aEURC` / `dEURC` | `0x24f73520cB400a8d978C5AB0c358755536cA99fa` / `0xAfcEB101607Ff5f190E3E7F534a927078AF70053` |
+
+- Markets: USDC + EURC only (both 6d); no WETH, no Chainlink. Pegs: USDC `1e8`, EURC `1.1617e8` (USD, 8d).
+- Reserve params: LTV `7500`, liquidation threshold `8000`, bonus `10500`, reserve factor `1000`.
+- Rate model: base `0`, slope1 `4%`, slope2 `60%`, optimal utilization `80%`.
+- `poolAdmin` / provider owner = deployer `0x749E3A3a743889beC27584C1C8212f4cf926b431`.
+- Deploy: `forge script script/DeployLending.s.sol --rpc-url arc_testnet --broadcast` (no USDC transfers, so Foundry simulation is safe);
+  txs in `broadcast/DeployLending.s.sol/5042002/run-latest.json`.
+- Verified onchain: provider wiring, oracle pegs, aToken names/symbols. Docs: `docs/LENDING.md`.
+
 ### Hook proof (SmokeHook, test-only)
 
 | Item | Value |
@@ -82,8 +102,8 @@
 ### Not yet deployed
 
 - `TrancheJITHook` (M3 — production hook), `StrategyController` + agent (M4), Senior/Junior ERC-7540 vaults + ERC-7575 share (M5)
-- Aave V2 fork with USDC/EURC/mNVDA reserves (M2b)
 - Universal Router (deferred; DemoRouter + PositionManager cover swaps/LP)
+- Lending extensions (liquidations, treasury accrual, stable-rate debt) — documented gaps in `docs/LENDING.md`
 
 ## Deprecated (do not integrate)
 

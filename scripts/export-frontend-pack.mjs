@@ -35,6 +35,14 @@ const contracts = {
   mockNvda: process.env.MOCK_NVDA || "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
   nvdAPriceOracle: process.env.ORACLE_ADDRESS || "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
   smokeHook: "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
+  lendingAddressesProvider: process.env.LENDING_PROVIDER || "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
+  lendingPool: process.env.LENDING_POOL || "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8",
+  lendingConfigurator: process.env.LENDING_CONFIGURATOR || "0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe",
+  peggedPriceOracle: process.env.LENDING_ORACLE || "0x6DC2A77B42B4049f96593b5Aa979227580aA510b",
+  aUsdc: process.env.A_USDC || "0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1",
+  dUsdc: process.env.D_USDC || "0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6",
+  aEurc: process.env.A_EURC || "0x24f73520cB400a8d978C5AB0c358755536cA99fa",
+  dEurc: process.env.D_EURC || "0xAfcEB101607Ff5f190E3E7F534a927078AF70053",
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   multicall3: "0xcA11bde05977b3631167028862bE2a173976CA11",
   create2Deployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
@@ -130,6 +138,13 @@ const ABI_CONTRACTS = [
   "MockToken",
   "MockWETH9",
   "SmokeHook",
+  "LendingPool",
+  "LendingPoolConfigurator",
+  "LendingPoolAddressesProvider",
+  "PeggedPriceOracle",
+  "AToken",
+  "VariableDebtToken",
+  "DefaultReserveInterestRateStrategy",
 ];
 
 fs.mkdirSync("docs/abis", { recursive: true });
@@ -188,6 +203,18 @@ const manifest = {
     writer: process.env.DEPLOYER_ADDRESS || null,
     description: "NVDA/USD (x402 push)",
     state: await oracleState(),
+  },
+  lending: {
+    addressesProvider: contracts.lendingAddressesProvider,
+    pool: contracts.lendingPool,
+    configurator: contracts.lendingConfigurator,
+    priceOracle: contracts.peggedPriceOracle,
+    model: "Aave V2 semi-fork (independent implementation) — supply/withdraw, variable borrow/repay, no liquidations",
+    markets: [
+      { symbol: "USDC", underlying: contracts.usdc, decimals: 6, aToken: contracts.aUsdc, variableDebtToken: contracts.dUsdc, peggedPriceUsd8: 100000000 },
+      { symbol: "EURC", underlying: contracts.eurc, decimals: 6, aToken: contracts.aEurc, variableDebtToken: contracts.dEurc, peggedPriceUsd8: 116170000 },
+    ],
+    note: "Rest state for the tranche hook; see docs/LENDING.md",
   },
   x402: {
     gatewayWallet: contracts.gatewayWallet,
