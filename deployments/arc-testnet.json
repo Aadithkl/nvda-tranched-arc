@@ -201,5 +201,18 @@
     "docs/abis/VariableDebtToken.json",
     "docs/abis/DefaultReserveInterestRateStrategy.json",
     "docs/abis/ERC20.json"
-  ]
+  ],
+  "stack": {
+    "deployedAt": "2026-09-12",
+    "note": "JIT hook v2 (security fixes) + ERC-7540 tranche vaults + accountant; controller/agent re-pointed",
+    "hook": "0xB229976cB5F64C6f747033c26217299AeCD42Ac0",
+    "shareToken": "0x917386b70E03cdC2026B612fd1388d9DfC349C96",
+    "accountant": "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4",
+    "seniorVault": "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e",
+    "juniorVault": "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c",
+    "poolId": "0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1",
+    "keeper": "0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95",
+    "jitEnabled": true,
+    "liquidityGuard": true
+  }
 }
