@@ -94,6 +94,29 @@
   Ops tool: `npm run lending:status | lending:set-price | lending:seed` (`scripts/lending-admin.mjs`).
 - Verified onchain: provider wiring, oracle pegs, aToken names/symbols. Docs: `docs/LENDING.md`.
 
+### TrancheJITHook live demo (USDC/EURC, test exercise)
+
+| Contract | Address |
+|---|---|
+| `TrancheJITHook` | `0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0` |
+| `HookShareToken` (created by hook) | `0xFA8F387fAa130Fffe46A9513D1090f69478A4BAF` |
+| EURC price oracle (`NVDAPriceOracle` instance) | `0xef7295e74b5ac0a8f3caf89ec19bd26e5f812174` |
+| `StrategyController` | `0x6ea148829e32ba3051869f73092c015d34661edd` |
+| `StrategyAgent` | `0x636bfd9e072c9ba93453a2d798Cb7D09b8Fe1E8c` |
+| Agent operator (separate key, local `.env`) | `0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95` |
+| PoolId | `0x1adee7f4fc915d8217b238785d857f49c431ded9ed48bdaf1e8ecf3559eb7f86` |
+
+- Pool: USDC/EURC, dynamic fee (`0x800000`), tickSpacing `1`, initialized at tick `-1499` (1.1617 USD/EURC).
+- Liquidity: ~1.06 USDC + 0.94 EURC (L=42,000,000 over `[-1987, -1062]`) — tx `0x2b10fd16…`.
+- Live exercise txs: fund operator `0x343f8392…`, `submitParams` `0x2cb53bcb…`, swap @ fee 3000 `0x298179e5…`,
+  `submitBaseFee(5000)` `0x06666bc4…`, swap @ fee 5000 `0x7b0d966f…`, oracle → 1.19 `0x4956708f…`,
+  **toxic swap charged surge 30000 (3%)** `0x24fdfebc…`, wrap 1 USDC → Aave `0xd4fbc548…`,
+  unwrap 0.5 shares `0xd8161857…`, oracle reset `0x43e1429e…`.
+- Result: oracle-anchored toxic-flow pricing, agent-controlled dynamic fee, TTL-gated quoting, and the
+  Aave rest state (aToken credited/debited) all verified onchain.
+- Runbook: `npm run hook:demo -- --status | --set-params | --add-liquidity | --swap <usdc6> | --set-fee <fee> | --set-oracle <8d> | --wrap <usdc6> | --unwrap <shares18> | --fund-operator <usdc6>`
+- Deploy txs: `broadcast/DeployTrancheHookDemo.s.sol/5042002/run-latest.json`.
+
 ### Hook proof (SmokeHook, test-only)
 
 | Item | Value |

@@ -14,6 +14,8 @@
     "lending:status": "node scripts/lending-admin.mjs",
     "lending:set-price": "node scripts/lending-admin.mjs --set-price",
     "lending:seed": "node scripts/lending-admin.mjs --seed",
+    "hook:demo": "node scripts/hook-demo.mjs",
+    "agent:keygen": "node scripts/agent-keygen.mjs",
     "export:pack": "node scripts/export-frontend-pack.mjs",
     "graph:query": "node scripts/graph-query.mjs"
   },
