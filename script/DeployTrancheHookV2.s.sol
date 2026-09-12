@@ -20,16 +20,17 @@ contract DeployTrancheHookV2 is Script {
     using PoolIdLibrary for PoolKey;
 
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-    int24 internal constant INITIAL_TICK = -1499;
 
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address nvda = vm.envAddress("EURC_ADDRESS");
+        address nvda = vm.envAddress("NVDA_ADDRESS");
         address lendingPool = vm.envAddress("LENDING_POOL");
         address priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
         address controllerAddr = vm.envAddress("HOOK_DEMO_CONTROLLER");
+        int24 tickSpacing = int24(int256(vm.envOr("NVDA_POOL_TICK_SPACING", uint256(60))));
+        int24 initialTick = int24(vm.envInt("NVDA_POOL_TICK"));
 
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 
@@ -50,14 +51,16 @@ contract DeployTrancheHookV2 is Script {
         TrancheJITHook h = TrancheJITHook(hook);
         h.setLendingPool(lendingPool);
 
+        address token0 = usdc < nvda ? usdc : nvda;
+        address token1 = usdc < nvda ? nvda : usdc;
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(nvda),
+            currency0: Currency.wrap(token0),
+            currency1: Currency.wrap(token1),
             fee: 0x800000,
-            tickSpacing: 1,
+            tickSpacing: tickSpacing,
             hooks: IHooks(hook)
         });
-        h.initializePool(key, TickMath.getSqrtPriceAtTick(INITIAL_TICK));
+        h.initializePool(key, TickMath.getSqrtPriceAtTick(initialTick));
         controller.setHook(hook);
 
         vm.stopBroadcast();
@@ -68,7 +71,8 @@ contract DeployTrancheHookV2 is Script {
         console2.log("LendingPool:", lendingPool);
         console2.log("PoolId:");
         console2.logBytes32(PoolId.unwrap(key.toId()));
-        console2.log("InitialTick:", INITIAL_TICK);
+        console2.log("InitialTick:", initialTick);
+        console2.log("TickSpacing:", tickSpacing);
     }
 
     function _create2(bytes32 salt, bytes memory initcode) internal returns (address expected) {

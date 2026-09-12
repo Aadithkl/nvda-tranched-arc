@@ -20,16 +20,17 @@ contract DeployTrancheHookDemo is Script {
     using PoolIdLibrary for PoolKey;
 
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-    int24 internal constant INITIAL_TICK = -1499;
 
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address nvda = vm.envAddress("EURC_ADDRESS");
+        address nvda = vm.envAddress("NVDA_ADDRESS");
         address lendingPool = vm.envAddress("LENDING_POOL");
         address operator = vm.envAddress("AGENT_OPERATOR_ADDRESS");
-        uint256 nvdaPrice = vm.envOr("HOOK_DEMO_EURC_PRICE", uint256(116_170_000));
+        uint256 nvdaPrice = vm.envOr("HOOK_DEMO_NVDA_PRICE", uint256(200e8));
+        int24 tickSpacing = int24(int256(vm.envOr("NVDA_POOL_TICK_SPACING", uint256(60))));
+        int24 initialTick = int24(vm.envInt("NVDA_POOL_TICK"));
 
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 
@@ -58,26 +59,29 @@ contract DeployTrancheHookDemo is Script {
         TrancheJITHook(hook).setLendingPool(lendingPool);
         controller.setHook(hook);
 
+        address token0 = usdc < nvda ? usdc : nvda;
+        address token1 = usdc < nvda ? nvda : usdc;
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(nvda),
+            currency0: Currency.wrap(token0),
+            currency1: Currency.wrap(token1),
             fee: 0x800000,
-            tickSpacing: 1,
+            tickSpacing: tickSpacing,
             hooks: IHooks(hook)
         });
-        TrancheJITHook(hook).initializePool(key, TickMath.getSqrtPriceAtTick(INITIAL_TICK));
+        TrancheJITHook(hook).initializePool(key, TickMath.getSqrtPriceAtTick(initialTick));
 
         vm.stopBroadcast();
 
         console2.log("TrancheJITHook:", hook);
         console2.log("HookShareToken:", address(TrancheJITHook(hook).shareToken()));
-        console2.log("EURCPriceOracle:", address(priceOracle));
+        console2.log("NVDAPriceOracle:", address(priceOracle));
         console2.log("StrategyController:", address(controller));
         console2.log("StrategyAgent:", address(agent));
         console2.log("PoolId:");
         console2.logBytes32(PoolId.unwrap(key.toId()));
-        console2.log("InitialTick:", INITIAL_TICK);
-        console2.log("EURC oracle mid (8d):", nvdaPrice);
+        console2.log("InitialTick:", initialTick);
+        console2.log("TickSpacing:", tickSpacing);
+        console2.log("NVDA oracle mid (8d):", nvdaPrice);
         console2.log("LendingPool:", lendingPool);
         console2.log("aToken:", address(TrancheJITHook(hook).aToken()));
         console2.log("Operator:", operator);

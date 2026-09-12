@@ -12,8 +12,8 @@ contract DeployLending is Script {
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address nvda = vm.envAddress("EURC_ADDRESS");
-        uint256 nvdaPrice = vm.envOr("EURC_PEGGED_PRICE", uint256(1.1617e8));
+        address nvda = vm.envAddress("NVDA_ADDRESS");
+        uint256 nvdaPrice = vm.envOr("NVDA_PEGGED_PRICE", uint256(200e8));
 
         uint256 usdcPeg = vm.envOr("USDC_PEGGED_PRICE", uint256(1e8));
         uint256 baseRate = vm.envOr("LENDING_BASE_BORROW_RATE", uint256(0));
@@ -43,7 +43,7 @@ contract DeployLending is Script {
             new DefaultReserveInterestRateStrategy(baseRate, slope1, slope2, optimal);
 
         (address aUsdc, address dUsdc) = configurator.initReserve(usdc, 6, "Aave Arc USDC", "aUSDC", address(strategy));
-        (address aNvda, address dNvda) = configurator.initReserve(nvda, 6, "Aave Arc EURC", "aEURC", address(strategy));
+        (address aNvda, address dNvda) = configurator.initReserve(nvda, 18, "Aave Arc NVDA", "aNVDA", address(strategy));
 
         configurator.configureReserveAsCollateral(usdc, ltv, liquidationThreshold, liquidationBonus);
         configurator.enableBorrowingOnReserve(usdc, true);
@@ -62,9 +62,9 @@ contract DeployLending is Script {
         console2.log("DefaultReserveInterestRateStrategy:", address(strategy));
         console2.log("aUSDC:", aUsdc);
         console2.log("dUSDC:", dUsdc);
-        console2.log("aEURC:", aNvda);
-        console2.log("dEURC:", dNvda);
+        console2.log("aNVDA:", aNvda);
+        console2.log("dNVDA:", dNvda);
         console2.log("USDC peg (8d):", usdcPeg);
-        console2.log("EURC peg (8d):", nvdaPrice);
+        console2.log("NVDA peg (8d):", nvdaPrice);
     }
 }
