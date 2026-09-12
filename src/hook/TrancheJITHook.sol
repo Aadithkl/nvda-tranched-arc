@@ -329,8 +329,16 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     }
 
     function unwindClaims() external {
-        _redeemClaims(_activeKey.currency0);
-        _redeemClaims(_activeKey.currency1);
+        if (!poolInitialized) return;
+        poolManager.unlock(bytes(""));
+    }
+
+    function unlockCallback(bytes calldata) external onlyPoolManager returns (bytes memory) {
+        if (poolInitialized) {
+            _redeemClaims(_activeKey.currency0);
+            _redeemClaims(_activeKey.currency1);
+        }
+        return bytes("");
     }
 
     function convertToShares(uint256 usdcAmount) public view returns (uint256) {
@@ -405,9 +413,11 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         (uint160 sqrtPriceX96, int24 tick,,) = poolManager.getSlot0(PoolId.wrap(activePoolId));
         bool zeroForOne = swapParams.zeroForOne;
 
+        IERC20 seedAsset = zeroForOne ? IERC20(Currency.unwrap(key.currency1)) : IERC20(Currency.unwrap(key.currency0));
         uint256 expectedOut = _expectedOutput(swapParams, sqrtPriceX96, fee);
         uint256 seed = Math.mulDiv(expectedOut, 10_100, 10_000) + 1;
-        if (seed > budget) revert JitCapacityExceeded(seed, budget);
+        uint256 seedValueUsdc = address(seedAsset) == address(usdc) ? seed : _equityValueInUsdc(seed);
+        if (seedValueUsdc > budget) revert JitCapacityExceeded(seedValueUsdc, budget);
 
         int24 tickLower;
         int24 tickUpper;
@@ -429,12 +439,10 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         }
         if (liquidity == 0) revert JitCapacityExceeded(0, budget);
 
-        IERC20 seedAsset = zeroForOne ? IERC20(Currency.unwrap(key.currency1)) : IERC20(Currency.unwrap(key.currency0));
         {
             uint256 available = _withdrawAsset(seedAsset, seed);
             if (available < seed) revert JitInventoryUnavailable(address(seedAsset));
         }
-
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             key,
             ModifyLiquidityParams({
@@ -493,12 +501,14 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         uint256 claims = poolManager.balanceOf(address(this), currency.toId());
         if (claims == 0) return;
         IERC20 asset = IERC20(Currency.unwrap(currency));
-        if (asset.balanceOf(address(poolManager)) < claims) return;
+        uint256 available = asset.balanceOf(address(poolManager));
+        uint256 amount = claims < available ? claims : available;
+        if (amount == 0) return;
 
-        poolManager.burn(address(this), currency.toId(), claims);
-        poolManager.take(currency, address(this), claims);
+        poolManager.burn(address(this), currency.toId(), amount);
+        poolManager.take(currency, address(this), amount);
         _supplyAsset(asset);
-        emit JitClaimRedeemed(address(asset), claims);
+        emit JitClaimRedeemed(address(asset), amount);
     }
 
     function _expectedOutput(SwapParams calldata swapParams, uint160 sqrtPriceX96, uint24 fee)

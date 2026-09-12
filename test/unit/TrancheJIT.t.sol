@@ -8,7 +8,7 @@ import { PoolManager } from "v4-core/src/PoolManager.sol";
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
 import { PoolId, PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
-import { Currency } from "v4-core/src/types/Currency.sol";
+import { Currency, CurrencyLibrary } from "v4-core/src/types/Currency.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { Hooks } from "v4-core/src/libraries/Hooks.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
@@ -32,6 +32,7 @@ import { MockToken } from "../../src/test-only/MockToken.sol";
 contract TrancheJITTest is Test {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
+    using CurrencyLibrary for Currency;
 
     uint256 internal constant EURC_MID = 1.1617e8;
     int24 internal constant INITIAL_TICK = 1499;
@@ -283,6 +284,47 @@ contract TrancheJITTest is Test {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.NotOwner.selector, alice));
         hook.seedInventory(IERC20(address(usdc)), 1_000_000);
+    }
+
+    function _claims(address asset) internal view returns (uint256) {
+        return IPoolManager(address(manager)).balanceOf(address(hook), Currency.wrap(asset).toId());
+    }
+
+    function test_jit_unwindClaims_redeemsOutsideSwap() public {
+        _swap(true, SWAP_IN);
+        assertGt(_claims(address(eurc)) + _claims(address(usdc)), 0, "swap must leave claims");
+
+        uint256 aumBefore = hook.totalManagedAssets();
+        hook.unwindClaims();
+
+        assertEq(_claims(address(eurc)), 0, "claims must be redeemed");
+        assertEq(_claims(address(usdc)), 0);
+        assertApproxEqAbs(hook.totalManagedAssets(), aumBefore, 2, "value must be conserved");
+
+        uint256 supplied = hook.aToken().balanceOf(address(hook)) + hook.aTokenEquity().balanceOf(address(hook));
+        assertGt(supplied, 0, "inventory back in Aave");
+    }
+
+    function test_jit_budgetUsesUsdcValue() public {
+        HookParams.Params memory params = HookParams.Params({
+            quotingEnabled: true,
+            baseFee: 3000,
+            maxSurgeFee: 30_000,
+            maxDeviationBps: 300,
+            toxicityMultiplierBps: 1000,
+            minEvBps: 0,
+            cooldownSeconds: 0,
+            ttl: 3600,
+            gracePeriod: 3600,
+            maxDeployPerSwap: 90_000,
+            bucketTicks: BUCKET_TICKS
+        });
+        vm.prank(operator);
+        agent.submitParams(params);
+
+        // Seed is ~86.7k EURC (nominal < 90k) but ~100.7k USDC in value > budget.
+        vm.expectRevert();
+        _swap(false, SWAP_IN);
     }
 
     function test_jit_oversizedWithinBudget_boundedPriceImpact() public {
