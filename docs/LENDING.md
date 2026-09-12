@@ -48,6 +48,28 @@ eMode/isolation, treasury accrual, protocol data provider.
 - `poolAdmin` = configurator admin + can pause the pool.
 - `poolAdmin` is set to `DEPLOYER_ADDRESS` at deploy; move it to a multisig/governance later.
 
+## Price source (softcoded)
+
+Reserve prices are **owner-set pegs**, not hardcoded in the pool:
+
+- USDC `1e8`, EURC `1.1617e8` (USD, 8 decimals) — matches the USDC/EURC v4 pool at tick `-1499`.
+- Update any time (owner = deployer): `npm run lending:set-price -- --eurc-price 116300000`
+  (or set `USDC_PEGGED_PRICE` / `EURC_PEGGED_PRICE` in `.env`).
+- Swap the source later without touching the pool: deploy an oracle implementing
+  `getAssetPrice(address)` and call `provider.setAddress(keccak256("PRICE_ORACLE"), newOracle)`.
+  A v4-pool-derived oracle is possible, but v4 core has no TWAP and the FX pool is thin —
+  prefer a keeper-pushed value with a deviation clamp over a raw spot read.
+
+## Ops
+
+```shell
+npm run lending:status                 # prices, wallet/aToken balances, liquidity index
+npm run lending:set-price              # re-set USDC/EURC pegs (owner tx)
+npm run lending:seed                   # approve + deposit 10 USDC + 10 EURC (override with --usdc-amount/--eurc-amount)
+```
+
+Seeded on Arc: 10 USDC + 10 EURC (aTokens held by the deployer); txs in `docs/DEPLOYMENTS.md`.
+
 ## Deploy
 
 ```shell
