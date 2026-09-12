@@ -121,6 +121,59 @@ For NFT positions use `PositionManager` (`0x7Cdf…`) with the actions API
 (`manifest.contracts.permit2`). This mirrors the canonical Uniswap v4 periphery; the
 ABI is in `docs/abis/PositionManager.json`.
 
+## Tranche stack (v3, dual-token USDC/equity)
+
+**Source of truth:** `deployments/arc-testnet.json` (`stack`). Addresses change on every redeploy —
+read them from the manifest (or `npm run export:pack` output), never hardcode. ABIs live in
+`docs/abis/` (`TranchePipeModule`, `SeniorVault`, `JuniorVault`, `TrancheAccountant`, `HookShareToken`,
+`StrategyController`, `StrategyAgent`).
+
+Current test deployment (v2, **test-only**; v3 replaces these):
+
+| Contract | Address |
+|---|---|
+| `TrancheJITHook` | `0xB229976cB5F64C6f747033c26217299AeCD42Ac0` |
+| `TranchePipeModule` (v2 pipe is the hook; v3 uses this module) | pending v3 redeploy |
+| `HookShareToken` | `0x917386b70E03cdC2026B612fd1388d9DfC349C96` |
+| `TrancheAccountant` | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
+| `SeniorVault` / `JuniorVault` | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` / `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
+| `StrategyController` / `StrategyAgent` | `0x6ea148829e32ba3051869f73092c015d34661edd` / `0x636bfd9e072c9ba93453a2d798cb7d09b8fe1e8c` |
+
+### Deposit (USDC-only entry)
+
+```ts
+await wallet.writeContract({ address: usdc, abi: erc20Abi, functionName: "approve",
+  args: [vault, parseUnits("100", 6)] });
+const shares = await wallet.writeContract({ address: vault, abi: seniorVaultAbi,
+  functionName: "depositUSDC", args: [parseUnits("100", 6), account.address] });
+// gate with vault.maxDeposit(receiver) (0 when paused or at cap)
+```
+
+### Redeem (async, keeper-fulfilled, then claim in the chosen asset)
+
+1. `requestRedeem(shares, controller, owner)` — locks shares; track with
+   `pendingRedeemRequest(0, user)`.
+2. Keeper calls `TrancheAccountant.fulfillRedeem(senior, user)` → `Rebalance` + rate lock;
+   check `claimableRedeemRequest(0, user)` / `maxRedeem(user)`.
+3. Claim-and-unwrap (one tx):
+   - `claimAndUnwrapUSDC(shares, receiver, controller)` — both tranches
+   - `claimAndUnwrapEquity(shares, receiver, controller, minEquityOut)` — **junior only** (in-kind equity, oracle-priced, conversion fee stays in pool)
+   - `claimAndUnwrapProportional(shares, receiver, controller, minUsdcOut, minEquityOut)` — **junior only** (oracle-free unit fractions; always available)
+
+Senior vaults revert `SeniorUsdcOnly` for the equity/proportional paths.
+
+### Reads for UI
+
+| Value | Call |
+|---|---|
+| Book composition + hard cap | `TranchePipeModule.assetComposition()` → `(usdcValue, equityValue, equityBps)`, `hardMaxEquityBps()` |
+| Tranche entitlements | `TrancheAccountant.seniorClaim()`, `juniorClaim()`, `escrowFunded()` |
+| Quoting state | `TrancheJITHook.previewQuote(zeroForOne)`, `quoteState()`, `effectiveMaxDeploy()` |
+| Share NAV | `TrancheJITHook.convertToUsdc(shares)` (USDC-denominated) |
+
+Oracle staleness (`getPrice().valid`, 300s) blocks in-kind equity exits and rebalancing; proportional
+exits remain available when the oracle is stale.
+
 ## Circle Modular Wallets (passkey + gasless)
 
 ```ts

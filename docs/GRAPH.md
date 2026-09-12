@@ -34,6 +34,11 @@ Use them only for chains with a StreamingFast/Pinax endpoint.
 `graph deploy <slug> --node https://api.studio.thegraph.com/deploy/ --deploy-key <key> --version-label <v>`.
 The slug must exist in Studio first (create it in the browser, wallet-connected).
 
+**Address sync:** data source addresses are not hand-edited. They are generated from
+`deployments/arc-testnet.json` with `npm run subgraph:sync` (verify with
+`npm run subgraph:sync -- --check`). Redeploy flow: `npm run export:pack` → `npm run subgraph:sync`
+→ `graph codegen && graph build`. Set `SUBGRAPH_START_BLOCK` to bump every start block at once.
+
 ## Standardized schema (Messari Yield Aggregator v1.3.1)
 
 The subgraph implements the Messari Yield Aggregator schema (vendored at

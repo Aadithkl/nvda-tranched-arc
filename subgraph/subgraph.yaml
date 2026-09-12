@@ -53,7 +53,7 @@ dataSources:
     name: TrancheJITHook
     network: arc-testnet
     source:
-      address: "0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0"
+      address: "0xB229976cB5F64C6f747033c26217299AeCD42Ac0"
       abi: TrancheJITHook
       startBlock: 61492159
     mapping:
@@ -192,7 +192,7 @@ dataSources:
     name: SeniorVault
     network: arc-testnet
     source:
-      address: "0x0000000000000000000000000000000000000000"
+      address: "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e"
       abi: TrancheVault
       startBlock: 61492159
     mapping:
@@ -222,7 +222,7 @@ dataSources:
     name: JuniorVault
     network: arc-testnet
     source:
-      address: "0x0000000000000000000000000000000000000000"
+      address: "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c"
       abi: TrancheVault
       startBlock: 61492159
     mapping:
@@ -252,7 +252,7 @@ dataSources:
     name: TrancheAccountant
     network: arc-testnet
     source:
-      address: "0x0000000000000000000000000000000000000000"
+      address: "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4"
       abi: TrancheAccountant
       startBlock: 61492159
     mapping:
