@@ -19,6 +19,8 @@
     "agent:tick": "node agent/index.mjs --once",
     "market": "node agent/market.mjs",
     "market:json": "node agent/market.mjs --json",
+    "ai:reason": "node scripts/x402-ai.mjs",
+    "ai:models": "node scripts/x402-ai.mjs --list-models",
     "test:agent": "node --test agent/test/model.test.mjs",
     "export:pack": "node scripts/export-frontend-pack.mjs",
     "graph:query": "node scripts/graph-query.mjs"

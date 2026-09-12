@@ -74,6 +74,42 @@ Cache: `agent/.cache/market.json`, TTL `AGENT_MARKET_CACHE_TTL` (default 900s). 
 cache each tick and overlays it on the regime decision: `worthLp=false` disables quoting;
 `worthLp=true` applies `bucketTicks` and `maxDeployPerSwap` inside `StrategyController` bounds.
 
+## x402-paid AI reasoning (model selectable)
+
+`scripts/x402-ai.mjs` takes the market snapshot (`agent/.cache/market.json`) and calls the
+**metered model gateway** at `agent402.tools` (`POST /v1/metered/chat/completions`), paying per call in
+USDC over x402. The model is explicit, never random:
+
+| Tier | Endpoint | Example models |
+|---|---|---|
+| `v1-chat` (default) | metered | `openai/gpt-4o-mini`, `openai/gpt-4.1-mini`, `anthropic/claude-haiku-4.5`, `google/gemini-2.5-flash` |
+| `v1-chat-nano` | metered | `openai/gpt-5-nano`, `google/gemini-2.5-flash-lite`, `meta-llama/llama-3.2-3b` |
+| `v1-chat-pro` | metered | `openai/gpt-4.1`, `anthropic/claude-sonnet-5`, `google/gemini-2.5-pro` |
+| `v1-chat-premium` | metered | `openai/gpt-5`, `openai/o3`, `anthropic/claude-opus-5` |
+| `v1-chat-auto` | metered | server picks the model (eval-ranked) — the only non-deterministic routing |
+| `v1-chat-grounded` | metered | grounded in a live web search |
+
+- Allowlist + per-tier limits: `GET /v1/models` (`npm run ai:models`).
+- Billing: the 402 quotes exact input + `max_tokens` at the model price × 1.15 (from $0.001, cap $2);
+  pay `exact` or authorize as a ceiling with `upto` and settle actual usage.
+- Usage:
+
+```bash
+npm run market                 # refresh the snapshot the model reads
+npm run ai:reason              # default openai/gpt-4o-mini, cap $0.02
+npm run ai:reason -- --model anthropic/claude-haiku-4.5 --max-tokens 700
+npm run ai:reason -- --dry-run # prompt preview, no payment
+```
+
+- Output: `agent/.cache/reasoning.json` — `{ model, usage, payment, content, reasoning }` where
+  `reasoning` is the parsed JSON verdict `{decision, confidence, recommendedBucketTicks,
+  recommendedMaxDeployUsdc, rationale, risks}`.
+- **Funding:** agent402 accepts USDC on Base, Polygon, Arbitrum, Monad, Avalanche, Sei, Optimism,
+  Celo, Robinhood chain, Solana, Stellar, Algorand. Circle Gateway batching is **not** available for
+  this seller (`--gateway-check` returns unsupported), so the payer wallet must hold USDC on one of
+  those chains (Base costs $0.001/call).
+- The deterministic agent loop stays authoritative; the paid model output is advisory and logged.
+
 ## Latest live snapshot (2026-09-12)
 
 | Pool | TVL | Vol 24h | Fee APR | Active TVL | σ3h | σ14d | Best band | E[IL] | E[fee] | Edge | pLoss | VaR95 | Verdict |
