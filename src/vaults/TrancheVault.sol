@@ -10,6 +10,7 @@ import { ERC7540SyncDeposit } from "openzeppelin-community-contracts/token/ERC20
 import { ERC7540AdminRedeem } from "openzeppelin-community-contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol";
 import { IHookShareToken } from "../interfaces/IHookShareToken.sol";
 import { IHookSharePipe } from "../interfaces/IHookSharePipe.sol";
+import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 
 abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     using SafeERC20 for IERC20;
@@ -18,6 +19,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     IERC20 public immutable usdc;
     IHookShareToken public immutable hookShare;
     IHookSharePipe public immutable pipe;
+    bool public immutable isSenior;
 
     address public owner;
     address public guardian;
@@ -57,6 +59,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         IERC20 asset_,
         IERC20 usdc_,
         IHookSharePipe pipe_,
+        bool isSenior_,
         address owner_,
         address accountant_
     ) ERC20(name_, symbol_) ERC7540(asset_) {
@@ -64,6 +67,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         usdc = usdc_;
         hookShare = IHookShareToken(address(asset_));
         pipe = pipe_;
+        isSenior = isSenior_;
         owner = owner_ == address(0) ? msg.sender : owner_;
         guardian = owner;
         accountant = accountant_;
@@ -103,6 +107,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
 
     function fulfillRedeem(uint256 shares, uint256 assets, address controller) external onlyAccountant {
         _fulfillRedeem(shares, assets, controller);
+        _notifyRedeem(assets);
     }
 
     function moveShares(address to, uint256 amount) external onlyAccountant {
@@ -127,6 +132,22 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         _mint(receiver, shares);
         emit Deposit(msg.sender, receiver, assets, shares);
         emit UsdcDeposited(msg.sender, receiver, usdcAmount, shares);
+        _notifyDeposit(assets);
+    }
+
+    function deposit(uint256 assets, address receiver) public virtual override returns (uint256 shares) {
+        shares = super.deposit(assets, receiver);
+        _notifyDeposit(assets);
+    }
+
+    function _notifyDeposit(uint256 hookShares) internal {
+        address acct = accountant;
+        if (acct != address(0)) ITrancheAccountant(acct).onTrancheDeposit(isSenior, hookShares);
+    }
+
+    function _notifyRedeem(uint256 hookShares) internal {
+        address acct = accountant;
+        if (acct != address(0)) ITrancheAccountant(acct).onTrancheRedeem(isSenior, hookShares);
     }
 
     function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController)

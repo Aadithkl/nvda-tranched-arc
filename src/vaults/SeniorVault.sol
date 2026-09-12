@@ -7,6 +7,6 @@ import { TrancheVault } from "./TrancheVault.sol";
 
 contract SeniorVault is TrancheVault {
     constructor(IERC20 asset_, IERC20 usdc_, IHookSharePipe pipe_, address owner_, address accountant_)
-        TrancheVault("Senior NVDA Tranche", "srNVDA", asset_, usdc_, pipe_, owner_, accountant_)
+        TrancheVault("Senior NVDA Tranche", "srNVDA", asset_, usdc_, pipe_, true, owner_, accountant_)
     { }
 }

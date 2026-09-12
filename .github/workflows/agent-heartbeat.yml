@@ -1,0 +1,29 @@
+name: Agent Heartbeat
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Agent tick (submit if regime changed / TTL refresh)
+        env:
+          ARC_RPC_URL: ${{ secrets.ARC_RPC_URL }}
+          AGENT_HOOK: ${{ secrets.AGENT_HOOK }}
+          AGENT_ORACLE: ${{ secrets.AGENT_ORACLE }}
+          AGENT_ADDRESS: ${{ secrets.AGENT_ADDRESS }}
+          AGENT_KEEPER: ${{ secrets.AGENT_KEEPER }}
+          AGENT_OPERATOR_PRIVATE_KEY: ${{ secrets.AGENT_OPERATOR_PRIVATE_KEY }}
+          AGENT_CADENCE_SECONDS: "600"
+          PARAMS_TTL_SECONDS: "3600"
+        run: node agent/index.mjs --once --submit

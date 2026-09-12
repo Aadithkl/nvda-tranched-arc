@@ -16,6 +16,7 @@
     "lending:seed": "node scripts/lending-admin.mjs --seed",
     "hook:demo": "node scripts/hook-demo.mjs",
     "agent:keygen": "node scripts/agent-keygen.mjs",
+    "agent:tick": "node agent/index.mjs --once",
     "export:pack": "node scripts/export-frontend-pack.mjs",
     "graph:query": "node scripts/graph-query.mjs"
   },

@@ -34,6 +34,10 @@ contract MockAccountant is ITrancheAccountant {
         return (0, 0);
     }
 
+    function onTrancheDeposit(bool, uint256) external override { }
+
+    function onTrancheRedeem(bool, uint256) external override { }
+
     function moveShares(TrancheVault vault, address to, uint256 amount) external {
         vault.moveShares(to, amount);
     }

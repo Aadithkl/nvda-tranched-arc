@@ -14,8 +14,8 @@ oracle-valid windows under an agent-operated strategy controller.
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | in progress — base, dynamic fee, toxic-flow pricing, TTL state machine, Aave rest + share pipe + **JIT engine** (one-sided transient ranges, ERC-6909 claims, 38 tests); multi-bucket next |
-| M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
-| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vault structure (`src/vaults/`, 28 tests) landed; accountant + share token next |
+| M4 | `StrategyController` + agent daemon + CRE safety stub | in progress — controller bounds + whitelisted `StrategyAgent` + offchain agent daemon (`agent/`, GitHub heartbeat) landed |
+| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vaults + **TrancheAccountant** (escrow, waterfalls, senior-priority keeper, share rebalancing) landed; 136 tests |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
 
 Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
@@ -55,6 +55,7 @@ npm run lending:status                # Aave semi-fork: prices, balances, liquid
 npm run lending:seed                  # deposit 10 USDC + 10 EURC into the lending pool
 npm run hook:demo -- --status         # live TrancheJITHook demo (fees, toxic surge, Aave rest)
 npm run agent:keygen                  # generate the local agent-operator key (testnet only)
+npm run agent:tick                    # offchain agent dry-run (regime -> params, no tx)
 npm run export:pack                   # regenerate ABIs + deployment manifest
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
@@ -86,6 +87,8 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 - `LICENSES.md` — dependency license audit
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
+- `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, senior-priority keeper
+- `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
 - `docs/PRIOR_ART.md` — landscape (OZ/DualPool/EulerSwap), what we borrow vs what is ours
 - `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps
 - `docs/VAULT_HOOK_MASTER_PLAN.md` — locked master plan: tranche → rules → hook → agent (P1–P8)

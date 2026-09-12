@@ -2,7 +2,7 @@
 
 **Standards:** ERC-7540 (Senior/Junior tranches) · ERC-7575 (pool strategy share)
 **Scope:** tranche layer → rules → hook (rehypothecation JIT) → agent control plane
-**Status:** in progress — lending rest state live on Arc (M2b); tranche vault structure + hook base + **JIT engine (P5, one-sided transient ranges with ERC-6909 claims)** landed (122 tests); accountant, multi-bucket, agent daemon next
+**Status:** in progress — lending rest state live on Arc (M2b); vaults + real `TrancheAccountant` + hook base + JIT engine landed (136 tests); offchain agent daemon scaffolded (GitHub heartbeat); remaining: multi-bucket, invariant suite, full testnet deploy of vaults/accountant
 
 ---
 

@@ -36,4 +36,8 @@ contract MockRiskAccountant is ITrancheAccountant {
     function rebalance() external pure override returns (uint256, uint256) {
         return (0, 0);
     }
+
+    function onTrancheDeposit(bool, uint256) external override { }
+
+    function onTrancheRedeem(bool, uint256) external override { }
 }
