@@ -68,6 +68,20 @@ dataSources:
         - ClaimRedemption
         - ShareFlow
         - ParamChange
+        - YieldAggregator
+        - Token
+        - Vault
+        - VaultFee
+        - RewardToken
+        - Deposit
+        - Withdraw
+        - VaultDailySnapshot
+        - VaultHourlySnapshot
+        - UsageMetricsDailySnapshot
+        - UsageMetricsHourlySnapshot
+        - FinancialsDailySnapshot
+        - Account
+        - ActiveAccount
       abis:
         - name: TrancheJITHook
           file: ./abis/TrancheJITHook.json
@@ -120,6 +134,8 @@ dataSources:
           handler: handleOwnerUpdated
         - event: "OwnershipTransferStarted(indexed address,indexed address)"
           handler: handleOwnershipTransferStarted
+      blockHandlers:
+        - handler: handleBlock
       file: ./src/hook.ts
   # TODO: update address after the JIT-enabled hook redeploy
   - kind: ethereum

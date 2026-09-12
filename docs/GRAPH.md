@@ -30,6 +30,50 @@ Graph networks registry with the `subgraphs` service.
 not deploy or query subgraphs, and Arc has no public Substreams/Firehose endpoint today.
 Use them only for chains with a StreamingFast/Pinax endpoint.
 
+**Deploy note (graph-cli ≥ 0.98):** the `--studio` flag was removed; Studio deploys use
+`graph deploy <slug> --node https://api.studio.thegraph.com/deploy/ --deploy-key <key> --version-label <v>`.
+The slug must exist in Studio first (create it in the browser, wallet-connected).
+
+## Standardized schema (Messari Yield Aggregator v1.3.1)
+
+The subgraph implements the Messari Yield Aggregator schema (vendored at
+`subgraph/schema-yield.graphql`) so the same queries run across protocols:
+
+| Messari entity | Populated from |
+|---|---|
+| `YieldAggregator` (Protocol) | protocol bootstrap (`nvda-tranched-arc`) |
+| `Token` | USDC (input) + tjSHARE (output) |
+| `Vault` | the hook share pipe (wrap/unwrap = deposit/withdraw) |
+| `Deposit` / `Withdraw` | `SharesWrapped` / `SharesUnwrapped` |
+| `VaultDailySnapshot` / `VaultHourlySnapshot` | upserted on each share flow |
+| `UsageMetricsDailySnapshot` / `UsageMetricsHourlySnapshot` | block handler (decimated) |
+| `FinancialsDailySnapshot` | block handler (decimated) |
+| `Account` / `ActiveAccount` | unique depositors/withdrawers |
+
+Extensions kept on top (allowed by the standard): `HookState`, `Quote`, `JitDeployment`,
+`JitRemoval`, `ClaimRedemption`, `ShareFlow`, `ParamChange`, `AgentAction`, `VaultState`,
+`VaultFlow`, `AccountantReport`, `Rebalance`, `RedemptionFulfilment`, plus the oracle and
+v4 pool entities. The only enum extension is `Network.ARC_TESTNET`.
+
+Example cross-protocol query (identical against our subgraph and e.g. Yearn v2):
+
+```graphql
+{
+  vaults(first: 5, orderBy: totalValueLockedUSD, orderDirection: desc) {
+    id
+    name
+    symbol
+    inputToken { symbol }
+    outputToken { symbol }
+    totalValueLockedUSD
+    cumulativeTotalRevenueUSD
+    inputTokenBalance
+    outputTokenSupply
+    pricePerShare
+  }
+}
+```
+
 ## Data sources
 
 | Source | Address | Status |
