@@ -194,9 +194,20 @@
       "OracleState",
       "PriceUpdate",
       "Pool",
-      "PoolSwap"
+      "PoolSwap",
+      "HookState",
+      "VaultState",
+      "VaultFlow",
+      "AccountantReport",
+      "Rebalance",
+      "RedemptionFulfilment",
+      "Quote",
+      "JitDeployment",
+      "JitRemoval",
+      "ShareFlow",
+      "AgentAction"
     ],
-    "note": "Deploy pending a Graph Studio key; see docs/GRAPH.md"
+    "note": "Live as Graph Studio subgraph 'tranch-stock' (query version/latest). Tranche entities fill in once the indexer passes the v2 stack deploy block; see docs/GRAPH.md"
   },
   "abis": [
     "docs/abis/NVDAPriceOracle.json",

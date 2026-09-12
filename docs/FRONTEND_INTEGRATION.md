@@ -227,7 +227,8 @@ should show "stale / market closed" from `valid`, `marketStatus`, and
 - DemoRouter errors: `SlippageExceeded()`, `AmountExceeded(amount0, amount1)`
 - Oracle errors: `NotWriter(caller)`, `IsPaused()`, `InvalidPrice(mid)`, `InvalidMarketStatus(status)`
 
-Subgraph (indexed values/history): see `docs/GRAPH.md`; set `GRAPH_URL` once deployed.
+Subgraph (indexed values/history): live at `manifest.subgraph.url` (Graph Studio `tranch-stock`,
+`version/latest`); see `docs/GRAPH.md`.
 
 ## Critical gotchas
 
