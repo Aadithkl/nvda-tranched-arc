@@ -278,3 +278,9 @@ matches this project's payment rail: the payment *is* the auth, no API key neede
 1. Subgraph (fast, indexed)
 2. Direct RPC reads (`NVDAPriceOracle.getPrice()`, `PoolManager.getSlot0`)
 3. Never gate a transaction on subgraph data alone
+
+## Subgraph MCP
+
+Cross-protocol, natural-language analysis runs through The Graph's hosted Subgraph MCP
+(`https://subgraphs.mcp.thegraph.com/sse`, Bearer = `GRAPH_API_KEY`). Setup and the demo
+script (same `vaults` query across our subgraph and Yearn v2) are in `docs/MCP.md`.
