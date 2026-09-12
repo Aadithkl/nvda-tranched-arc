@@ -48,14 +48,14 @@ dataSources:
         - event: "Swap(indexed bytes32,indexed address,int128,int128,uint160,uint128,int24,uint24)"
           handler: handleSwap
       file: ./src/poolManager.ts
-  # TODO: update address after the JIT-enabled hook redeploy
+  # Address synced from deployments/arc-testnet.json (npm run subgraph:sync)
   - kind: ethereum
     name: TrancheJITHook
     network: arc-testnet
     source:
       address: "0xB229976cB5F64C6f747033c26217299AeCD42Ac0"
       abi: TrancheJITHook
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -137,14 +137,14 @@ dataSources:
       blockHandlers:
         - handler: handleBlock
       file: ./src/hook.ts
-  # TODO: update address after the JIT-enabled hook redeploy
+  # Address synced from deployments/arc-testnet.json (npm run subgraph:sync)
   - kind: ethereum
     name: StrategyController
     network: arc-testnet
     source:
       address: "0x6ea148829E32BA3051869F73092c015D34661edD"
       abi: StrategyController
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -162,14 +162,14 @@ dataSources:
         - event: "QuotingSubmitted(indexed address,bool)"
           handler: handleQuotingSubmitted
       file: ./src/strategy.ts
-  # TODO: update address after the JIT-enabled hook redeploy
+  # Address synced from deployments/arc-testnet.json (npm run subgraph:sync)
   - kind: ethereum
     name: StrategyAgent
     network: arc-testnet
     source:
       address: "0x636bfd9e072C9ba93453a2d798Cb7D09b8Fe1E8c"
       abi: StrategyAgent
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -194,7 +194,7 @@ dataSources:
     source:
       address: "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e"
       abi: TrancheVault
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -224,7 +224,7 @@ dataSources:
     source:
       address: "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c"
       abi: TrancheVault
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -254,7 +254,7 @@ dataSources:
     source:
       address: "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4"
       abi: TrancheAccountant
-      startBlock: 61492159
+      startBlock: 61779373
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9

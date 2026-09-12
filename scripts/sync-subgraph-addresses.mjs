@@ -46,9 +46,22 @@ const mapping = {
 };
 
 const startBlock = process.env.SUBGRAPH_START_BLOCK ? Number(process.env.SUBGRAPH_START_BLOCK) : null;
+const startBlocks = (() => {
+  try {
+    return process.env.SUBGRAPH_START_BLOCKS ? JSON.parse(process.env.SUBGRAPH_START_BLOCKS) : {};
+  } catch {
+    throw new Error("SUBGRAPH_START_BLOCKS must be a JSON object of { dataSourceName: blockNumber }");
+  }
+})();
 const ADDRESS_LINE = /^(      address: ")(0x[0-9a-fA-F]{40})(")$/;
 const START_BLOCK_LINE = /^(      startBlock: )(\d+)$/;
 const NAME_LINE = /^    name: ([A-Za-z0-9_]+)\s*$/;
+
+function targetStartBlock(name) {
+  if (!name || !mapping[name]) return null;
+  if (startBlocks[name] !== undefined) return Number(startBlocks[name]);
+  return startBlock;
+}
 
 function syncYaml(text) {
   let current = null;
@@ -64,17 +77,14 @@ function syncYaml(text) {
       changes.push(`${current}: ${addressMatch[2]} -> ${target}`);
       return `${addressMatch[1]}${target}${addressMatch[3]}`;
     }
+    const blockTarget = targetStartBlock(current);
     const blockMatch = line.match(START_BLOCK_LINE);
-    if (startingBlock(current) && blockMatch && Number(blockMatch[2]) !== startBlock) {
-      return `${blockMatch[1]}${startBlock}`;
+    if (blockTarget && blockMatch && Number(blockMatch[2]) !== blockTarget) {
+      return `${blockMatch[1]}${blockTarget}`;
     }
     return line;
   });
   return { text: lines.join(eol), changes };
-}
-
-function startingBlock(name) {
-  return Boolean(startBlock && name && mapping[name]);
 }
 
 function syncNetworks(json) {
@@ -87,8 +97,9 @@ function syncNetworks(json) {
         changes.push(`${network}.${name}: ${entry.address} -> ${target}`);
         entry.address = target;
       }
-      if (startBlock && target && Number(entry.startBlock) !== startBlock) {
-        entry.startBlock = startBlock;
+      const blockTarget = targetStartBlock(name);
+      if (blockTarget && target && Number(entry.startBlock) !== blockTarget) {
+        entry.startBlock = blockTarget;
       }
     }
   }

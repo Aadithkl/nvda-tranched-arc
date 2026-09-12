@@ -10,27 +10,27 @@
     },
     "TrancheJITHook": {
       "address": "0xB229976cB5F64C6f747033c26217299AeCD42Ac0",
-      "startBlock": 61492159
+      "startBlock": 61779373
     },
     "StrategyController": {
       "address": "0x6ea148829E32BA3051869F73092c015D34661edD",
-      "startBlock": 61492159
+      "startBlock": 61779373
     },
     "StrategyAgent": {
       "address": "0x636bfd9e072C9ba93453a2d798Cb7D09b8Fe1E8c",
-      "startBlock": 61492159
+      "startBlock": 61779373
     },
     "SeniorVault": {
       "address": "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e",
-      "startBlock": 61492159
+      "startBlock": 61779373
     },
     "JuniorVault": {
       "address": "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c",
-      "startBlock": 61492159
+      "startBlock": 61779373
     },
     "TrancheAccountant": {
       "address": "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4",
-      "startBlock": 61492159
+      "startBlock": 61779373
     }
   }
 }
