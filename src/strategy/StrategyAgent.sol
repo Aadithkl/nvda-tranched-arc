@@ -6,9 +6,11 @@ import { IStrategyController } from "./IStrategyController.sol";
 
 contract StrategyAgent {
     address public owner;
+    address public pendingOwner;
     address public operator;
     IStrategyController public controller;
 
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event OwnerUpdated(address indexed owner);
     event OperatorUpdated(address indexed operator);
     event ControllerUpdated(address indexed controller);
@@ -17,6 +19,7 @@ contract StrategyAgent {
     event QuotingSubmitted(bool enabled);
 
     error NotOwner(address caller);
+    error NotPendingOwner(address caller);
     error NotOperator(address caller);
     error ZeroAddress();
 
@@ -42,8 +45,15 @@ contract StrategyAgent {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
-        emit OwnerUpdated(newOwner);
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        pendingOwner = address(0);
+        owner = msg.sender;
+        emit OwnerUpdated(msg.sender);
     }
 
     function setOperator(address newOperator) external onlyOwner {

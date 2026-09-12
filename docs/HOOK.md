@@ -8,12 +8,17 @@ The hook is the only bridge between the tranche stack and the two markets:
 
 | File | Role |
 |---|---|
-| `src/hook/TrancheJITHook.sol` | `BaseHook` (OZ) + roles, pause, pool init/`setActivePool`, dynamic fee, quote gates, Aave rest state, share pipe (`wrapUSDC`/`unwrapUSDC`), risk budget |
+| `src/hook/TrancheJITHook.sol` | `BaseHook` (OZ) + roles (two-step ownership), pause, pool init/`setActivePool`, dynamic fee, quote gates, Aave rest state, share pipe (`wrapUSDC`/`unwrapUSDC` with optional `minUsdcOut`), risk budget, JIT engine |
 | `src/hook/libraries/HookParams.sol` | `Params` struct + validation (fees, deviation band, TTL, bucket width) |
 | `src/core/HookShareToken.sol` | ERC-7575 share (`vault(asset)`), mint/burn by hook only |
 | `src/strategy/StrategyController.sol` | Bounds + whitelist; agent can only move params *inside* limits |
 | `src/strategy/StrategyAgent.sol` | Separate agent contract; operator key (never the deployer) submits params/base fee/quoting |
 | `src/interfaces/INVDAPriceOracle.sol` | Oracle read (`mid`, `valid`) for gate pricing |
+
+**Safety notes:** hook share math uses virtual shares/assets (inflation defense); `maxPriceAge` (default
+300s) is enforced on top of the oracle's own staleness; `wrapUSDC`/`unwrapUSDC`/`seedInventory`/
+`unwindClaims` are `nonReentrant`; `unwindClaims()` is intentionally permissionless (moves hook-owned
+claims to Aave only). See `docs/SECURITY_REVIEW.md`.
 
 ## Quote flow (`beforeSwap`)
 
@@ -25,6 +30,10 @@ The hook is the only bridge between the tranche stack and the two markets:
    `min(baseFee + deviationBps × toxicityMultiplierBps, maxSurgeFee)`
 6. `fee < minEvBps × 100` → `NotEvPositive`; else sets `lastQuotedAt` and returns
    `fee | OVERRIDE_FEE_FLAG`
+
+If JIT is enabled but the risk budget is 0 (unfunded escrow), `beforeSwap` reverts `JitUnavailable` —
+deliberately stopping swaps rather than letting the AMM run the price to the swap's price limit with zero
+liquidity.
 
 ## State machine (M5)
 

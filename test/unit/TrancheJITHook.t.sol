@@ -17,6 +17,7 @@ import { DemoRouter } from "../../src/router/DemoRouter.sol";
 import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { HookShareToken } from "../../src/core/HookShareToken.sol";
 import { TrancheJITHook } from "../../src/hook/TrancheJITHook.sol";
+import { INVDAPriceOracle } from "../../src/interfaces/INVDAPriceOracle.sol";
 import { HookParams } from "../../src/hook/libraries/HookParams.sol";
 import { StrategyController } from "../../src/strategy/StrategyController.sol";
 import { StrategyAgent } from "../../src/strategy/StrategyAgent.sol";
@@ -472,28 +473,104 @@ contract TrancheJITHookTest is Test {
         vm.prank(alice);
         usdc.approve(address(hook), type(uint256).max);
 
+        uint256 expectedShares = hook.convertToShares(100e6);
         vm.prank(alice);
         uint256 shares = hook.wrapUSDC(100e6, alice);
-        assertEq(shares, 100e18);
-        assertEq(shareToken.balanceOf(alice), 100e18);
+        assertEq(shares, expectedShares);
+        assertEq(shareToken.balanceOf(alice), shares);
         assertEq(aUsdc.balanceOf(address(hook)), 100e6);
         assertEq(usdc.balanceOf(address(hook)), 0);
         assertEq(hook.totalManagedAssets(), 100e6);
-        assertEq(hook.convertToUsdc(100e18), 100e6);
+        assertEq(hook.convertToUsdc(shares), 100e6);
 
         uint256 t0 = block.timestamp;
         vm.warp(t0 + YEAR);
         lendingPool.updateState(address(usdc));
 
         assertGt(hook.totalManagedAssets(), 100e6);
-        uint256 expectedOut = hook.convertToUsdc(100e18);
+        uint256 expectedOut = hook.convertToUsdc(shares);
         assertGt(expectedOut, 100e6);
 
         vm.prank(alice);
-        uint256 usdcOut = hook.unwrapUSDC(100e18, alice);
+        uint256 usdcOut = hook.unwrapUSDC(shares, alice);
         assertEq(usdcOut, expectedOut);
         assertEq(usdc.balanceOf(alice), 900e6 + usdcOut);
         assertEq(shareToken.totalSupply(), 0);
+    }
+
+    function test_slippageProtection_onUnwrap() public {
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        uint256 expectedOut = hook.convertToUsdc(shares);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.SlippageExceeded.selector, expectedOut, expectedOut + 1));
+        hook.unwrapUSDC(shares, alice, expectedOut + 1);
+
+        vm.prank(alice);
+        uint256 usdcOut = hook.unwrapUSDC(shares, alice, expectedOut);
+        assertEq(usdcOut, expectedOut);
+    }
+
+    function test_donation_doesNotDiluteExistingHolders() public {
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 aliceShares = hook.wrapUSDC(100e6, alice);
+
+        // Attacker donates USDC directly to the hook (no shares minted).
+        usdc.mint(address(this), 1_000e6);
+        usdc.transfer(address(hook), 1_000e6);
+        assertEq(hook.totalManagedAssets(), 1_100e6);
+
+        // A later depositor must not be able to zero out or materially dilute alice.
+        usdc.mint(alice, 100e6);
+        vm.prank(alice);
+        uint256 newShares = hook.wrapUSDC(100e6, alice);
+        assertGt(newShares, 0);
+        assertGe(hook.convertToUsdc(aliceShares + newShares), 1_100e6 - 2);
+    }
+
+    function test_oracle_staleHookWindow_reverts() public {
+        nvdaOracle.setMaxStaleness(3_600);
+        hook.setMaxPriceAge(60);
+        vm.warp(block.timestamp + 61);
+        uint256 updatedAt = nvdaOracle.getPrice().updatedAt;
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.OracleStale.selector, updatedAt));
+        hook.previewQuote(true);
+    }
+
+    function test_oracle_negativeMid_reverts() public {
+        INVDAPriceOracle.PriceData memory bad = INVDAPriceOracle.PriceData({
+            mid: -1,
+            bid: -1,
+            ask: -1,
+            marketStatus: 2,
+            session: 2,
+            sourceTimestamp: uint32(block.timestamp),
+            updatedAt: block.timestamp,
+            paymentRef: bytes32(0),
+            valid: true
+        });
+        vm.mockCall(address(nvdaOracle), abi.encodeWithSelector(INVDAPriceOracle.getPrice.selector), abi.encode(bad));
+        vm.expectRevert(TrancheJITHook.OracleInvalid.selector);
+        hook.previewQuote(true);
+    }
+
+    function test_extremePoolPrice_noPanic() public {
+        bytes32 slot = keccak256(abi.encodePacked(PoolId.unwrap(poolId), bytes32(uint256(6))));
+        uint160 extreme = TickMath.MAX_SQRT_PRICE - 1;
+        vm.mockCall(
+            address(manager),
+            abi.encodeWithSelector(bytes4(keccak256("extsload(bytes32)")), slot),
+            abi.encode(bytes32(uint256(extreme)))
+        );
+        vm.expectRevert();
+        hook.previewQuote(true);
     }
 
     function test_wrap_yieldSplitsFairly() public {

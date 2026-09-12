@@ -4,11 +4,12 @@ pragma solidity ^0.8.27;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 import { ITrancheHookValue } from "../interfaces/ITrancheHookValue.sol";
 import { TrancheVault } from "./TrancheVault.sol";
 
-contract TrancheAccountant is ITrancheAccountant, Ownable {
+contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     using Math for uint256;
 
     uint256 public constant BPS = 10_000;
@@ -34,7 +35,6 @@ contract TrancheAccountant is ITrancheAccountant, Ownable {
 
     error NotKeeper(address caller);
     error NotVault(address caller);
-    error HookNotSet();
     error VaultsNotSet();
     error ZeroAddress();
     error InvalidEscrowBps(uint16 escrowBps);

@@ -2,9 +2,10 @@
 pragma solidity 0.8.26;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IPriceOracleGetter } from "./interfaces/IPriceOracleGetter.sol";
 
-contract PeggedPriceOracle is Ownable, IPriceOracleGetter {
+contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     uint256 public constant BASE_CURRENCY_UNIT = 1e8;
     bytes32 public constant BASE_CURRENCY = "USD";
 

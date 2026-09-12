@@ -22,12 +22,14 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     bool public immutable isSenior;
 
     address public owner;
+    address public pendingOwner;
     address public guardian;
     address public accountant;
     bool public depositsPaused;
     uint256 public maxTotalAssets;
 
     event OwnerUpdated(address indexed owner);
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event GuardianUpdated(address indexed guardian);
     event AccountantUpdated(address indexed accountant);
     event DepositsPausedSet(bool paused);
@@ -37,6 +39,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     event UsdcUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount);
 
     error NotOwner(address caller);
+    error NotPendingOwner(address caller);
     error NotOwnerOrGuardian(address caller);
     error NotAccountant(address caller);
     error ZeroAddress();
@@ -78,8 +81,15 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
-        emit OwnerUpdated(newOwner);
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        pendingOwner = address(0);
+        owner = msg.sender;
+        emit OwnerUpdated(msg.sender);
     }
 
     function setGuardian(address newGuardian) external onlyOwner {
@@ -154,9 +164,16 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         external
         returns (uint256 usdcAmount)
     {
+        return claimAndUnwrapUSDC(shares, receiver, ownerOrController, 0);
+    }
+
+    function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController, uint256 minUsdcOut)
+        public
+        returns (uint256 usdcAmount)
+    {
         if (receiver == address(0)) revert ZeroAddress();
         uint256 assets = redeem(shares, address(this), ownerOrController);
-        usdcAmount = pipe.unwrapUSDC(assets, receiver);
+        usdcAmount = pipe.unwrapUSDC(assets, receiver, minUsdcOut);
         emit UsdcUnwrapped(msg.sender, receiver, assets, usdcAmount);
     }
 

@@ -274,6 +274,10 @@ contract TrancheVaultTest is Test {
 
     function test_transferOwnership_updatesGuardianSeparately() public {
         senior.transferOwnership(alice);
+        assertEq(senior.owner(), address(this));
+        assertEq(senior.pendingOwner(), alice);
+        vm.prank(alice);
+        senior.acceptOwnership();
         assertEq(senior.owner(), alice);
         assertEq(senior.guardian(), address(this));
     }

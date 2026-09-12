@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { BaseHook } from "uniswap-hooks/base/BaseHook.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
@@ -27,7 +28,7 @@ import { IAToken } from "../lending/interfaces/IAToken.sol";
 import { DataTypes } from "../lending/libraries/DataTypes.sol";
 import { HookParams } from "./libraries/HookParams.sol";
 
-contract TrancheJITHook is BaseHook, IHookSharePipe {
+contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
     using PoolIdLibrary for PoolKey;
@@ -40,6 +41,8 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     uint256 public constant DEGRADED_DIVISOR = 4;
     uint256 internal constant Q96 = 1 << 96;
     uint256 internal constant Q192 = 1 << 192;
+    uint256 internal constant VIRTUAL_SHARES = 1e3;
+    uint256 internal constant VIRTUAL_ASSETS = 1;
     bytes32 internal constant JIT_SALT = keccak256("tranche.jit.v1");
 
     enum QuoteState {
@@ -63,6 +66,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     HookShareToken public immutable shareToken;
 
     address public owner;
+    address public pendingOwner;
     address public guardian;
     address public controller;
     address public priceOracle;
@@ -70,6 +74,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     IAToken public aToken;
     IAToken public aTokenEquity;
     address public accountant;
+    uint32 public maxPriceAge = 300;
 
     bool public paused;
     bool public liquidityGuardEnabled;
@@ -84,6 +89,8 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     JitState public jitState;
 
     event OwnerUpdated(address indexed owner);
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
+    event MaxPriceAgeUpdated(uint32 maxPriceAge);
     event GuardianUpdated(address indexed guardian);
     event ControllerUpdated(address indexed controller);
     event PriceOracleUpdated(address indexed priceOracle);
@@ -117,6 +124,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     event InventorySeeded(address indexed asset, uint256 amount);
 
     error NotOwner(address caller);
+    error NotPendingOwner(address caller);
     error NotGuardianOrOwner(address caller);
     error NotController(address caller);
     error ZeroAddress();
@@ -125,8 +133,12 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     error UnauthorizedInitialization(address caller);
     error NotDynamicFee();
     error OracleInvalid();
+    error OracleStale(uint256 updatedAt);
+    error PoolPriceOutOfBounds(uint160 sqrtPriceX96);
+    error SlippageExceeded(uint256 received, uint256 minOut);
     error DeviationTooHigh(uint16 deviationBps);
     error QuotingOff();
+    error JitUnavailable();
     error CooldownActive();
     error NotEvPositive(uint24 fee);
     error ExternalLiquidityDisabled(address sender);
@@ -185,8 +197,21 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
-        emit OwnerUpdated(newOwner);
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        pendingOwner = address(0);
+        owner = msg.sender;
+        emit OwnerUpdated(msg.sender);
+    }
+
+    function setMaxPriceAge(uint32 newMaxPriceAge) external onlyOwner {
+        if (newMaxPriceAge == 0) revert ZeroAmount();
+        maxPriceAge = newMaxPriceAge;
+        emit MaxPriceAgeUpdated(newMaxPriceAge);
     }
 
     function setGuardian(address newGuardian) external onlyOwner {
@@ -240,7 +265,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         emit JitEnabledSet(enabled);
     }
 
-    function seedInventory(IERC20 asset, uint256 amount) external onlyOwner {
+    function seedInventory(IERC20 asset, uint256 amount) external onlyOwner nonReentrant {
         if (address(asset) == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         asset.safeTransferFrom(msg.sender, address(this), amount);
@@ -328,7 +353,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         return poolManager.balanceOf(address(this), Currency.wrap(address(asset)).toId());
     }
 
-    function unwindClaims() external {
+    function unwindClaims() external nonReentrant {
         if (!poolInitialized) return;
         poolManager.unlock(bytes(""));
     }
@@ -342,40 +367,51 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     }
 
     function convertToShares(uint256 usdcAmount) public view returns (uint256) {
-        uint256 total = totalManagedAssets();
-        uint256 supply = shareToken.totalSupply();
-        if (supply == 0 || total == 0) return usdcAmount * SHARE_SCALE;
-        return Math.mulDiv(usdcAmount, supply, total);
+        return _convertToSharesWithTotal(usdcAmount, totalManagedAssets());
+    }
+
+    function _convertToSharesWithTotal(uint256 usdcAmount, uint256 totalBefore) internal view returns (uint256) {
+        uint256 scaledTotal = totalBefore * SHARE_SCALE;
+        return (usdcAmount * SHARE_SCALE)
+        .mulDiv(shareToken.totalSupply() + VIRTUAL_SHARES, scaledTotal + VIRTUAL_ASSETS, Math.Rounding.Floor);
     }
 
     function convertToUsdc(uint256 shares) public view returns (uint256) {
-        uint256 supply = shareToken.totalSupply();
-        if (supply == 0) return 0;
-        return Math.mulDiv(shares, totalManagedAssets(), supply);
+        uint256 scaledTotal = totalManagedAssets() * SHARE_SCALE;
+        uint256 scaledSupply = (shareToken.totalSupply() + VIRTUAL_SHARES) * SHARE_SCALE;
+        return Math.mulDiv(shares, scaledTotal + VIRTUAL_ASSETS, scaledSupply);
     }
 
-    function wrapUSDC(uint256 usdcAmount, address receiver) external returns (uint256 shares) {
+    function wrapUSDC(uint256 usdcAmount, address receiver) external nonReentrant returns (uint256 shares) {
         if (usdcAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
         uint256 totalBefore = totalManagedAssets();
-        uint256 supply = shareToken.totalSupply();
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-        shares =
-            (supply == 0 || totalBefore == 0) ? usdcAmount * SHARE_SCALE : Math.mulDiv(usdcAmount, supply, totalBefore);
+        shares = _convertToSharesWithTotal(usdcAmount, totalBefore);
+        if (shares == 0) revert ZeroAmount();
         shareToken.mint(receiver, shares);
         _supplyIdleToAave();
         emit SharesWrapped(msg.sender, receiver, usdcAmount, shares);
     }
 
     function unwrapUSDC(uint256 shares, address receiver) external returns (uint256 usdcAmount) {
+        return unwrapUSDC(shares, receiver, 0);
+    }
+
+    function unwrapUSDC(uint256 shares, address receiver, uint256 minUsdcOut)
+        public
+        nonReentrant
+        returns (uint256 usdcAmount)
+    {
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
-        usdcAmount = Math.mulDiv(shares, totalManagedAssets(), shareToken.totalSupply());
+        usdcAmount = convertToUsdc(shares);
         shareToken.burn(msg.sender, shares);
         uint256 available = _withdrawAsset(usdc, usdcAmount);
         if (available < usdcAmount) revert InsufficientUsdc(usdcAmount, available);
+        if (usdcAmount < minUsdcOut) revert SlippageExceeded(usdcAmount, minUsdcOut);
         if (usdcAmount != 0) usdc.safeTransfer(receiver, usdcAmount);
         emit SharesUnwrapped(msg.sender, receiver, shares, usdcAmount);
     }
@@ -404,7 +440,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         _redeemClaims(key.currency1);
 
         uint256 budget = effectiveMaxDeploy();
-        if (budget == 0) revert QuotingOff();
+        if (budget == 0) revert JitUnavailable();
 
         int24 spacing = key.tickSpacing;
         int24 bucketTicks = _params.bucketTicks;
@@ -518,9 +554,10 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     {
         if (swapParams.amountSpecified > 0) return uint256(swapParams.amountSpecified);
         uint256 amountIn = uint256(-swapParams.amountSpecified);
-        uint256 ratioX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+        uint256 ratioX96 = Math.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), Q96);
+        if (ratioX96 == 0) revert PoolPriceOutOfBounds(sqrtPriceX96);
         uint256 output =
-            swapParams.zeroForOne ? Math.mulDiv(amountIn, ratioX192, Q192) : Math.mulDiv(amountIn, Q192, ratioX192);
+            swapParams.zeroForOne ? Math.mulDiv(amountIn, ratioX96, Q96) : Math.mulDiv(amountIn, Q96, ratioX96);
         return Math.mulDiv(output, 1_000_000 - fee, 1_000_000);
     }
 
@@ -632,7 +669,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
         deviationBps = _deviationBps(poolUsd, oracleUsd);
         if (deviationBps > _params.maxDeviationBps) revert DeviationTooHigh(deviationBps);
         toxic = _isToxic(zeroForOne, poolUsd, oracleUsd);
-        if (!toxic) return (_params.baseFee, false, deviationBps);
+        if (!toxic) return (_params.baseFee, toxic, deviationBps);
 
         uint256 premium = uint256(deviationBps) * _params.toxicityMultiplierBps;
         uint256 surged = uint256(_params.baseFee) + premium;
@@ -642,6 +679,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     function _prices() internal view returns (uint256 poolUsdPerEquity1e18, uint256 oracleUsdPerEquity1e18) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) revert OracleInvalid();
+        if (block.timestamp > data.updatedAt + maxPriceAge) revert OracleStale(data.updatedAt);
         oracleUsdPerEquity1e18 = uint256(uint192(data.mid)) * 1e10;
 
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(PoolId.wrap(activePoolId));
@@ -650,13 +688,18 @@ contract TrancheJITHook is BaseHook, IHookSharePipe {
     }
 
     function _poolPrice1e18(uint160 sqrtPriceX96) internal view returns (uint256) {
-        uint256 ratioX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+        if (sqrtPriceX96 < TickMath.MIN_SQRT_PRICE || sqrtPriceX96 > TickMath.MAX_SQRT_PRICE) {
+            revert PoolPriceOutOfBounds(sqrtPriceX96);
+        }
+        uint256 ratioX96 = Math.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), Q96);
+        if (ratioX96 == 0) revert PoolPriceOutOfBounds(sqrtPriceX96);
+
         uint256 scaledEquity = 1e18 * (10 ** equityDecimals);
         uint256 scaledUsdc = 10 ** usdcDecimals;
         if (Currency.unwrap(_activeKey.currency1) == address(equity)) {
-            return Math.mulDiv(scaledEquity, Q192, ratioX192 * scaledUsdc);
+            return Math.mulDiv(scaledEquity, Q96, Math.mulDiv(ratioX96, scaledUsdc, 1));
         }
-        return Math.mulDiv(ratioX192, scaledEquity, Q192 * scaledUsdc);
+        return Math.mulDiv(ratioX96, scaledEquity, Q96 * scaledUsdc);
     }
 
     function _isToxic(bool zeroForOne, uint256 poolUsd, uint256 oracleUsd) internal view returns (bool) {

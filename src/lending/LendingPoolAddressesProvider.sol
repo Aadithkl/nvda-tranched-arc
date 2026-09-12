@@ -2,9 +2,10 @@
 pragma solidity 0.8.26;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { ILendingPoolAddressesProvider } from "./interfaces/ILendingPoolAddressesProvider.sol";
 
-contract LendingPoolAddressesProvider is Ownable, ILendingPoolAddressesProvider {
+contract LendingPoolAddressesProvider is Ownable2Step, ILendingPoolAddressesProvider {
     bytes32 public constant LENDING_POOL = keccak256("LENDING_POOL");
     bytes32 public constant LENDING_POOL_CONFIGURATOR = keccak256("LENDING_POOL_CONFIGURATOR");
     bytes32 public constant PRICE_ORACLE = keccak256("PRICE_ORACLE");
