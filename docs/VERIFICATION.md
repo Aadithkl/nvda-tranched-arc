@@ -88,9 +88,9 @@ npm run build
 Expected: `Build completed`. With a Graph Studio key:
 
 ```bash
-npx graph auth --studio <DEPLOY_KEY>
-npm run deploy:studio
-GRAPH_URL="https://api.studio.thegraph.com/query/<id>/nvda-tranched-arc/<version>" \
+npx graph deploy tranch-stock --node https://api.studio.thegraph.com/deploy/ \
+  --deploy-key <DEPLOY_KEY> --version-label v0.1.0
+GRAPH_URL="https://api.studio.thegraph.com/query/<id>/tranch-stock/<version>" \
 GRAPH_API_KEY=<key> npm run graph:query
 ```
 

@@ -18,8 +18,8 @@ subgraph is never the trust layer.
 
 | Purpose | Credential | Notes |
 |---|---|---|
-| Deploy | **Subgraph Studio deploy key** | `thegraph.com/studio` → connect wallet → create `nvda-tranched-arc` → Settings → deploy key. `graph auth <key>` then `npm run deploy:studio` from `subgraph/` |
-| Query (dev) | none (keyless Studio URL, rate-limited) | `https://api.studio.thegraph.com/query/<id>/nvda-tranched-arc/<version>` |
+| Deploy | **Subgraph Studio deploy key** | `thegraph.com/studio` → connect wallet → subgraph **Tranch-Stock** (`tranch-stock`) → Settings → deploy key. `graph deploy tranch-stock --node https://api.studio.thegraph.com/deploy/ --deploy-key <key> --version-label <v>` |
+| Query (dev) | none (keyless Studio URL, rate-limited) | `https://api.studio.thegraph.com/query/<id>/tranch-stock/<version>` |
 | Query (prod) | **Graph API key** (Studio → API Keys) | `https://gateway.thegraph.com/api/<key>/subgraphs/id/<deployment-id>` |
 | Query (keyless, paid) | none — per-query USDC via x402 gateway | matches this project's payment rail |
 
@@ -46,7 +46,7 @@ The subgraph implements the Messari Yield Aggregator schema (vendored at
 
 | Messari entity | Populated from |
 |---|---|
-| `YieldAggregator` (Protocol) | protocol bootstrap (`nvda-tranched-arc`) |
+| `YieldAggregator` (Protocol) | protocol bootstrap (`tranch-stock`) |
 | `Token` | USDC (input) + tjSHARE (output) |
 | `Vault` | the hook share pipe (wrap/unwrap = deposit/withdraw) |
 | `Deposit` / `Withdraw` | `SharesWrapped` / `SharesUnwrapped` |
@@ -266,7 +266,7 @@ Tranche activity:
 ## Query from the CLI
 
 ```bash
-GRAPH_URL="https://api.studio.thegraph.com/query/<id>/nvda-tranched-arc/<version>" \
+GRAPH_URL="https://api.studio.thegraph.com/query/<id>/tranch-stock/<version>" \
 GRAPH_API_KEY=<optional-studio-key> \
 node scripts/graph-query.mjs
 ```
