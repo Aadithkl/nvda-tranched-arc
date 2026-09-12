@@ -10,7 +10,7 @@ import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
 import { TrancheVault } from "../../src/vaults/TrancheVault.sol";
 import { MockHookShare } from "../../src/test-only/MockHookShare.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract InvariantHookValue is ITrancheHookValue {
     uint256 public rate = 1e6;
@@ -21,6 +21,10 @@ contract InvariantHookValue is ITrancheHookValue {
 
     function convertToUsdc(uint256 shares) external view returns (uint256) {
         return Math.mulDiv(shares, rate, 1e18);
+    }
+
+    function expired() external pure returns (bool) {
+        return false;
     }
 }
 
@@ -33,7 +37,7 @@ contract TrancheHandler is Test {
     uint256 internal constant MIN_RATE = 0.05e6;
     uint256 internal constant MAX_RATE = 2e6;
 
-    MockToken public usdc;
+    TestToken public usdc;
     MockHookShare public hs;
     InvariantHookValue public valueSource;
     TrancheAccountant public accountant;
@@ -43,7 +47,7 @@ contract TrancheHandler is Test {
     address[] public users;
 
     constructor(
-        MockToken usdc_,
+        TestToken usdc_,
         MockHookShare hs_,
         InvariantHookValue valueSource_,
         TrancheAccountant accountant_,
@@ -134,7 +138,8 @@ contract TrancheHandler is Test {
 }
 
 contract TrancheInvariantTest is Test {
-    MockToken internal usdc;
+    TestToken internal usdc;
+    TestToken internal nvda;
     MockHookShare internal hs;
     InvariantHookValue internal valueSource;
     TrancheAccountant internal accountant;
@@ -151,7 +156,8 @@ contract TrancheInvariantTest is Test {
         users.push(makeAddr("bob"));
         users.push(makeAddr("carol"));
 
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
         hs = new MockHookShare(usdc, address(this));
         valueSource = new InvariantHookValue();
 
@@ -159,8 +165,8 @@ contract TrancheInvariantTest is Test {
         accountant.setHook(address(valueSource));
         accountant.setKeeper(keeper);
 
-        senior = new SeniorVault(hs, usdc, IHookSharePipe(address(hs)), address(this), address(0));
-        junior = new JuniorVault(hs, usdc, IHookSharePipe(address(hs)), address(this), address(0));
+        senior = new SeniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        junior = new JuniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
         accountant.setVaults(address(senior), address(junior));
         senior.setAccountant(address(accountant));
         junior.setAccountant(address(accountant));

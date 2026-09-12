@@ -54,6 +54,9 @@ contract DeployTrancheHookV3 is Script {
         TrancheJITHook h = TrancheJITHook(hook);
         if (lendingPool != address(0)) h.setLendingPool(lendingPool);
 
+        uint64 expiryTs = uint64(vm.envOr("EXPIRY_TIMESTAMP", uint256(0)));
+        if (expiryTs != 0) h.setExpiry(expiryTs);
+
         address token0 = usdc < nvda ? usdc : nvda;
         address token1 = usdc < nvda ? nvda : usdc;
         PoolKey memory key = PoolKey({
@@ -83,6 +86,7 @@ contract DeployTrancheHookV3 is Script {
         console2.log("StrategyController:", controllerAddr);
         console2.log("LendingPool:", lendingPool);
         console2.log("NVDA oracle:", priceOracle);
+        console2.log("Expiry:", expiryTs);
         console2.log("PoolId:");
         console2.logBytes32(PoolId.unwrap(key.toId()));
         console2.log("InitialTick:", initialTick);

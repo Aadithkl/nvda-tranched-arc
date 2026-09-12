@@ -25,6 +25,10 @@ contract MockAccountant is ITrancheAccountant {
         return seniorClaim + juniorClaim;
     }
 
+    function seniorGuaranteeUsdc() external view override returns (uint256) {
+        return seniorClaim;
+    }
+
     function setClaims(uint256 seniorClaim_, uint256 juniorClaim_) external {
         seniorClaim = seniorClaim_;
         juniorClaim = juniorClaim_;

@@ -170,6 +170,20 @@
   },
   {
     "type": "function",
+    "name": "finalizeSettlement",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finalizeSettlementHaircut",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "hardMaxEquityBps",
     "inputs": [],
     "outputs": [
@@ -390,6 +404,42 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settleSwap",
+    "inputs": [
+      {
+        "name": "equityIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minUsdcOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settled",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -785,6 +835,62 @@
   },
   {
     "type": "event",
+    "name": "SettlementFinalized",
+    "inputs": [
+      {
+        "name": "seniorHookShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "juniorHookShares",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcToSenior",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcToJunior",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "equityToJunior",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SettlementSwapped",
+    "inputs": [
+      {
+        "name": "equityIn",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UsdcUnwrapped",
     "inputs": [
       {
@@ -844,6 +950,16 @@
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AccountantUnset",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "AlreadySettled",
+    "inputs": []
   },
   {
     "type": "error",
@@ -909,6 +1025,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "NotExpired",
+    "inputs": []
   },
   {
     "type": "error",
@@ -981,6 +1102,11 @@
   },
   {
     "type": "error",
+    "name": "SettlementNotReady",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SlippageBoundUnmet",
     "inputs": [
       {
@@ -1010,6 +1136,16 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "TradingClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "VaultsUnset",
+    "inputs": []
   },
   {
     "type": "error",

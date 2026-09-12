@@ -10,15 +10,15 @@ import { PeggedPriceOracle } from "../../src/lending/PeggedPriceOracle.sol";
 import { AToken } from "../../src/lending/AToken.sol";
 import { VariableDebtToken } from "../../src/lending/VariableDebtToken.sol";
 import { DataTypes } from "../../src/lending/libraries/DataTypes.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract LendingPoolTest is Test {
     uint256 internal constant WAD = 1e18;
     uint256 internal constant RAY = 1e27;
     uint256 internal constant YEAR = 365 days;
 
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
 
     LendingPoolAddressesProvider internal provider;
     PeggedPriceOracle internal oracle;
@@ -38,8 +38,8 @@ contract LendingPoolTest is Test {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         provider = new LendingPoolAddressesProvider("nvda-tranched-arc");
         oracle = new PeggedPriceOracle(address(this));
@@ -86,7 +86,7 @@ contract LendingPoolTest is Test {
         nvda.approve(address(pool), type(uint256).max);
     }
 
-    function _deposit(address user, MockToken token, uint256 amount) internal {
+    function _deposit(address user, TestToken token, uint256 amount) internal {
         vm.prank(user);
         pool.deposit(address(token), amount, user, 0);
     }
@@ -121,7 +121,7 @@ contract LendingPoolTest is Test {
     }
 
     function test_deposit_unknownReserve_reverts() public {
-        MockToken other = new MockToken("Other", "OTH", 18);
+        TestToken other = new TestToken("Other", "OTH", 18);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(LendingPool.ReserveNotInitialized.selector, address(other)));
         pool.deposit(address(other), 1e18, alice, 0);
@@ -385,7 +385,7 @@ contract LendingPoolTest is Test {
     }
 
     function test_oracle_unsetReverts() public {
-        MockToken other = new MockToken("Other", "OTH", 18);
+        TestToken other = new TestToken("Other", "OTH", 18);
         vm.expectRevert(abi.encodeWithSelector(PeggedPriceOracle.PriceNotSet.selector, address(other)));
         oracle.getAssetPrice(address(other));
     }

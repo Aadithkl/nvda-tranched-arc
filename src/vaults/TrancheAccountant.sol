@@ -190,7 +190,8 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         emit Rebalanced(movedToSenior, movedToJunior);
     }
 
-    function fulfillRedeem(bool senior, address user) external onlyKeeper {
+    function fulfillRedeem(bool senior, address user) external {
+        if (msg.sender != keeper && !_expired()) revert NotKeeper(msg.sender);
         if (seniorVault == address(0)) revert VaultsNotSet();
         if (!senior && TrancheVault(seniorVault).totalPendingRedeemShares() > 0) revert SeniorPriority();
 
@@ -213,6 +214,17 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
 
     function _escrowTarget() internal view returns (uint256) {
         return Math.mulDiv(seniorPrincipal, escrowBps, BPS);
+    }
+
+    /// @notice Oracle-free senior guarantee: principal plus escrow, in USDC units. Used by the
+    ///         settlement waterfall, which must not depend on a live oracle.
+    function seniorGuaranteeUsdc() public view returns (uint256) {
+        return seniorPrincipal + _escrowTarget();
+    }
+
+    function _expired() internal view returns (bool) {
+        address valueSource = hook;
+        return valueSource != address(0) && ITrancheHookValue(valueSource).expired();
     }
 
     function _spendable(uint256 balance, uint256 locked) internal pure returns (uint256) {

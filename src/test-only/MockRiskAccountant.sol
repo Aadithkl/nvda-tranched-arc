@@ -33,6 +33,10 @@ contract MockRiskAccountant is ITrancheAccountant {
         return seniorClaim + juniorClaim;
     }
 
+    function seniorGuaranteeUsdc() external view override returns (uint256) {
+        return seniorClaim;
+    }
+
     function rebalance() external pure override returns (uint256, uint256) {
         return (0, 0);
     }

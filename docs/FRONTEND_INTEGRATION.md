@@ -66,13 +66,13 @@ const [sqrtPriceX96, tick, protocolFee, lpFee] = await client.readContract({
   address: manifest.contracts.stateView,
   abi: stateViewAbi,
   functionName: "getSlot0",
-  args: [(manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).poolId],
+  args: [(manifest.pools.usdcNvda ?? manifest.pools.demoNvdaUsdc).poolId],
 });
 const liquidity = await client.readContract({
   address: manifest.contracts.stateView,
   abi: stateViewAbi,
   functionName: "getLiquidity",
-  args: [(manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).poolId],
+  args: [(manifest.pools.usdcNvda ?? manifest.pools.demoNvdaUsdc).poolId],
 });
 ```
 
@@ -102,7 +102,7 @@ await wallet.writeContract({
   abi: routerAbi,
   functionName: "swapExactIn",
   args: [
-    (manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).key,
+    (manifest.pools.usdcNvda ?? manifest.pools.demoNvdaUsdc).key,
     true,                      // zeroForOne: USDC -> NVDA when USDC sorts first
     parseUnits("1", 6),        // exact input
     0n,                        // minAmountOut (use a quote in production)
@@ -173,6 +173,17 @@ Senior vaults revert `SeniorUsdcOnly` for the equity/proportional paths.
 
 Oracle staleness (`getPrice().valid`, 300s) blocks in-kind equity exits and rebalancing; proportional
 exits remain available when the oracle is stale.
+
+## Expiry / settlement (v3.2)
+
+- `TrancheJITHook.expiry()` / `expired()` — once expired, deposits close and swaps revert.
+- `TranchePipeModule.settleSwap(equityIn, minUsdcOut, deadline)` — permissionless equity→USDC
+  settlement at the oracle floor; `finalizeSettlement()` — one-shot waterfall (senior USDC
+  guarantee first, then remaining USDC + all equity to junior) that freezes rates.
+- Vaults: `matured()`, `usdcPerShare1e18`, `equityPerShare1e18`; holders burn shares via
+  `redeemAtExpiry(shares, receiver[, minUsdcOut, minEquityOut])`. Pre-expiry fulfilled requests
+  still claim via `redeem()` and pay at the frozen rate (the return value is the nominal
+  hook-share amount — check the token balance delta and `MaturedRedeem` event).
 
 ## Circle Modular Wallets (passkey + gasless)
 

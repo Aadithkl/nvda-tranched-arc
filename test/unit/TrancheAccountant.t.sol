@@ -10,22 +10,32 @@ import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
 import { TrancheVault } from "../../src/vaults/TrancheVault.sol";
 import { MockHookShare } from "../../src/test-only/MockHookShare.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract MockHookValue is ITrancheHookValue {
     uint256 public rate = 1e6;
+    bool public expiredFlag;
 
     function setRate(uint256 rate_) external {
         rate = rate_;
     }
 
+    function setExpired(bool expired_) external {
+        expiredFlag = expired_;
+    }
+
     function convertToUsdc(uint256 shares) external view returns (uint256) {
         return Math.mulDiv(shares, rate, 1e18);
+    }
+
+    function expired() external view returns (bool) {
+        return expiredFlag;
     }
 }
 
 contract TrancheAccountantTest is Test {
-    MockToken internal usdc;
+    TestToken internal usdc;
+    TestToken internal nvda;
     MockHookShare internal hs;
     MockHookValue internal valueSource;
     TrancheAccountant internal accountant;
@@ -41,7 +51,8 @@ contract TrancheAccountantTest is Test {
         bob = makeAddr("bob");
         keeper = makeAddr("keeper");
 
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
         hs = new MockHookShare(usdc, address(this));
         valueSource = new MockHookValue();
 
@@ -49,8 +60,8 @@ contract TrancheAccountantTest is Test {
         accountant.setHook(address(valueSource));
         accountant.setKeeper(keeper);
 
-        senior = new SeniorVault(hs, usdc, IHookSharePipe(address(hs)), address(this), address(0));
-        junior = new JuniorVault(hs, usdc, IHookSharePipe(address(hs)), address(this), address(0));
+        senior = new SeniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        junior = new JuniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
         accountant.setVaults(address(senior), address(junior));
         senior.setAccountant(address(accountant));
         junior.setAccountant(address(accountant));
@@ -66,6 +77,22 @@ contract TrancheAccountantTest is Test {
         hs.approve(address(vault), type(uint256).max);
         vm.prank(user);
         vault.deposit(amount, user);
+    }
+
+    function test_fulfillRedeem_permissionlessAfterExpiry() public {
+        uint256 shares = senior.balanceOf(alice);
+        vm.prank(alice);
+        senior.requestRedeem(shares, alice, alice);
+
+        address rando = makeAddr("rando");
+        vm.prank(rando);
+        vm.expectRevert(abi.encodeWithSelector(TrancheAccountant.NotKeeper.selector, rando));
+        accountant.fulfillRedeem(true, alice);
+
+        valueSource.setExpired(true);
+        vm.prank(rando);
+        accountant.fulfillRedeem(true, alice);
+        assertGt(senior.claimableRedeemRequest(0, alice), 0);
     }
 
     function test_depositsReportPrincipal() public view {

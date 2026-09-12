@@ -75,6 +75,11 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     address public accountant;
     uint32 public maxPriceAge = 300;
 
+    /// @notice Unix timestamp at which the tranche book matures. Set once by the owner before
+    ///         maturity; `0` means unset (no expiry). Once reached, quoting/JIT stop and only
+    ///         settlement flows remain.
+    uint64 public expiry;
+
     bool public paused;
     bool public liquidityGuardEnabled;
     bool public poolInitialized;
@@ -124,6 +129,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     event WithdrawnFromAave(address indexed asset, uint256 amount);
     event InventorySeeded(address indexed asset, uint256 amount);
     event ModuleUpdated(address indexed module);
+    event ExpirySet(uint64 expiry);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -153,6 +159,8 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     error InsufficientUsdc(uint256 requested, uint256 available);
     error InsufficientAsset(address asset, uint256 requested, uint256 available);
     error NotModule(address caller);
+    error ExpiryAlreadySet();
+    error ExpiryInPast();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -289,6 +297,18 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         emit ModuleUpdated(module_);
     }
 
+    /// @notice Sets the maturity timestamp once. Must be in the future; cannot be changed.
+    function setExpiry(uint64 expiry_) external onlyOwner {
+        if (expiry != 0) revert ExpiryAlreadySet();
+        if (expiry_ <= block.timestamp) revert ExpiryInPast();
+        expiry = expiry_;
+        emit ExpirySet(expiry_);
+    }
+
+    function expired() public view returns (bool) {
+        return expiry != 0 && block.timestamp >= expiry;
+    }
+
     function modulePull(IERC20 asset, address to, uint256 amount)
         external
         onlyModule
@@ -360,6 +380,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     }
 
     function quoteState() public view returns (QuoteState) {
+        if (expired()) return QuoteState.Rest;
         HookParams.Params storage p = _params;
         if (paused || !p.quotingEnabled || !poolInitialized) return QuoteState.Rest;
         uint256 expiresAt = paramsUpdatedAt + p.ttl;

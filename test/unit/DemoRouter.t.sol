@@ -10,14 +10,14 @@ import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { BalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
 import { DemoRouter } from "../../src/router/DemoRouter.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract DemoRouterTest is Test {
     using BalanceDeltaLibrary for BalanceDelta;
     PoolManager internal manager;
     DemoRouter internal router;
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
 
     PoolKey internal key;
     int24 internal initialTick;
@@ -28,8 +28,8 @@ contract DemoRouterTest is Test {
     function setUp() public {
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
         address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
