@@ -19,6 +19,7 @@ import { MockToken } from "../../src/test-only/MockToken.sol";
 
 contract TrancheVaultTest is Test {
     MockToken internal usdc;
+    MockToken internal nvda;
     MockHookShare internal hs;
     SeniorVault internal senior;
     JuniorVault internal junior;
@@ -33,6 +34,7 @@ contract TrancheVaultTest is Test {
         bob = makeAddr("bob");
 
         usdc = new MockToken("USD Coin", "mUSDC", 6);
+        nvda = new MockToken("NVIDIA", "mNVDA", 18);
         hs = new MockHookShare(IERC20(address(usdc)), makeAddr("hook"));
         senior = new SeniorVault(
             IERC20(address(hs)), IERC20(address(usdc)), IHookSharePipe(address(hs)), address(this), accountant
@@ -42,6 +44,8 @@ contract TrancheVaultTest is Test {
         );
 
         usdc.mint(address(hs), 1_000_000e6);
+        nvda.mint(address(hs), 1_000_000e18);
+        hs.setEquity(IERC20(address(nvda)));
         usdc.mint(alice, 1_000e6);
         usdc.mint(bob, 1_000e6);
         hs.mint(alice, 1_000e18);
@@ -287,5 +291,59 @@ contract TrancheVaultTest is Test {
         assertEq(senior.maxMint(alice), senior.convertToShares(100e18));
         _depositSeniorShares(40e18);
         assertEq(senior.maxMint(alice), senior.convertToShares(60e18));
+    }
+
+    function _juniorRedeemFlow(uint256 amountUsdc) internal returns (uint256 shares, uint256 assets) {
+        vm.prank(bob);
+        shares = junior.depositUSDC(amountUsdc, bob);
+        vm.prank(bob);
+        junior.requestRedeem(shares, bob, bob);
+        assets = junior.convertToAssets(shares);
+        vm.prank(accountant);
+        junior.fulfillRedeem(shares, assets, bob);
+    }
+
+    function test_claimAndUnwrapEquity_junior() public {
+        (uint256 shares,) = _juniorRedeemFlow(100e6);
+
+        uint256 before = nvda.balanceOf(bob);
+        vm.prank(bob);
+        uint256 nvdaOut = junior.claimAndUnwrapEquity(shares, bob, bob);
+        assertGt(nvdaOut, 0);
+        assertEq(nvda.balanceOf(bob), before + nvdaOut);
+        assertEq(junior.maxRedeem(bob), 0);
+    }
+
+    function test_claimAndUnwrapEquity_minOut_reverts() public {
+        (uint256 shares, uint256 assets) = _juniorRedeemFlow(100e6);
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(MockHookShare.SlippageExceeded.selector, assets, assets + 1));
+        junior.claimAndUnwrapEquity(shares, bob, bob, assets + 1);
+    }
+
+    function test_claimAndUnwrapEquity_senior_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(TrancheVault.SeniorUsdcOnly.selector);
+        senior.claimAndUnwrapEquity(1e18, alice, alice);
+    }
+
+    function test_claimAndUnwrapProportional_junior() public {
+        (uint256 shares,) = _juniorRedeemFlow(100e6);
+
+        uint256 usdcBefore = usdc.balanceOf(bob);
+        uint256 nvdaBefore = nvda.balanceOf(bob);
+        vm.prank(bob);
+        (uint256 usdcOut, uint256 nvdaOut) = junior.claimAndUnwrapProportional(shares, bob, bob);
+        assertGt(usdcOut, 0);
+        assertGt(nvdaOut, 0);
+        assertEq(usdc.balanceOf(bob), usdcBefore + usdcOut);
+        assertEq(nvda.balanceOf(bob), nvdaBefore + nvdaOut);
+    }
+
+    function test_claimAndUnwrapProportional_senior_reverts() public {
+        vm.prank(alice);
+        vm.expectRevert(TrancheVault.SeniorUsdcOnly.selector);
+        senior.claimAndUnwrapProportional(1e18, alice, alice);
     }
 }

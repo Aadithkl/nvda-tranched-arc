@@ -37,6 +37,7 @@ can only shrink/reshape activity within those limits.
 ```
 ARC_RPC_URL=
 AGENT_HOOK=        # TrancheJITHook address
+AGENT_MODULE=      # TranchePipeModule address (exits + rebalancing; falls back to AGENT_HOOK)
 AGENT_ORACLE=      # price oracle address
 AGENT_ADDRESS=     # StrategyAgent address (whitelisted on the controller)
 AGENT_KEEPER=      # TrancheAccountant address (optional; for fulfillRedeem/rebalance)
@@ -45,7 +46,30 @@ AGENT_CADENCE_SECONDS=600
 PARAMS_TTL_SECONDS=3600
 # x402 reasoning endpoint (optional; rules fallback is used when unset)
 AGENT_REASONING_URL=
+# Dual-token rebalancing (hard cap, no target ratio)
+AGENT_REBALANCE_ENABLED=1
+AGENT_REBALANCE_MIN_EDGE_BPS=0.2
+AGENT_REBALANCE_MIN_USD=1
+AGENT_REBALANCE_MAX_USD=500
+AGENT_REBALANCE_SLIPPAGE_BPS=50
 ```
+
+## Dual-token rebalancing
+
+Each tick the daemon also reads `assetComposition()` (USDC/equity values + `equityBps` and the hook's
+`hardMaxEquityBps`) and runs the portfolio policy in `agent/model.mjs`:
+
+| Action | Condition | Result |
+|---|---|---|
+| sell equity | `equityBps > hardMaxEquityBps` | trims back to the cap (senior protection), independent of edge |
+| buy equity | escrow funded + JIT LP edge > `AGENT_REBALANCE_MIN_EDGE_BPS` + headroom below the cap | builds inventory for JIT seeding, sized by `suggestedMaxDeployUsdc` |
+| hold | otherwise | logs `il` (portfolio IL), `premium` (`w(1−w)σ²`), and the reason |
+
+`sell` amounts are converted to equity units and both directions compute a `minOut` from the oracle with
+`AGENT_REBALANCE_SLIPPAGE_BPS`; the hook rejects anything looser than its own oracle anchor, and the
+controller enforces the per-call cap and cooldown. Trades execute on the configured external venue
+(`setRebalanceVenue`), never against the hook's own JIT pool, and are skipped while the oracle is stale —
+`unwrapProportional` remains the oracle-free exit.
 
 ## x402 reasoning (planned)
 

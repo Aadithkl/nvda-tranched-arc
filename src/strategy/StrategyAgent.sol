@@ -17,6 +17,7 @@ contract StrategyAgent {
     event ParamsSubmitted(HookParams.Params params);
     event BaseFeeSubmitted(uint24 baseFee);
     event QuotingSubmitted(bool enabled);
+    event RebalanceSubmitted(bool equityOut, uint256 amountIn, uint256 minOut);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -81,5 +82,10 @@ contract StrategyAgent {
     function submitQuotingEnabled(bool enabled) external onlyOperator {
         controller.setQuotingEnabled(enabled);
         emit QuotingSubmitted(enabled);
+    }
+
+    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut) external onlyOperator {
+        controller.submitRebalance(equityOut, amountIn, minOut);
+        emit RebalanceSubmitted(equityOut, amountIn, minOut);
     }
 }

@@ -428,3 +428,77 @@ export function decide(poolMetrics, bands, opts = {}) {
     sweep,
   };
 }
+
+// ---------- dual-asset (USDC/equity) rebalancing ----------
+
+// Portfolio USD value from unit amounts.
+export function portfolioValueUsd({ usdcAmount = 0, equityAmount = 0, equityPriceUsd = 0 }) {
+  return Number(usdcAmount) + Number(equityAmount) * Number(equityPriceUsd);
+}
+
+// Impermanent loss (bps) of the current book versus holding the reference units
+// (units recorded at a prior composition), both marked at the current price.
+export function portfolioIlBps({ usdcAmount, equityAmount, equityPriceUsd, refUsdc, refEquity }) {
+  if (!(Number(equityPriceUsd) > 0)) return null;
+  const benchmark = portfolioValueUsd({ usdcAmount: refUsdc, equityAmount: refEquity, equityPriceUsd });
+  if (!(benchmark > 0)) return null;
+  const nav = portfolioValueUsd({ usdcAmount, equityAmount, equityPriceUsd });
+  return ((nav - benchmark) / benchmark) * 10_000;
+}
+
+// Continuous-time expected rebalancing premium (bps) for equity weight w:
+// w*(1-w)*sigma^2*dt. Small by construction; compare against swap cost.
+export function rebalancingPremiumBps({ weight, sigmaHourly, horizonHours = 1 }) {
+  const w = Math.min(Math.max(Number(weight) || 0, 0), 1);
+  const s = Number(sigmaHourly) || 0;
+  return w * (1 - w) * s * s * Math.max(0, Number(horizonHours)) * 10_000;
+}
+
+// Swap cost in bps versus an oracle-implied output.
+export function rebalanceCostBps({ oracleOut, quotedOut }) {
+  const o = Number(oracleOut);
+  if (!(o > 0)) return null;
+  return ((o - Number(quotedOut)) / o) * 10_000;
+}
+
+// Agent rebalance policy for a hard-cap, no-target dual-asset book.
+// - above the hard cap: trim equity (senior protection, always allowed)
+// - funded + positive LP edge + below cap-margin: build equity inventory for JIT
+// - otherwise hold
+export function rebalanceDecision({
+  equityBps,
+  hardCapBps,
+  escrowFunded,
+  oracleValid = true,
+  worthLp = false,
+  lpEdgeBps = 0,
+  minEdgeBps = 0,
+  navUsd = 0,
+  suggestedDeployUsd = 0,
+  minSwapUsd = 0,
+  maxSwapUsd = Infinity,
+  capMarginBps = 500,
+}) {
+  const bps = Number(equityBps) || 0;
+  const cap = Number(hardCapBps) || 0;
+  const nav = Number(navUsd) || 0;
+  const minSwap = Number(minSwapUsd) || 0;
+  const maxSwap = Number.isFinite(Number(maxSwapUsd)) ? Number(maxSwapUsd) : Infinity;
+
+  if (!oracleValid) return { action: "hold", reason: "oracle_invalid", sizeUsd: 0 };
+  if (bps > cap) {
+    const equityValueUsd = (nav * bps) / 10_000;
+    const targetEquityUsd = (nav * cap) / 10_000;
+    const sizeUsd = Math.min(equityValueUsd - targetEquityUsd, maxSwap);
+    if (sizeUsd < minSwap) return { action: "hold", reason: "trim_below_min_size", sizeUsd: 0 };
+    return { action: "sell", reason: "above_hard_cap", sizeUsd };
+  }
+  if (!escrowFunded) return { action: "hold", reason: "escrow_unfunded", sizeUsd: 0 };
+  if (bps >= cap - capMarginBps) return { action: "hold", reason: "within_cap_margin", sizeUsd: 0 };
+  if (!worthLp || Number(lpEdgeBps) <= Number(minEdgeBps)) {
+    return { action: "hold", reason: "no_positive_lp_edge", sizeUsd: 0 };
+  }
+  const sizeUsd = Math.min(Number(suggestedDeployUsd) || 0, maxSwap);
+  if (sizeUsd < minSwap) return { action: "hold", reason: "buy_below_min_size", sizeUsd: 0 };
+  return { action: "buy", reason: "jit_inventory_build", sizeUsd };
+}

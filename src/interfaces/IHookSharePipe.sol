@@ -7,4 +7,12 @@ interface IHookSharePipe {
     function unwrapUSDC(uint256 shares, address receiver) external returns (uint256 usdcAmount);
 
     function unwrapUSDC(uint256 shares, address receiver, uint256 minUsdcOut) external returns (uint256 usdcAmount);
+
+    function unwrapEquity(uint256 shares, address receiver, uint256 minEquityOut)
+        external
+        returns (uint256 equityAmount);
+
+    function unwrapProportional(uint256 shares, address receiver, uint256 minUsdcOut, uint256 minEquityOut)
+        external
+        returns (uint256 usdcAmount, uint256 equityAmount);
 }

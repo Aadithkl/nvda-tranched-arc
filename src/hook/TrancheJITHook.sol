@@ -20,7 +20,6 @@ import { SwapParams, ModifyLiquidityParams } from "v4-core/src/types/PoolOperati
 import { BeforeSwapDelta, BeforeSwapDeltaLibrary } from "v4-core/src/types/BeforeSwapDelta.sol";
 import { BalanceDelta } from "v4-core/src/types/BalanceDelta.sol";
 import { HookShareToken } from "../core/HookShareToken.sol";
-import { IHookSharePipe } from "../interfaces/IHookSharePipe.sol";
 import { INVDAPriceOracle } from "../interfaces/INVDAPriceOracle.sol";
 import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 import { IAaveV2Pool } from "../lending/interfaces/IAaveV2Pool.sol";
@@ -28,7 +27,7 @@ import { IAToken } from "../lending/interfaces/IAToken.sol";
 import { DataTypes } from "../lending/libraries/DataTypes.sol";
 import { HookParams } from "./libraries/HookParams.sol";
 
-contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
+contract TrancheJITHook is BaseHook, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
     using PoolIdLibrary for PoolKey;
@@ -80,6 +79,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     bool public liquidityGuardEnabled;
     bool public poolInitialized;
     bool public jitEnabled;
+    address public module;
 
     PoolKey private _activeKey;
     bytes32 public activePoolId;
@@ -122,6 +122,7 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     event SuppliedToAave(address indexed asset, uint256 amount);
     event WithdrawnFromAave(address indexed asset, uint256 amount);
     event InventorySeeded(address indexed asset, uint256 amount);
+    event ModuleUpdated(address indexed module);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -148,6 +149,8 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     error JitRangeExceeded(int24 tickAfter);
     error InvalidBucketWidth(int24 bucketTicks, int24 tickSpacing);
     error InsufficientUsdc(uint256 requested, uint256 available);
+    error InsufficientAsset(address asset, uint256 requested, uint256 available);
+    error NotModule(address caller);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -156,6 +159,11 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
 
     modifier onlyController() {
         if (msg.sender != controller) revert NotController(msg.sender);
+        _;
+    }
+
+    modifier onlyModule() {
+        if (msg.sender != module) revert NotModule(msg.sender);
         _;
     }
 
@@ -263,6 +271,32 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     function setJitEnabled(bool enabled) external onlyOwner {
         jitEnabled = enabled;
         emit JitEnabledSet(enabled);
+    }
+
+    function setModule(address module_) external onlyOwner {
+        if (module_ == address(0)) revert ZeroAddress();
+        module = module_;
+        emit ModuleUpdated(module_);
+    }
+
+    function modulePull(IERC20 asset, address to, uint256 amount)
+        external
+        onlyModule
+        nonReentrant
+        returns (uint256 available)
+    {
+        if (to == address(0)) revert ZeroAddress();
+        available = _withdrawAsset(asset, amount);
+        if (available < amount) revert InsufficientAsset(address(asset), amount, available);
+        asset.safeTransfer(to, amount);
+    }
+
+    function moduleBurn(address from, uint256 shares) external onlyModule {
+        shareToken.burn(from, shares);
+    }
+
+    function moduleSupplyIdle() external onlyModule nonReentrant {
+        _supplyIdleToAave();
     }
 
     function seedInventory(IERC20 asset, uint256 amount) external onlyOwner nonReentrant {
@@ -647,8 +681,11 @@ contract TrancheJITHook is BaseHook, IHookSharePipe, ReentrancyGuard {
     function _equityValueInUsdc(uint256 amount) internal view returns (uint256) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) return 0;
-        uint256 denominator = 10 ** (8 + equityDecimals - usdcDecimals);
-        return Math.mulDiv(amount, uint256(uint192(data.mid)), denominator);
+        return _equityUnitsToUsdc(amount, uint256(uint192(data.mid)));
+    }
+
+    function _equityUnitsToUsdc(uint256 amount, uint256 mid) internal view returns (uint256) {
+        return Math.mulDiv(amount, mid, 10 ** (8 + equityDecimals - usdcDecimals));
     }
 
     function _activatePool(PoolKey calldata key) internal {

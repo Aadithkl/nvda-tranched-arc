@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
-import { createPublicClient, createWalletClient, defineChain, http, parseAbi } from "viem";
+import { createPublicClient, createWalletClient, defineChain, formatUnits, http, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { compactMarket } from "./ai-prompt.mjs";
+import { rebalanceDecision, rebalancingPremiumBps } from "./model.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -38,6 +39,10 @@ const abi = parseAbi([
   "function effectiveMaxDeploy() view returns (uint256)",
   "function accountant() view returns (address)",
   "function owner() view returns (address)",
+  "function assetComposition() view returns (uint256 usdcValue, uint256 equityValue, uint256 equityBps)",
+  "function hardMaxEquityBps() view returns (uint16)",
+  "function usdcDecimals() view returns (uint8)",
+  "function equityDecimals() view returns (uint8)",
 ]);
 
 const oracleAbi = parseAbi([
@@ -49,6 +54,7 @@ const agentAbi = parseAbi([
   "function submitParams((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
   "function submitBaseFee(uint24 baseFee)",
   "function submitQuotingEnabled(bool enabled)",
+  "function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut)",
 ]);
 
 const accountantAbi = parseAbi([
@@ -60,6 +66,7 @@ const accountantAbi = parseAbi([
 
 const config = {
   hook: process.env.AGENT_HOOK || process.env.HOOK_DEMO_HOOK,
+  module: process.env.AGENT_MODULE || process.env.AGENT_HOOK || process.env.HOOK_DEMO_HOOK,
   oracle: process.env.AGENT_ORACLE || process.env.HOOK_DEMO_ORACLE,
   agent: process.env.AGENT_ADDRESS || process.env.HOOK_DEMO_AGENT,
   keeper: process.env.AGENT_KEEPER, // accountant address for redeem fulfillment
@@ -72,6 +79,13 @@ const ttlTarget = Number(process.env.PARAMS_TTL_SECONDS || "3600");
 const marketCachePath = process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json";
 const marketTtlSeconds = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
 const reasoningCachePath = "agent/.cache/reasoning.json";
+const rebalanceEnabled = process.env.AGENT_REBALANCE_ENABLED !== "0";
+const rebalanceMinEdgeBps = Number(process.env.AGENT_REBALANCE_MIN_EDGE_BPS || "0.2");
+const rebalanceMinUsd = Number(process.env.AGENT_REBALANCE_MIN_USD || "1");
+const rebalanceMaxUsd = Number(
+  process.env.AGENT_REBALANCE_MAX_USD || process.env.AGENT_REBALANCE_MAX_USDC || "500",
+);
+const rebalanceSlippageBps = Number(process.env.AGENT_REBALANCE_SLIPPAGE_BPS || "50");
 
 function loadMarket() {
   try {
@@ -187,6 +201,29 @@ async function perceive() {
     risk = { juniorClaim, escrowFunded };
   }
 
+  let composition = null;
+  let decimals = { usdc: 6, equity: 18 };
+  if (rebalanceEnabled) {
+    try {
+      const [comp, cap, usdcDec, equityDec] = await Promise.all([
+        publicClient.readContract({ address: config.module, abi, functionName: "assetComposition" }),
+        publicClient.readContract({ address: config.module, abi, functionName: "hardMaxEquityBps" }),
+        publicClient.readContract({ address: config.hook, abi, functionName: "usdcDecimals" }),
+        publicClient.readContract({ address: config.hook, abi, functionName: "equityDecimals" }),
+      ]);
+      decimals = { usdc: Number(usdcDec), equity: Number(equityDec) };
+      composition = {
+        usdcValue: comp[0],
+        equityValue: comp[1],
+        equityBps: Number(comp[2]),
+        hardCapBps: Number(cap),
+        navUsd: (Number(comp[0]) + Number(comp[1])) / 10 ** decimals.usdc,
+      };
+    } catch (error) {
+      composition = { error: error.shortMessage || error.message };
+    }
+  }
+
   const market = loadMarket();
 
   return {
@@ -199,6 +236,8 @@ async function perceive() {
     maxDeploy,
     accountant,
     risk,
+    composition,
+    decimals,
     market,
     reasoning: loadReasoning(market),
   };
@@ -282,23 +321,89 @@ function sameParams(a, b) {
   );
 }
 
+function marketEdge(state) {
+  const market = state.market;
+  const aggregate = market?.aggregate;
+  if (!aggregate) return { worthLp: false, edgeBps: 0, ilBps: null, sigmaHourly: null, suggestedDeployUsd: 0 };
+  const pools = market.pools ?? [];
+  const exec =
+    pools.find((pool) => pool.id === aggregate.executedPool) ?? pools.find((pool) => pool.decision?.worthLp) ?? null;
+  return {
+    worthLp: Boolean(aggregate.worthLp),
+    edgeBps: Number(exec?.decision?.best?.netEdgeBps ?? 0),
+    ilBps: Number.isFinite(exec?.decision?.best?.expectedIlBps) ? Number(exec.decision.best.expectedIlBps) : null,
+    sigmaHourly: Number.isFinite(aggregate.sigma14d) ? Number(aggregate.sigma14d) : null,
+    suggestedDeployUsd: Number(aggregate.suggestedMaxDeployUsdc) || 0,
+  };
+}
+
+function planRebalance(state) {
+  if (!rebalanceEnabled) return null;
+  if (!state.composition || state.composition.error) return null;
+  const market = marketEdge(state);
+  const decision = rebalanceDecision({
+    equityBps: state.composition.equityBps,
+    hardCapBps: state.composition.hardCapBps,
+    escrowFunded: Boolean(state.risk.escrowFunded),
+    oracleValid: Boolean(state.oracleValid),
+    worthLp: market.worthLp,
+    lpEdgeBps: market.edgeBps,
+    minEdgeBps: rebalanceMinEdgeBps,
+    navUsd: state.composition.navUsd,
+    suggestedDeployUsd: market.suggestedDeployUsd,
+    minSwapUsd: rebalanceMinUsd,
+    maxSwapUsd: rebalanceMaxUsd,
+  });
+  const premiumBps = rebalancingPremiumBps({
+    weight: state.composition.equityBps / 10_000,
+    sigmaHourly: market.sigmaHourly ?? 0,
+    horizonHours: 1,
+  });
+  return { ...decision, ilBps: market.ilBps, premiumBps, market };
+}
+
+function rebalanceCalldata(plan, state) {
+  if (!plan || plan.action === "hold" || !(plan.sizeUsd > 0)) return null;
+  const price = state.oracleMid;
+  if (!(price > 0)) return null;
+  const mid8 = BigInt(Math.round(price * 1e8));
+  const scale = 10n ** BigInt(8 + state.decimals.equity - state.decimals.usdc);
+  const slip = BigInt(10_000 - Math.min(Math.max(rebalanceSlippageBps, 0), 9_000));
+  const sizeMicro = BigInt(Math.round(plan.sizeUsd * 1e6));
+  if (plan.action === "buy") {
+    const amountIn = sizeMicro * 10n ** BigInt(Math.max(state.decimals.usdc - 6, 0));
+    const oracleOut = (amountIn * scale) / mid8;
+    return { equityOut: false, amountIn, minOut: (oracleOut * slip) / 10_000n };
+  }
+  const amountIn = (sizeMicro * 10n ** BigInt(state.decimals.equity) * 100_000_000n) / (mid8 * 1_000_000n);
+  const oracleOut = (amountIn * mid8) / scale;
+  return { equityOut: true, amountIn, minOut: (oracleOut * slip) / 10_000n };
+}
+
 async function act(state) {
   const decision = reason(state);
   const upToDate = sameParams(state.params, decision.params);
   const market = state.market?.aggregate;
   const ai = state.reasoning && !state.reasoning.staleHash ? state.reasoning.reasoning : null;
+  const plan = planRebalance(state);
+  const exec = rebalanceCalldata(plan, state);
+  const comp = state.composition;
+  const compLabel = comp && !comp.error ? `${comp.equityBps}bps/${comp.hardCapBps}bps` : "n/a";
+  const rebalLabel = plan
+    ? `${plan.action}:${plan.reason}:` +
+      (exec
+        ? `${exec.equityOut ? "sell" : "buy"}:${formatUnits(exec.amountIn, exec.equityOut ? state.decimals.equity : state.decimals.usdc)}`
+        : `${plan.sizeUsd.toFixed(0)}$`)
+    : "off";
+
   console.log(
     `[agent] regime=${decision.regime} devBps=${state.deviationBps} quoteState=${state.quoteState} ` +
       `oracle=${state.oracleMid} valid=${state.oracleValid} funded=${state.risk.escrowFunded} ` +
       `juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} changed=${!upToDate} ` +
       `market=${market ? `${market.worthLp ? "lp" : "no-lp"}:${market.bestBandBps ?? "-"}bps:edge=${market.suggestedMaxDeployUsdc}$` : "n/a"} ` +
-      `ai=${ai ? `${ai.decision}:${ai.confidence}:${state.reasoning.model ?? "-"}` : state.reasoning?.staleHash ? "stale-hash" : "n/a"}`,
+      `ai=${ai ? `${ai.decision}:${ai.confidence}:${state.reasoning.model ?? "-"}` : state.reasoning?.staleHash ? "stale-hash" : "n/a"} ` +
+      `equity=${compLabel} il=${plan?.ilBps != null ? plan.ilBps.toFixed(1) : "-"} premium=${plan ? plan.premiumBps.toFixed(2) : "-"} rebal=${rebalLabel}`,
   );
-
-  if (upToDate) {
-    console.log("[agent] params already match the regime; heartbeat fresh");
-    return;
-  }
 
   if (!submit) {
     console.log("[agent] dry-run; pass --submit to broadcast through StrategyAgent");
@@ -311,14 +416,43 @@ async function act(state) {
     throw new Error(`operator mismatch: contract=${operator} key=${account.address}`);
   }
 
-  const hash = await client.writeContract({
-    address: config.agent,
-    abi: agentAbi,
-    functionName: "submitParams",
-    args: [decision.params],
-  });
-  await publicClient.waitForTransactionReceipt({ hash });
-  console.log(`[agent] submitted ${decision.regime} params: ${hash}`);
+  if (!upToDate) {
+    const hash = await client.writeContract({
+      address: config.agent,
+      abi: agentAbi,
+      functionName: "submitParams",
+      args: [decision.params],
+    });
+    await publicClient.waitForTransactionReceipt({ hash });
+    console.log(`[agent] submitted ${decision.regime} params: ${hash}`);
+  } else {
+    console.log("[agent] params already match the regime; heartbeat fresh");
+  }
+
+  if (exec) {
+    const hash = await client.writeContract({
+      address: config.agent,
+      abi: agentAbi,
+      functionName: "submitRebalance",
+      args: [exec.equityOut, exec.amountIn, exec.minOut],
+    });
+    await publicClient.waitForTransactionReceipt({ hash });
+    console.log(`[agent] submitted ${exec.equityOut ? "sell" : "buy"} rebalance: ${hash}`);
+  }
+
+  if (config.keeper) {
+    try {
+      const hash = await client.writeContract({
+        address: config.keeper,
+        abi: accountantAbi,
+        functionName: "rebalance",
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+      console.log(`[agent] accountant.rebalance(): ${hash}`);
+    } catch (error) {
+      console.warn(`[agent] accountant.rebalance skipped: ${error.shortMessage || error.message}`);
+    }
+  }
 }
 
 async function tick() {

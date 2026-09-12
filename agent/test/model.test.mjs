@@ -10,6 +10,11 @@ import {
   logReturns,
   hourlyVolatility,
   pInRange,
+  portfolioIlBps,
+  portfolioValueUsd,
+  rebalanceCostBps,
+  rebalanceDecision,
+  rebalancingPremiumBps,
   simulateRange,
   tickSpacingForFee,
   tokenUsdPrices,
@@ -224,4 +229,85 @@ test("decide rejects LP when IL risk exceeds the gate", () => {
   assert.equal(decision.reason, "il_risk_too_high");
   assert.ok(decision.risk.var95Bps < 0);
   assert.ok(decision.risk.ilShocks.length >= 8);
+});
+
+test("portfolioValueUsd values a dual-asset book", () => {
+  assert.equal(portfolioValueUsd({ usdcAmount: 300, equityAmount: 1, equityPriceUsd: 200 }), 500);
+  assert.equal(portfolioValueUsd({}), 0);
+});
+
+test("portfolioIlBps is zero against a mark-to-market benchmark and negative when shifted", () => {
+  const flat = portfolioIlBps({
+    usdcAmount: 300,
+    equityAmount: 1,
+    equityPriceUsd: 220,
+    refUsdc: 300,
+    refEquity: 1,
+  });
+  assert.equal(flat, 0);
+  const shifted = portfolioIlBps({
+    usdcAmount: 200,
+    equityAmount: 1.5,
+    equityPriceUsd: 220,
+    refUsdc: 300,
+    refEquity: 1,
+  });
+  assert.ok(shifted > 0, "selling USDC to hold more equity into a rally beats the reference hold");
+  assert.equal(portfolioIlBps({ usdcAmount: 1, equityAmount: 1, equityPriceUsd: 0 }), null);
+});
+
+test("rebalancingPremiumBps is maximized at 50/50 and scales with sigma^2", () => {
+  const w70 = rebalancingPremiumBps({ weight: 0.7, sigmaHourly: 0.01, horizonHours: 1 });
+  const w50 = rebalancingPremiumBps({ weight: 0.5, sigmaHourly: 0.01, horizonHours: 1 });
+  const w70Double = rebalancingPremiumBps({ weight: 0.7, sigmaHourly: 0.02, horizonHours: 1 });
+  assert.ok(Math.abs(w70 - 0.21) < 1e-9);
+  assert.ok(Math.abs(w50 - 0.25) < 1e-9);
+  assert.ok(Math.abs(w70Double - w70 * 4) < 1e-9);
+});
+
+test("rebalanceCostBps measures quote slippage versus oracle", () => {
+  assert.ok(Math.abs(rebalanceCostBps({ oracleOut: 100, quotedOut: 99 }) - 100) < 1e-9);
+  assert.equal(rebalanceCostBps({ oracleOut: 0, quotedOut: 1 }), null);
+});
+
+test("rebalanceDecision trims above the hard cap regardless of edge", () => {
+  const d = rebalanceDecision({
+    equityBps: 9000,
+    hardCapBps: 8000,
+    escrowFunded: false,
+    worthLp: false,
+    navUsd: 100_000,
+    minSwapUsd: 10,
+  });
+  assert.equal(d.action, "sell");
+  assert.equal(d.reason, "above_hard_cap");
+  assert.equal(d.sizeUsd, 10_000);
+});
+
+test("rebalanceDecision buys inventory only when funded with positive edge and cap headroom", () => {
+  const base = {
+    equityBps: 3000,
+    hardCapBps: 8000,
+    escrowFunded: true,
+    oracleValid: true,
+    worthLp: true,
+    lpEdgeBps: 5,
+    minEdgeBps: 0.2,
+    navUsd: 100_000,
+    suggestedDeployUsd: 500,
+    minSwapUsd: 10,
+    maxSwapUsd: 1_000,
+  };
+  assert.equal(rebalanceDecision(base).action, "buy");
+  assert.equal(rebalanceDecision({ ...base, escrowFunded: false }).reason, "escrow_unfunded");
+  assert.equal(rebalanceDecision({ ...base, worthLp: false }).reason, "no_positive_lp_edge");
+  assert.equal(rebalanceDecision({ ...base, lpEdgeBps: 0 }).reason, "no_positive_lp_edge");
+  assert.equal(rebalanceDecision({ ...base, oracleValid: false }).reason, "oracle_invalid");
+  assert.equal(rebalanceDecision({ ...base, equityBps: 7700 }).reason, "within_cap_margin");
+  const small = rebalanceDecision({ ...base, suggestedDeployUsd: 5 });
+  assert.equal(small.action, "hold");
+  assert.equal(small.reason, "buy_below_min_size");
+  const capped = rebalanceDecision({ ...base, suggestedDeployUsd: 99_999 });
+  assert.equal(capped.action, "buy");
+  assert.equal(capped.sizeUsd, 1_000);
 });

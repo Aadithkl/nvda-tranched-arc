@@ -8,7 +8,8 @@ The hook is the only bridge between the tranche stack and the two markets:
 
 | File | Role |
 |---|---|
-| `src/hook/TrancheJITHook.sol` | `BaseHook` (OZ) + roles (two-step ownership), pause, pool init/`setActivePool`, dynamic fee, quote gates, Aave rest state, share pipe (`wrapUSDC`/`unwrapUSDC` with optional `minUsdcOut`), risk budget, JIT engine |
+| `src/hook/TrancheJITHook.sol` | `BaseHook` (OZ) + roles (two-step ownership), pause, pool init/`setActivePool`, dynamic fee, quote gates, Aave rest state, share pipe (`wrapUSDC`/`unwrapUSDC`), risk budget, JIT engine, module primitives (`modulePull`/`moduleBurn`/`moduleSupplyIdle`) |
+| `src/periphery/TranchePipeModule.sol` | Dual-token pipe + rebalancing periphery: `wrapUSDC`, `unwrapUSDC`, `unwrapEquity`, `unwrapProportional`; `assetComposition`; hard-cap enforcement; external venue swaps (`rebalanceSwap`) |
 | `src/hook/libraries/HookParams.sol` | `Params` struct + validation (fees, deviation band, TTL, bucket width) |
 | `src/core/HookShareToken.sol` | ERC-7575 share (`vault(asset)`), mint/burn by hook only |
 | `src/strategy/StrategyController.sol` | Bounds + whitelist; agent can only move params *inside* limits |
@@ -74,6 +75,34 @@ liquidity.
 - `controller` (`StrategyController`): params/base fee/quoting
 - `StrategyAgent` (whitelisted on controller): call surface for the offchain operator key
 - Agent **cannot** mint/burn shares, move funds, change roles, or exit bounds
+
+## Dual-token exits + rebalancing (v3)
+
+The 7575 share is basket-backed (USDC + equity, e.g. NVDA). Exits are selectable:
+
+| Path | Function | Pricing | Notes |
+|---|---|---|---|
+| USDC (default, senior-allowed) | `unwrapUSDC(shares, receiver, minUsdcOut)` | share NAV | withdraws from Aave rest |
+| Equity in-kind | `unwrapEquity(shares, receiver, minEquityOut)` | oracle mid, `maxPriceAge` enforced | conversion fee (`conversionFeeBps`, ≤100) stays in the pool |
+| Proportional | `unwrapProportional(shares, receiver, minUsdcOut, minEquityOut)` | **oracle-free** unit fractions | pays a slice of both idle + Aave balances |
+
+`TrancheVault` exposes `claimAndUnwrapEquity` / `claimAndUnwrapProportional`; senior vaults revert
+`SeniorUsdcOnly` on both. The module's `assetComposition()` reports `(usdcValue, equityValue, equityBps)`
+at the oracle, and `equityToUsdc` prices equity unit amounts for the controller cap check.
+
+Rebalancing is agent-driven and venue-agnostic. `TranchePipeModule` is deployed as the vault `pipe` and
+set as the controller `rebalanceTarget` (`PIPE_ADDRESS` in the stack deploy); its owner configures a
+plain external pool via `setRebalanceVenue(key, router)` and the controller calls
+`rebalanceSwap(equityOut, amountIn, minOut, deadline)`:
+
+- hard cap only (`hardMaxEquityBps`, default 8000, max 9500) — no target ratio;
+- `minOut` must beat the oracle-implied output minus `maxRebalanceSlippageBps` (`SlippageBoundUnmet`);
+- buying equity reverts `RebalanceNotFunded` while the senior escrow is unfunded, and reverts
+  `EquityCapExceeded` if the post-swap book breaches the cap;
+- controller-side per-call cap (`maxRebalanceSwapUsdc`, equity sells valued at the oracle) and cooldown.
+
+The offchain agent computes portfolio IL, inventory drift, and JIT edge (`agent/model.mjs`) and submits
+through `StrategyAgent.submitRebalance`; the chain only enforces bounds.
 
 ## Tests
 

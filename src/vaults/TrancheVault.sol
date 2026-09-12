@@ -37,6 +37,10 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     event SharesMoved(address indexed to, uint256 amount);
     event UsdcDeposited(address indexed caller, address indexed receiver, uint256 usdcAmount, uint256 shares);
     event UsdcUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount);
+    event EquityUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 equityAmount);
+    event ProportionalUnwrapped(
+        address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount, uint256 equityAmount
+    );
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -45,6 +49,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     error ZeroAddress();
     error ZeroAmount();
     error DepositCapExceeded(uint256 assets, uint256 maxAssets);
+    error SeniorUsdcOnly();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -175,6 +180,45 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         uint256 assets = redeem(shares, address(this), ownerOrController);
         usdcAmount = pipe.unwrapUSDC(assets, receiver, minUsdcOut);
         emit UsdcUnwrapped(msg.sender, receiver, assets, usdcAmount);
+    }
+
+    function claimAndUnwrapEquity(uint256 shares, address receiver, address ownerOrController)
+        external
+        returns (uint256 equityAmount)
+    {
+        return claimAndUnwrapEquity(shares, receiver, ownerOrController, 0);
+    }
+
+    function claimAndUnwrapEquity(uint256 shares, address receiver, address ownerOrController, uint256 minEquityOut)
+        public
+        returns (uint256 equityAmount)
+    {
+        if (isSenior) revert SeniorUsdcOnly();
+        if (receiver == address(0)) revert ZeroAddress();
+        uint256 assets = redeem(shares, address(this), ownerOrController);
+        equityAmount = pipe.unwrapEquity(assets, receiver, minEquityOut);
+        emit EquityUnwrapped(msg.sender, receiver, assets, equityAmount);
+    }
+
+    function claimAndUnwrapProportional(uint256 shares, address receiver, address ownerOrController)
+        external
+        returns (uint256 usdcAmount, uint256 equityAmount)
+    {
+        return claimAndUnwrapProportional(shares, receiver, ownerOrController, 0, 0);
+    }
+
+    function claimAndUnwrapProportional(
+        uint256 shares,
+        address receiver,
+        address ownerOrController,
+        uint256 minUsdcOut,
+        uint256 minEquityOut
+    ) public returns (uint256 usdcAmount, uint256 equityAmount) {
+        if (isSenior) revert SeniorUsdcOnly();
+        if (receiver == address(0)) revert ZeroAddress();
+        uint256 assets = redeem(shares, address(this), ownerOrController);
+        (usdcAmount, equityAmount) = pipe.unwrapProportional(assets, receiver, minUsdcOut, minEquityOut);
+        emit ProportionalUnwrapped(msg.sender, receiver, assets, usdcAmount, equityAmount);
     }
 
     function maxDeposit(address) public view virtual override returns (uint256) {
