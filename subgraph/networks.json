@@ -9,7 +9,7 @@
       "startBlock": 61459445
     },
     "TrancheJITHook": {
-      "address": "0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0",
+      "address": "0xB229976cB5F64C6f747033c26217299AeCD42Ac0",
       "startBlock": 61492159
     },
     "StrategyController": {
@@ -21,15 +21,15 @@
       "startBlock": 61492159
     },
     "SeniorVault": {
-      "address": "0x0000000000000000000000000000000000000000",
+      "address": "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e",
       "startBlock": 61492159
     },
     "JuniorVault": {
-      "address": "0x0000000000000000000000000000000000000000",
+      "address": "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c",
       "startBlock": 61492159
     },
     "TrancheAccountant": {
-      "address": "0x0000000000000000000000000000000000000000",
+      "address": "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4",
       "startBlock": 61492159
     }
   }

@@ -34,7 +34,7 @@ const contracts = {
   mockUsdc: process.env.MOCK_USDC || "0x071E67900B728370969eFF988085CF3D84195E31",
   mockNvda: process.env.MOCK_NVDA || "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
   nvdAPriceOracle: process.env.ORACLE_ADDRESS || "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
-  smokeHook: "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
+  smokeHook: process.env.SMOKE_HOOK || "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
   lendingAddressesProvider: process.env.LENDING_PROVIDER || "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
   lendingPool: process.env.LENDING_POOL || "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8",
   lendingConfigurator: process.env.LENDING_CONFIGURATOR || "0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe",
@@ -48,7 +48,33 @@ const contracts = {
   create2Deployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
   gatewayWallet: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
   gatewayMinter: "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
-  demoSeller: "0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3",
+  demoSeller: process.env.DEMO_SELLER || "0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3",
+};
+
+// Tranche stack addresses are env-sourced so redeploys only touch .env, never code.
+// Null means "not deployed yet"; scripts and the frontend read the manifest, not constants.
+function previousStack() {
+  try {
+    return JSON.parse(fs.readFileSync("deployments/arc-testnet.json", "utf8")).stack ?? {};
+  } catch {
+    return {};
+  }
+}
+
+const priorStack = previousStack();
+const stack = {
+  status: process.env.STACK_STATUS || "test-only — superseded by v3 redeploy",
+  ...priorStack,
+  hook: process.env.TRANCHE_HOOK || process.env.AGENT_HOOK || priorStack.hook || null,
+  pipe: process.env.PIPE_ADDRESS || priorStack.pipe || null,
+  shareToken: process.env.TRANCHE_SHARE || priorStack.shareToken || null,
+  accountant: process.env.TRANCHE_ACCOUNTANT || priorStack.accountant || null,
+  seniorVault: process.env.TRANCHE_SENIOR || priorStack.seniorVault || null,
+  juniorVault: process.env.TRANCHE_JUNIOR || priorStack.juniorVault || null,
+  poolId: process.env.TRANCHE_POOL_ID || priorStack.poolId || null,
+  keeper: process.env.AGENT_KEEPER || priorStack.keeper || null,
+  controller: process.env.HOOK_DEMO_CONTROLLER || priorStack.controller || null,
+  agent: process.env.HOOK_DEMO_AGENT || priorStack.agent || null,
 };
 
 const zero = "0x0000000000000000000000000000000000000000";
@@ -145,6 +171,14 @@ const ABI_CONTRACTS = [
   "AToken",
   "VariableDebtToken",
   "DefaultReserveInterestRateStrategy",
+  "TrancheJITHook",
+  "TranchePipeModule",
+  "HookShareToken",
+  "SeniorVault",
+  "JuniorVault",
+  "TrancheAccountant",
+  "StrategyController",
+  "StrategyAgent",
 ];
 
 fs.mkdirSync("docs/abis", { recursive: true });
@@ -184,6 +218,7 @@ const manifest = {
     note: "Native USDC has 18 decimals (gas); the ERC-20 interface at 0x3600…0000 uses 6 decimals and shares the same balance.",
   },
   contracts,
+  stack,
   tokens: {
     USDC: { address: contracts.usdc, decimals: 6 },
     EURC: { address: contracts.eurc, decimals: 6 },
