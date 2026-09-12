@@ -67,6 +67,19 @@ const submit = has("--submit");
 const once = has("--once") || !has("--loop");
 const intervalSeconds = Number(value("--interval", process.env.AGENT_CADENCE_SECONDS || "600"));
 const ttlTarget = Number(process.env.PARAMS_TTL_SECONDS || "3600");
+const marketCachePath = process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json";
+const marketTtlSeconds = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
+
+function loadMarket() {
+  try {
+    const cached = JSON.parse(fs.readFileSync(marketCachePath, "utf8"));
+    const ageMs = Date.now() - Date.parse(cached.generatedAt);
+    if (!Number.isFinite(ageMs)) return null;
+    return { ...cached, ageSeconds: Math.round(ageMs / 1000), stale: ageMs > marketTtlSeconds * 1000 * 4 };
+  } catch {
+    return null;
+  }
+}
 
 const rpc = process.env.ARC_RPC_URL || arcTestnet.rpcUrls.default.http[0];
 const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc) });
@@ -163,7 +176,25 @@ async function perceive() {
     maxDeploy,
     accountant,
     risk,
+    market: loadMarket(),
   };
+}
+
+function marketOverlay(decision, market) {
+  const aggregate = market?.aggregate;
+  if (!aggregate) return decision;
+  const suffix = aggregate.worthLp ? "lp-on" : "lp-off";
+  const params = { ...decision.params };
+  if (!aggregate.worthLp) {
+    params.quotingEnabled = false;
+  } else {
+    const bucketTicks = Math.max(1, Math.min(5_000, Number(aggregate.suggestedBucketTicks) || params.bucketTicks));
+    const deployUsdc = Math.max(0, Math.min(100_000, Number(aggregate.suggestedMaxDeployUsdc) || 0));
+    params.bucketTicks = bucketTicks;
+    params.maxDeployPerSwap = BigInt(Math.round(deployUsdc)) * 1_000_000n;
+    params.quotingEnabled = true;
+  }
+  return { regime: `${decision.regime}+${suffix}`, params };
 }
 
 function reason(state) {
@@ -173,9 +204,16 @@ function reason(state) {
   if (!state.risk.escrowFunded) {
     return { regime: "unfunded", params: { ...REGIMES.turbulent, quotingEnabled: false } };
   }
-  if (state.deviationBps <= 50) return { regime: "calm", params: REGIMES.calm };
-  if (state.deviationBps <= 150) return { regime: "elevated", params: REGIMES.elevated };
-  return { regime: "turbulent", params: REGIMES.turbulent };
+  let decision;
+  if (state.deviationBps <= 50) decision = { regime: "calm", params: REGIMES.calm };
+  else if (state.deviationBps <= 150) decision = { regime: "elevated", params: REGIMES.elevated };
+  else decision = { regime: "turbulent", params: REGIMES.turbulent };
+  if (state.market?.stale) {
+    console.warn(
+      `[agent] market cache is stale (${state.market.ageSeconds}s) - using it with low confidence`,
+    );
+  }
+  return marketOverlay(decision, state.market);
 }
 
 function sameParams(a, b) {
@@ -198,10 +236,12 @@ function sameParams(a, b) {
 async function act(state) {
   const decision = reason(state);
   const upToDate = sameParams(state.params, decision.params);
+  const market = state.market?.aggregate;
   console.log(
     `[agent] regime=${decision.regime} devBps=${state.deviationBps} quoteState=${state.quoteState} ` +
       `oracle=${state.oracleMid} valid=${state.oracleValid} funded=${state.risk.escrowFunded} ` +
-      `juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} changed=${!upToDate}`,
+      `juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} changed=${!upToDate} ` +
+      `market=${market ? `${market.worthLp ? "lp" : "no-lp"}:${market.bestBandBps ?? "-"}bps:edge=${market.suggestedMaxDeployUsdc}$` : "n/a"}`,
   );
 
   if (upToDate) {
