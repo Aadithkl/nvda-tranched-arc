@@ -7,12 +7,12 @@ import { contracts, erc20Abi, pools, routerAbi } from "./contracts";
 export async function swapUsdcToNvda(privateKey: `0x${string}`, amountUsdc = "1") {
   const { account, wallet } = walletFromKey(privateKey);
   const amountIn = parseUnits(amountUsdc, 6);
-  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const pool = pools.usdcNvda ?? pools.demoNvdaUsdc;
   const tokenIn = [pool.key.currency0, pool.key.currency1].some(
     (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
   )
     ? contracts.usdc
-    : contracts.mockUsdc;
+    : contracts.mUsdc;
   const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
 
   await wallet.writeContract({

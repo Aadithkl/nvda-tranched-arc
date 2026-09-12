@@ -43,11 +43,11 @@
 | `StateView` | `0xb60F573748341F202818B09730d59333392b8CcC` | CREATE2 salt `0x00` |
 | `V4Quoter` | `0x8f9ba259d70aF45c26Ef56A713Fb6F0159C4526B` | CREATE2 salt `0x00` |
 | `ReservesLens` | `0x8D98aa45020c81F4751271B70cecc6399659bCef` | CREATE2 project salt |
-| `MockWETH9` (test-only) | `0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90` | CREATE; constructor dependency only |
-| `MockUSDC` / `MockNVDA` (test-only) | `0x071E67900B728370969eFF988085CF3D84195E31` / `0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9` | reused from M2a |
+| `TestWETH9` (test-only) | `0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90` | CREATE; constructor dependency only |
+| `mUSDC` / `mNVDA` (test-only) | `0x071E67900B728370969eFF988085CF3D84195E31` / `0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9` | reused from M2a |
 
 - Demo pool (hookless): mUSDC/mNVDA, fee `3000`, tickSpacing `60`, seeded + swap executed.
-- Verified wiring: `PositionManager.poolManager()/permit2()/tokenDescriptor()`, `StateView.poolManager()`, `V4Quoter.poolManager()`, `PositionDescriptor.wrappedNative()` → MockWETH9.
+- Verified wiring: `PositionManager.poolManager()/permit2()/tokenDescriptor()`, `StateView.poolManager()`, `V4Quoter.poolManager()`, `PositionDescriptor.wrappedNative()` → TestWETH9.
 - Deploy txs: `broadcast/DeployV4Stack.s.sol/5042002/run-latest.json`
 
 ### USDC/NVDA venue pool (plain pool, no hook)
@@ -187,6 +187,6 @@ and start blocks.
 
 ## Conventions
 
-- `Mock*` deployments are test-only and clearly labeled; no mock is used in the oracle price path.
+- `Test*`/m-token deployments are test-only and clearly labeled; no test token is used in the oracle price path.
 - Re-run deploy scripts through simulation first (`forge script ... --rpc-url <rpc>`), then `--broadcast`.
 - Keys live only in local `.env`; never committed.

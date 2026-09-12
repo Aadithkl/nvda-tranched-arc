@@ -30,9 +30,9 @@ const contracts = {
   stateView: process.env.STATE_VIEW || "0xb60F573748341F202818B09730d59333392b8CcC",
   v4Quoter: process.env.V4_QUOTER || "0x8f9ba259d70aF45c26Ef56A713Fb6F0159C4526B",
   reservesLens: process.env.RESERVES_LENS || "0x8D98aa45020c81F4751271B70cecc6399659bCef",
-  mockWeth9: process.env.MOCK_WETH9 || "0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90",
-  mockUsdc: process.env.MOCK_USDC || "0x071E67900B728370969eFF988085CF3D84195E31",
-  mockNvda: process.env.MOCK_NVDA || "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
+  testWeth9: process.env.TEST_WETH9 || process.env.MOCK_WETH9 || "0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90",
+  mUsdc: process.env.TEST_USDC || process.env.MOCK_USDC || "0x071E67900B728370969eFF988085CF3D84195E31",
+  mNvda: process.env.TEST_NVDA || process.env.MOCK_NVDA || "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
   nvdAPriceOracle: process.env.ORACLE_ADDRESS || "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
   smokeHook: process.env.SMOKE_HOOK || "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
   lendingAddressesProvider: process.env.LENDING_PROVIDER || "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
@@ -93,7 +93,7 @@ function sortedKey(a, b, fee, tickSpacing, hooks) {
   return { currency0, currency1, fee, tickSpacing, hooks };
 }
 
-const mockPoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, zero);
+const demoPoolKey = sortedKey(contracts.mUsdc, contracts.mNvda, 3000, 60, zero);
 const nvdaPoolKey = contracts.nvda
   ? sortedKey(
       contracts.usdc,
@@ -103,7 +103,7 @@ const nvdaPoolKey = contracts.nvda
       zero
     )
   : null;
-const smokePoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, contracts.smokeHook);
+const smokePoolKey = sortedKey(contracts.mUsdc, contracts.mNvda, 3000, 60, contracts.smokeHook);
 
 const oracleAbi = parseAbi([
   "function getPrice() view returns ((int192 mid, int192 bid, int192 ask, uint32 marketStatus, uint8 session, uint32 sourceTimestamp, uint256 updatedAt, bytes32 paymentRef, bool valid))",
@@ -169,8 +169,8 @@ const ABI_CONTRACTS = [
   "StateView",
   "V4Quoter",
   "ReservesLens",
-  "MockToken",
-  "MockWETH9",
+  "TestToken",
+  "TestWETH9",
   "SmokeHook",
   "LendingPool",
   "LendingPoolConfigurator",
@@ -238,15 +238,15 @@ const manifest = {
   tokens: {
     USDC: { address: contracts.usdc, decimals: 6 },
     ...(contracts.nvda ? { NVDA: { address: contracts.nvda, decimals: 18 } } : {}),
-    mockUSDC: { address: contracts.mockUsdc, decimals: 6 },
-    mockNVDA: { address: contracts.mockNvda, decimals: 18 },
-    mockWETH9: { address: contracts.mockWeth9, decimals: 18 },
+    mUSDC: { address: contracts.mUsdc, decimals: 6 },
+    mNVDA: { address: contracts.mNvda, decimals: 18 },
+    testWETH9: { address: contracts.testWeth9, decimals: 18 },
   },
   pools: {
     usdcNvda: nvdaPoolKey
       ? { ...(await poolState(nvdaPoolKey)), note: "USDC/NVDA pool (NVDA_POOL_FEE / NVDA_POOL_TICK_SPACING, no hook)" }
       : null,
-    mockNvdaUsdc: { ...(await poolState(mockPoolKey)), note: "demo pool, no hook" },
+    demoNvdaUsdc: { ...(await poolState(demoPoolKey)), note: "demo pool (test tokens, no hook)" },
     smokeHookPool: { ...(await poolState(smokePoolKey)), note: "hook callback proof pool (test-only hook)" },
   },
   oracle: {
@@ -265,7 +265,7 @@ const manifest = {
     model: "Aave V2 semi-fork (independent implementation) — supply/withdraw, variable borrow/repay, no liquidations",
     markets: [
       { symbol: "USDC", underlying: contracts.usdc, decimals: 6, aToken: contracts.aUsdc, variableDebtToken: contracts.dUsdc, peggedPriceUsd8: 100000000 },
-      { symbol: "NVDA", underlying: contracts.nvda ?? contracts.mockNvda, decimals: 18, aToken: contracts.aNvda, variableDebtToken: contracts.dNvda, peggedPriceUsd8: Number(process.env.NVDA_PEGGED_PRICE || 20000000000) },
+      { symbol: "NVDA", underlying: contracts.nvda ?? contracts.mNvda, decimals: 18, aToken: contracts.aNvda, variableDebtToken: contracts.dNvda, peggedPriceUsd8: Number(process.env.NVDA_PEGGED_PRICE || 20000000000) },
     ],
     note: "Rest state for the tranche hook; see docs/LENDING.md",
   },

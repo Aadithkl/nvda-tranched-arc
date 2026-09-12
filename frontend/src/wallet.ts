@@ -1,0 +1,98 @@
+import { createPublicClient, createWalletClient, custom, type Address, type Hex } from "viem";
+import { createBundlerClient, toWebAuthnAccount } from "viem/account-abstraction";
+import {
+  toCircleSmartAccount,
+  toModularTransport,
+  toPasskeyTransport,
+  toWebAuthnCredential,
+  WebAuthnMode,
+} from "@circle-fin/modular-wallets-core";
+import { CLIENT_KEY, CLIENT_URL, chain, publicClient } from "./config";
+
+export type Call = { to: Address; data: Hex; value?: bigint };
+
+export type Session = {
+  kind: "injected" | "passkey";
+  address: Address;
+  sendCalls: (calls: Call[]) => Promise<Hex[]>;
+};
+
+export async function connectInjected(): Promise<Session> {
+  const ethereum = (window as unknown as { ethereum?: unknown }).ethereum;
+  if (!ethereum) throw new Error("No browser wallet found — install MetaMask or use a passkey wallet");
+
+  const walletClient = createWalletClient({ chain, transport: custom(ethereum as never) });
+  const [address] = await walletClient.requestAddresses();
+
+  const currentChain = await walletClient.getChainId();
+  if (currentChain !== chain.id) {
+    try {
+      await walletClient.switchChain({ id: chain.id });
+    } catch {
+      await walletClient.addChain({ chain });
+      await walletClient.switchChain({ id: chain.id });
+    }
+  }
+
+  return {
+    kind: "injected",
+    address,
+    sendCalls: async (calls) => {
+      const hashes: Hex[] = [];
+      for (const call of calls) {
+        const hash = await walletClient.sendTransaction({
+          account: address,
+          chain,
+          to: call.to,
+          data: call.data,
+          value: call.value,
+        });
+        hashes.push(hash);
+        await publicClient.waitForTransactionReceipt({ hash });
+      }
+      return hashes;
+    },
+  };
+}
+
+export async function connectPasskey(username: string, mode: "register" | "login"): Promise<Session> {
+  if (!CLIENT_KEY) throw new Error("VITE_CLIENT_KEY is not set (Circle Console client key)");
+  if (!username.trim()) throw new Error("Enter a passkey username first");
+
+  const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
+  const credential = await toWebAuthnCredential({
+    transport: passkeyTransport,
+    mode: mode === "register" ? WebAuthnMode.Register : WebAuthnMode.Login,
+    username: username.trim(),
+  });
+
+  const modularTransport = toModularTransport(`${CLIENT_URL}/arcTestnet`, CLIENT_KEY);
+  const client = createPublicClient({ chain, transport: modularTransport as never });
+  const smartAccount = await toCircleSmartAccount({
+    client: client as never,
+    owner: toWebAuthnAccount({ credential: credential as never }),
+  });
+  const bundlerClient = createBundlerClient({
+    account: smartAccount as never,
+    chain,
+    transport: modularTransport as never,
+  });
+
+  return {
+    kind: "passkey",
+    address: smartAccount.address as Address,
+    sendCalls: async (calls) => {
+      const sendUserOperation = bundlerClient.sendUserOperation as never as (args: unknown) => Promise<Hex>;
+      const waitForReceipt = bundlerClient.waitForUserOperationReceipt as never as (args: {
+        hash: Hex;
+      }) => Promise<{ receipt?: { transactionHash?: Hex } }>;
+      const hash = await sendUserOperation({ calls, paymaster: true });
+      try {
+        const receipt = await waitForReceipt({ hash });
+        return [(receipt?.receipt?.transactionHash ?? hash) as Hex];
+      } catch {
+        return [hash];
+      }
+    },
+  };
+}
