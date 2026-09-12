@@ -77,4 +77,4 @@ fallback path via standard x402 (`X402_PREFERRED_NETWORK`, `X402_MAX_PAYMENT_USD
   `PriceUpdated` event. Writers are revocable and the oracle can be paused.
 - `valid` requires freshness and an open market; stale/closed data degrades to invalid
   and the protocol rests in lending (no JIT).
-- No price is ever read from a mock in the production path. `MockToken` is test-only.
+- No price is ever read from a test token in the production path. `TestToken` is test-only.

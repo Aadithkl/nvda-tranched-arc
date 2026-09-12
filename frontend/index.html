@@ -1,12 +1,402 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tranched Arc — Arc testnet console</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrancheVault — Arc Testnet</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Inter','system-ui','sans-serif'], mono: ['JetBrains Mono','monospace'] },
+      colors: { cream: '#FAFAF7', ink: '#0A0A0A', muted: '#6B7280', line: '#E9E7E1', accent: '#FF4D00' }
+    }
+  }
+}
+</script>
+<style>
+  :root{ --bg:#FAFAF7; --ink:#0A0A0A; --muted:#6B7280; --line:#E9E7E1; --accent:#FF4D00; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body{ font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var(--ink); margin:0; overflow-x:hidden; }
+  ::selection{ background:#FF4D00; color:#fff; }
+  .mono-label{ font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#6B7280; }
+  .sec-num{ font-family:'JetBrains Mono',monospace; font-size:12px; color:#0A0A0A; background:#fff; border:1px solid var(--line); padding:4px 10px; border-radius:999px; }
+
+  .btn-black{ display:inline-flex; align-items:center; gap:8px; background:#0A0A0A; color:#fff; font-weight:600; font-size:15px; padding:12px 22px; border-radius:999px; border:1px solid #0A0A0A; cursor:pointer; transition:all .22s ease; }
+  .btn-black:hover{ transform:translateY(-1px); box-shadow:0 8px 24px rgba(0,0,0,.18); background:#1c1c1c; }
+  .btn-black:disabled{ opacity:.4; cursor:not-allowed; transform:none; box-shadow:none; }
+  .btn-accent{ display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:#fff; font-weight:600; font-size:15px; padding:12px 22px; border-radius:999px; border:1px solid var(--accent); cursor:pointer; transition:all .22s ease; }
+  .btn-accent:hover{ transform:translateY(-1px); box-shadow:0 8px 24px rgba(255,77,0,.35); background:#E04400; }
+  .btn-accent:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn-ghost{ display:inline-flex; align-items:center; gap:8px; background:#fff; color:#0A0A0A; font-weight:600; font-size:14px; padding:11px 20px; border-radius:999px; border:1px solid var(--line); cursor:pointer; transition:all .22s ease; }
+  .btn-ghost:hover{ border-color:#0A0A0A; transform:translateY(-1px); }
+  .btn-ghost:disabled{ opacity:.4; cursor:not-allowed; }
+
+  .nav-link{ font-size:14px; font-weight:500; color:#3f3f3f; padding:8px 14px; border-radius:999px; cursor:pointer; transition:all .18s; border:1px solid transparent; white-space:nowrap; background:none; }
+  .nav-link:hover{ background:#fff; border-color:var(--line); color:#0A0A0A; }
+  .nav-link.active{ background:#0A0A0A; color:#fff; }
+
+  .card{ background:#fff; border:1px solid var(--line); border-radius:20px; transition:all .25s ease; }
+  .page{ display:none; }
+  .page.active{ display:block; animation:pageIn .45s cubic-bezier(.22,1,.36,1); }
+  @keyframes pageIn{ from{ opacity:0; transform:translateY(14px);} to{ opacity:1; transform:translateY(0);} }
+
+  .badge{ display:inline-flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:600; letter-spacing:.04em; padding:5px 11px; border-radius:999px; border:1px solid; }
+  .badge-live{ background:#ECFDF5; color:#059669; border-color:#A7F3D0; }
+  .badge-stale{ background:#FEF2F2; color:#DC2626; border-color:#FECACA; }
+  .badge-warn{ background:#FFFBEB; color:#D97706; border-color:#FDE68A; }
+  .badge-info{ background:#EFF6FF; color:#2563EB; border-color:#BFDBFE; }
+  .badge-dark{ background:#0A0A0A; color:#fff; border-color:#0A0A0A; }
+
+  .pulse-dot{ position:relative; }
+  .pulse-dot::before{ content:''; position:absolute; inset:-4px; border-radius:999px; background:currentColor; opacity:.25; animation:ping 1.8s cubic-bezier(0,0,.2,1) infinite; }
+  @keyframes ping{ 75%,100%{ transform:scale(2.1); opacity:0; } }
+
+  .bar-track{ height:8px; background:#EFEDE7; border-radius:999px; overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:999px; transition:width 1s cubic-bezier(.22,1,.36,1); }
+
+  .field{ width:100%; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 16px; font-size:14px; outline:none; transition:all .18s; font-family:'JetBrains Mono',monospace; }
+  .field:focus{ border-color:#0A0A0A; box-shadow:0 0 0 3px rgba(10,10,10,.08); }
+
+  #toasts{ position:fixed; bottom:24px; right:24px; z-index:100; display:flex; flex-direction:column; gap:10px; max-width:380px; }
+  .toast{ background:#0A0A0A; color:#fff; border-radius:14px; padding:14px 16px; font-size:13.5px; display:flex; gap:10px; align-items:flex-start; box-shadow:0 16px 40px rgba(0,0,0,.3); animation:toastIn .35s cubic-bezier(.22,1,.36,1); border:1px solid #2a2a2e; word-break:break-word; }
+  @keyframes toastIn{ from{ opacity:0; transform:translateX(30px);} to{ opacity:1; transform:translateX(0);} }
+  .toast.out{ opacity:0; transform:translateX(30px); transition:all .3s; }
+
+  table.spec{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.spec th{ font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:#6B7280; text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); }
+  table.spec td{ padding:10px 14px; border-bottom:1px solid #F1EFE9; }
+  table.spec tr:last-child td{ border-bottom:none; }
+  code.inline{ font-family:'JetBrains Mono',monospace; font-size:12px; background:#F1EFE9; padding:2px 7px; border-radius:6px; border:1px solid #E4E1D9; }
+  a{ color:#FF4D00; text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+  .kv{ display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid #F1EFE9; font-size:13.5px; }
+  .kv:last-child{ border-bottom:none; }
+  .kv span:first-child{ color:#6B7280; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .kv span:last-child{ font-weight:600; text-align:right; word-break:break-all; }
+</style>
+</head>
+<body>
+
+<header class="fixed top-0 left-0 right-0 z-50" style="background:rgba(250,250,247,.9); backdrop-filter:blur(14px); border-bottom:1px solid var(--line);">
+  <div class="max-w-7xl mx-auto px-5 h-[64px] flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-[10px] flex items-center justify-center font-extrabold text-white text-lg" style="background:linear-gradient(135deg,#FF4D00,#FF8A00);">◈</div>
+      <span class="font-bold text-[17px] tracking-tight">TrancheVault</span>
+      <span class="hidden sm:inline-flex badge badge-dark ml-1" id="chainBadge">ARC TESTNET</span>
+    </div>
+    <nav class="hidden lg:flex items-center gap-1 bg-[#F1EFE9]/70 border border-[var(--line)] rounded-full p-1">
+      <button class="nav-link active" data-page="vaults" onclick="showPage('vaults', this)">Vaults</button>
+      <button class="nav-link" data-page="swap" onclick="showPage('swap', this)">Swap</button>
+      <button class="nav-link" data-page="oracle" onclick="showPage('oracle', this)">Oracle</button>
+      <button class="nav-link" data-page="strategy" onclick="showPage('strategy', this)">Strategy</button>
+    </nav>
+    <div class="flex items-center gap-2 relative">
+      <span id="walletPill" class="hidden md:inline-flex badge badge-info font-mono">0x…disconnected</span>
+      <button id="connectBtn" class="btn-black !py-2.5 !px-5 !text-sm">Connect</button>
+      <div id="walletMenu" class="hidden absolute right-0 top-[52px] w-[300px] card p-4 z-50 shadow-xl">
+        <div class="mono-label mb-2">Connect wallet</div>
+        <button class="btn-ghost w-full justify-center !text-[13px] mb-3" onclick="connectInjectedWallet()">Browser wallet</button>
+        <div id="passkeyWrap" class="hidden">
+          <div class="mono-label mb-2">Circle passkey (gasless)</div>
+          <input id="wmUsername" class="field mb-2" placeholder="passkey username (email)" />
+          <div class="flex gap-2">
+            <button class="btn-accent !text-[13px] !py-2 flex-1 justify-center" onclick="connectPasskeyWallet('register')">Create</button>
+            <button class="btn-ghost !text-[13px] !py-2 flex-1 justify-center" onclick="connectPasskeyWallet('login')">Unlock</button>
+          </div>
+        </div>
+        <div id="walletInfo" class="hidden mt-2">
+          <div class="kv"><span>address</span><span id="wmAddr">—</span></div>
+          <div class="kv"><span>type</span><span id="wmKind">—</span></div>
+          <button class="btn-ghost w-full justify-center !text-[13px] mt-2" onclick="disconnectWallet()">Disconnect</button>
+        </div>
+      </div>
+      <button class="lg:hidden btn-ghost !p-2.5 !rounded-full" onclick="document.getElementById('mobileMenu').classList.toggle('hidden')">☰</button>
+    </div>
+  </div>
+  <div id="mobileMenu" class="hidden lg:hidden px-5 pb-4 flex flex-wrap gap-2" style="background:rgba(250,250,247,.97);">
+    <button class="nav-link active" onclick="showPage('vaults', this)">Vaults</button>
+    <button class="nav-link" onclick="showPage('swap', this)">Swap</button>
+    <button class="nav-link" onclick="showPage('oracle', this)">Oracle</button>
+    <button class="nav-link" onclick="showPage('strategy', this)">Strategy</button>
+  </div>
+</header>
+
+<main class="pt-[64px]">
+
+<!-- ══════════ VAULTS ══════════ -->
+<section id="page-vaults" class="page active">
+  <div class="max-w-7xl mx-auto px-5 py-10">
+    <div class="flex items-center gap-3 mb-3"><span class="sec-num">01</span><span class="mono-label">· Tranche vaults · ERC-7540</span></div>
+    <h1 class="text-[30px] sm:text-[40px] font-bold tracking-tight mb-6">Deposit. Request. Claim.</h1>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div class="card p-4"><div class="mono-label mb-1">USDC balance</div><div class="text-[22px] font-extrabold font-mono" id="balUsdc">—</div></div>
+      <div class="card p-4"><div class="mono-label mb-1">mNVDA balance</div><div class="text-[22px] font-extrabold font-mono" id="balEquity">—</div></div>
+      <div class="card p-4"><div class="mono-label mb-1">Oracle</div><div id="chipOracle" class="badge badge-warn mt-1">reading…</div></div>
+      <div class="card p-4"><div class="mono-label mb-1">Hook quote state</div><div id="chipQuote" class="badge badge-warn mt-1">reading…</div></div>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="card p-6 border-t-4 !border-t-[#059669]">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-[17px]">🛡️ Senior vault</h2>
+          <span id="senBadge" class="badge badge-info">—</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-4">
+          <div class="rounded-xl bg-[#F7F6F2] border border-[var(--line)] p-3"><div class="mono-label !text-[10px]">Your shares</div><div class="font-extrabold text-[19px] font-mono" id="senShares">0</div></div>
+          <div class="rounded-xl bg-[#ECFDF5] border border-[#A7F3D0] p-3"><div class="mono-label !text-[10px] !text-[#059669]">Claim value</div><div class="font-extrabold text-[19px] font-mono" id="senClaim">$0.00</div></div>
+        </div>
+        <label class="mono-label">Amount (USDC · 6 decimals)</label>
+        <input id="senAmt" class="field mt-1.5 mb-2" value="100" inputmode="decimal">
+        <div class="font-mono text-[11px] text-muted mb-3">maxDeposit: <b id="senMax" class="text-black">—</b> · paused: <b id="senPaused">—</b></div>
+        <button id="senDeposit" class="btn-black w-full justify-center">Approve + deposit →</button>
+        <div id="senNote" class="font-mono text-[11px] text-muted mt-2">—</div>
+      </div>
+
+      <div class="card p-6 text-white border-t-4 !border-t-[#FF4D00]" style="background:#0E0E10; border-color:#26262b;">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-bold text-[17px]">⚡ Junior vault</h2>
+          <span id="junBadge" class="badge" style="background:#FF4D00; border-color:#FF4D00; color:#fff;">—</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-4">
+          <div class="rounded-xl p-3 border border-white/10 bg-white/5"><div class="mono-label !text-white/40 !text-[10px]">Your shares</div><div class="font-extrabold text-[19px] font-mono" id="junShares">0</div></div>
+          <div class="rounded-xl p-3 border border-[#FF4D00]/40 bg-[#FF4D00]/10"><div class="mono-label !text-white/40 !text-[10px]">Claim value</div><div class="font-extrabold text-[19px] font-mono" id="junClaim">$0.00</div></div>
+        </div>
+        <label class="mono-label !text-white/40">Amount (USDC · 6 decimals)</label>
+        <input id="junAmt" class="field mt-1.5 mb-2 !bg-white/5 !border-white/10 !text-white" value="100" inputmode="decimal">
+        <div class="font-mono text-[11px] text-white/40 mb-3">maxDeposit: <b id="junMax" class="text-white">—</b> · paused: <b id="junPaused">—</b></div>
+        <button id="junDeposit" class="btn-accent w-full justify-center">Approve + deposit →</button>
+        <div id="junNote" class="font-mono text-[11px] text-white/40 mt-2">exits: USDC · equity · pro-rata</div>
+      </div>
+    </div>
+
+    <div class="card p-6 mt-4">
+      <div class="mono-label mb-4">[ .REDEEM — ASYNC ERC-7540 ]</div>
+      <div class="grid lg:grid-cols-4 gap-4">
+        <div>
+          <label class="mono-label">Vault</label>
+          <select id="redVault" class="field mt-1.5 mb-3">
+            <option value="senior">Senior</option>
+            <option value="junior">Junior</option>
+          </select>
+          <label class="mono-label">Shares</label>
+          <input id="redAmt" class="field mt-1.5 mb-3" placeholder="0.0" inputmode="decimal">
+          <button id="redRequest" class="btn-black w-full justify-center">requestRedeem →</button>
+          <div class="kv mt-3"><span>pending</span><span id="redPending">0</span></div>
+          <div class="kv"><span>claimable</span><span id="redClaimable">0</span></div>
+        </div>
+        <div class="lg:col-span-3 grid sm:grid-cols-3 gap-3">
+          <div class="rounded-2xl border border-[var(--line)] p-5">
+            <div class="font-mono text-[11px] text-muted">STEP 2 · KEEPER</div>
+            <div class="font-bold mt-1">fulfillRedeem()</div>
+            <p class="text-[13px] text-muted mt-1">Accountant rebalances and locks the rate. Enabled only for the keeper wallet.</p>
+            <button id="redKeeper" class="btn-ghost !text-[13px] !py-2 mt-3 w-full justify-center">Fulfill</button>
+            <div class="kv mt-2"><span>keeper</span><span id="redKeeperAddr">—</span></div>
+          </div>
+          <div class="rounded-2xl border border-[var(--line)] p-5">
+            <div class="font-mono text-[11px] text-muted">STEP 3 · CLAIM</div>
+            <div class="font-bold mt-1">claimAndUnwrap</div>
+            <p class="text-[13px] text-muted mt-1">Senior settles in USDC only. Junior can take equity or pro-rata units.</p>
+            <button id="redClaimUsdc" class="btn-black !text-[13px] !py-2 mt-3 w-full justify-center">Claim USDC</button>
+            <div class="flex gap-2 mt-2">
+              <button id="redClaimEquity" class="btn-ghost !text-[12px] !py-2 flex-1 justify-center">Equity</button>
+              <button id="redClaimProp" class="btn-ghost !text-[12px] !py-2 flex-1 justify-center">Pro-rata</button>
+            </div>
+          </div>
+          <div class="rounded-2xl border border-[var(--line)] p-5">
+            <div class="font-mono text-[11px] text-muted">FAUCET · TEST TOKENS</div>
+            <div class="font-bold mt-1">mNVDA</div>
+            <p class="text-[13px] text-muted mt-1">USDC is real Arc testnet USDC — get it from <a href="https://faucet.circle.com" target="_blank" rel="noreferrer">Circle's faucet</a>.</p>
+            <button id="faucetBtn" class="btn-ghost !text-[13px] !py-2 mt-3 w-full justify-center">Mint 100 mNVDA</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-5 mt-4">
+      <div class="mono-label mb-2">[ .CONTRACTS ]</div>
+      <div id="footerLinks" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ SWAP ══════════ -->
+<section id="page-swap" class="page">
+  <div class="max-w-7xl mx-auto px-5 py-10">
+    <div class="flex items-center gap-3 mb-3"><span class="sec-num">02</span><span class="mono-label">· Uniswap v4 · DemoRouter</span></div>
+    <h1 class="text-[30px] sm:text-[40px] font-bold tracking-tight mb-6">Swap USDC ⇄ NVDA.</h1>
+
+    <div id="swapEmpty" class="card p-8 hidden">
+      <div class="mono-label mb-2">[ .VENUE POOL ]</div>
+      <p class="font-bold text-[16px] mb-1">USDC/NVDA pool not seeded yet</p>
+      <p class="text-muted text-[14px] mb-3">The swap tab uses the real-USDC venue pool from the manifest (<code class="inline">pools.usdcNvda</code>). Seed it, then refresh the manifest:</p>
+      <pre class="font-mono text-[12.5px] bg-[#0C0C0E] text-[#c9c9d1] rounded-xl p-4 overflow-x-auto">npm run seed:nvda
+npm run export:pack</pre>
+    </div>
+
+    <div id="swapBody" class="grid lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 card p-6">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div class="font-bold text-[17px]" id="swapPair">— / —</div>
+          <span id="swapPoolBadge" class="badge badge-info">—</span>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mb-5 font-mono text-[12px]">
+          <div class="rounded-xl border border-[var(--line)] p-3"><div class="mono-label !text-[10px]">Price</div><b id="swapPrice">—</b></div>
+          <div class="rounded-xl border border-[var(--line)] p-3"><div class="mono-label !text-[10px]">Tick</div><b id="swapTick">—</b></div>
+          <div class="rounded-xl border border-[var(--line)] p-3"><div class="mono-label !text-[10px]">Liquidity</div><b id="swapLiq">—</b></div>
+        </div>
+        <label class="mono-label">Direction</label>
+        <div class="flex items-center gap-2 mt-1.5 mb-4">
+          <button id="swapDir" class="btn-ghost !text-[13px] !py-2">USDC → NVDA</button>
+          <button id="swapFlip" class="btn-ghost !text-[13px] !py-2">⇅ flip</button>
+        </div>
+        <label class="mono-label">Amount in (<span id="swapInSym">USDC</span>)</label>
+        <input id="swapAmt" class="field mt-1.5 mb-2" value="1" inputmode="decimal">
+        <div class="flex items-center justify-between font-mono text-[11px] text-muted mb-4">
+          <span>balance: <b id="swapBalIn" class="text-black">—</b></span>
+          <span>you receive ≈ <b id="swapQuoteOut" class="text-black">—</b> <span id="swapOutSym">NVDA</span></span>
+        </div>
+        <div class="flex items-center gap-3 mb-4">
+          <label class="mono-label">Slippage</label>
+          <select id="swapSlip" class="field !w-auto !py-1.5 !text-[12px]">
+            <option value="10">0.10%</option>
+            <option value="50" selected>0.50%</option>
+            <option value="100">1.00%</option>
+            <option value="300">3.00%</option>
+          </select>
+          <span id="swapQuoteWarn" class="font-mono text-[11px] text-muted"></span>
+        </div>
+        <button id="swapBtn" class="btn-accent w-full justify-center">Approve + swap →</button>
+        <div id="swapNote" class="font-mono text-[11px] text-muted mt-2">—</div>
+      </div>
+      <div class="card p-6">
+        <div class="mono-label mb-3">[ .POOL KEY ]</div>
+        <div class="kv"><span>currency0</span><span id="swapC0">—</span></div>
+        <div class="kv"><span>currency1</span><span id="swapC1">—</span></div>
+        <div class="kv"><span>fee</span><span id="swapFee">—</span></div>
+        <div class="kv"><span>tickSpacing</span><span id="swapTs">—</span></div>
+        <div class="kv"><span>hooks</span><span id="swapHooks">—</span></div>
+        <div class="kv"><span>poolId</span><span id="swapPoolId">—</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ORACLE ══════════ -->
+<section id="page-oracle" class="page">
+  <div class="max-w-7xl mx-auto px-5 py-10">
+    <div class="flex items-center gap-3 mb-3"><span class="sec-num">03</span><span class="mono-label">· NVDA / USD · x402 push oracle</span></div>
+    <h1 class="text-[30px] sm:text-[40px] font-bold tracking-tight mb-6">Oracle state.</h1>
+
+    <div class="grid lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 card p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+          <div class="flex items-baseline gap-3">
+            <span id="orPrice" class="text-[40px] font-extrabold tracking-tight">$—</span>
+            <span id="orValid" class="badge badge-warn">—</span>
+          </div>
+          <span id="orStatus" class="badge badge-info">—</span>
+        </div>
+        <div class="grid sm:grid-cols-4 gap-3 mt-4 font-mono text-[12.5px]">
+          <div class="rounded-xl border border-[var(--line)] p-3.5"><div class="mono-label !text-[10px]">Bid</div><b id="orBid">—</b></div>
+          <div class="rounded-xl border border-[var(--line)] p-3.5"><div class="mono-label !text-[10px]">Ask</div><b id="orAsk">—</b></div>
+          <div class="rounded-xl border border-[var(--line)] p-3.5"><div class="mono-label !text-[10px]">Session</div><b id="orSession">—</b></div>
+          <div class="rounded-xl border border-[var(--line)] p-3.5"><div class="mono-label !text-[10px]">Paused</div><b id="orPaused">—</b></div>
+        </div>
+        <div class="mt-4">
+          <div class="flex justify-between font-mono text-[11px] text-muted mb-1.5"><span>freshness</span><span id="orFresh">—</span></div>
+          <div class="bar-track !h-[12px]"><div id="orFreshBar" class="bar-fill" style="width:0%; background:#059669;"></div></div>
+        </div>
+        <div class="kv mt-4"><span>updatedAt</span><span id="orUpdated">—</span></div>
+        <div class="kv"><span>sourceTimestamp</span><span id="orSrcTs">—</span></div>
+        <div class="kv"><span>paymentRef</span><span id="orRef">—</span></div>
+      </div>
+      <div class="flex flex-col gap-4">
+        <div class="card p-6">
+          <div class="mono-label mb-3">[ .RISK GATE ]</div>
+          <div class="rounded-xl p-4 font-bold text-center text-white" id="orRisk" style="background:#6B7280;">—</div>
+          <p class="text-[13px] text-muted mt-3">Risk-increasing flows (swaps into the hook, equity exits, rebalances) require a fresh price and an open market. De-risking and proportional exits stay available.</p>
+        </div>
+        <div class="card p-6">
+          <div class="mono-label mb-2">[ .KEEPER ]</div>
+          <pre class="font-mono text-[12px] bg-[#0C0C0E] text-[#7EE787] rounded-lg p-3 overflow-x-auto">node scripts/x402-price.mjs --gateway --push</pre>
+          <div class="kv mt-3"><span>writer</span><span id="orWriter">—</span></div>
+          <div class="kv"><span>maxStaleness</span><span id="orStaleness">—</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ STRATEGY ══════════ -->
+<section id="page-strategy" class="page">
+  <div class="max-w-7xl mx-auto px-5 py-10">
+    <div class="flex items-center gap-3 mb-3"><span class="sec-num">04</span><span class="mono-label">· Hook · accountant · pipe · controller</span></div>
+    <h1 class="text-[30px] sm:text-[40px] font-bold tracking-tight mb-6">Strategy state.</h1>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="mono-label">[ .JIT HOOK ]</div>
+          <span id="stQuote" class="badge badge-warn">—</span>
+        </div>
+        <div class="kv"><span>previewQuote</span><span id="stPreview">—</span></div>
+        <div class="kv"><span>effectiveMaxDeploy</span><span id="stMaxDeploy">—</span></div>
+        <div class="kv"><span>riskBudget</span><span id="stRiskBudget">—</span></div>
+        <div class="kv"><span>jitState</span><span id="stJit">—</span></div>
+        <div class="kv"><span>totalManagedAssets</span><span id="stManaged">—</span></div>
+        <div class="kv"><span>paused</span><span id="stPaused">—</span></div>
+        <div class="kv"><span>params</span><span id="stParams">—</span></div>
+      </div>
+
+      <div class="card p-6">
+        <div class="mono-label mb-3">[ .ACCOUNTANT ]</div>
+        <div class="kv"><span>seniorClaim</span><span id="accSenior">—</span></div>
+        <div class="kv"><span>juniorClaim</span><span id="accJunior">—</span></div>
+        <div class="kv"><span>claimableSenior</span><span id="accClaimS">—</span></div>
+        <div class="kv"><span>claimableJunior</span><span id="accClaimJ">—</span></div>
+        <div class="kv"><span>escrowFunded</span><span id="accEscrow">—</span></div>
+        <div class="kv"><span>escrowBps</span><span id="accEscrowBps">—</span></div>
+        <div class="kv"><span>poolValue</span><span id="accPool">—</span></div>
+        <div class="kv"><span>effectivePool</span><span id="accEffPool">—</span></div>
+        <div class="kv"><span>lastRebalanceAt</span><span id="accLastRebal">—</span></div>
+      </div>
+
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="mono-label">[ .PIPE MODULE ]</div>
+          <span id="pipeBadge" class="badge badge-warn">—</span>
+        </div>
+        <div class="kv"><span>assetComposition</span><span id="pipeComposition">—</span></div>
+        <div class="kv"><span>hardMaxEquityBps</span><span id="pipeHardCap">—</span></div>
+        <div class="kv"><span>conversionFeeBps</span><span id="pipeFee">—</span></div>
+        <div class="kv"><span>maxRebalanceSlippageBps</span><span id="pipeSlippage">—</span></div>
+        <div class="kv"><span>rebalanceVenueSet</span><span id="pipeVenue">—</span></div>
+      </div>
+
+      <div class="card p-6">
+        <div class="mono-label mb-3">[ .CONTROLLER BOUNDS ]</div>
+        <div class="kv"><span>maxBaseFee</span><span id="ctlBaseFee">—</span></div>
+        <div class="kv"><span>maxSurgeFee</span><span id="ctlSurgeFee">—</span></div>
+        <div class="kv"><span>maxDeviationBps</span><span id="ctlDeviation">—</span></div>
+        <div class="kv"><span>maxTtl</span><span id="ctlTtl">—</span></div>
+        <div class="kv"><span>maxGracePeriod</span><span id="ctlGrace">—</span></div>
+        <div class="kv"><span>maxDeployPerSwap</span><span id="ctlDeploy">—</span></div>
+        <div class="kv"><span>controller</span><span id="ctlAddr">—</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div id="toasts"></div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
 </html>

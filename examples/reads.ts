@@ -20,7 +20,7 @@ export async function readStockPrice() {
 
 // v4 pool state: prefers the USDC/NVDA venue pool, falls back to the live demo pool
 export async function readUsdcNvdaPool() {
-  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const pool = pools.usdcNvda ?? pools.demoNvdaUsdc;
   const poolId = pool.poolId as `0x${string}`;
   const [sqrtPriceX96, tick, , lpFee] = await publicClient.readContract({
     address: contracts.stateView as `0x${string}`,
@@ -36,7 +36,7 @@ export async function readUsdcNvdaPool() {
   });
   // human price = raw price * 10^(dec0 - dec1); NVDA is 18d, USDC is 6d
   const nvdaIsToken0 =
-    pool.key.currency0.toLowerCase() === contracts.mockNvda.toLowerCase() ||
+    pool.key.currency0.toLowerCase() === contracts.mNvda.toLowerCase() ||
     (contracts.nvda != null && pool.key.currency0.toLowerCase() === contracts.nvda.toLowerCase());
   const dec0 = nvdaIsToken0 ? 18 : 6;
   const dec1 = nvdaIsToken0 ? 6 : 18;
@@ -53,12 +53,12 @@ export async function readUsdcNvdaPool() {
 
 // Quote an exact-input swap (see V4Quoter ABI for the tuple shape)
 export async function quoteUsdcToNvda(amountIn: bigint) {
-  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const pool = pools.usdcNvda ?? pools.demoNvdaUsdc;
   const tokenIn = [pool.key.currency0, pool.key.currency1].some(
     (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
   )
     ? contracts.usdc
-    : contracts.mockUsdc;
+    : contracts.mUsdc;
   const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
   return publicClient.readContract({
     address: contracts.v4Quoter as `0x${string}`,

@@ -30,12 +30,12 @@ export async function createPasskeyWallet(clientKey: string, username: string) {
 
 // Gasless batched flow: approve USDC + swap in one sponsored user operation
 export async function gaslessSwap(bundlerClient: ReturnType<typeof createBundlerClient>, amountUsdc = "1") {
-  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const pool = pools.usdcNvda ?? pools.demoNvdaUsdc;
   const tokenIn = [pool.key.currency0, pool.key.currency1].some(
     (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
   )
     ? contracts.usdc
-    : contracts.mockUsdc;
+    : contracts.mUsdc;
   const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
 
   const approveData = encodeFunctionData({
