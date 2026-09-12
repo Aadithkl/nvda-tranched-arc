@@ -12,7 +12,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M0 | Env, repo, Foundry, deps, licenses | done |
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
-| M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
+| M2b | Aave V2 semi-fork (USDC + NVDA markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
 | M3 | `TrancheJITHook` — JIT engine, dynamic fee, toxic-flow pricing, Aave rest | live (v3 dual-token USDC/equity redeploy pending) |
 | M4 | `StrategyController` + agent daemon | live — bounded controller; LLM strategy manager (6h paid verdict) with deterministic rails |
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share + `TrancheAccountant` | live — dual-token exits via `TranchePipeModule` |
@@ -51,9 +51,9 @@ npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
 node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
-npm run seed:eurc                     # USDC/EURC FX pool status (--execute to seed)
+npm run seed:nvda                     # USDC/NVDA pool status (--execute to seed)
 npm run lending:status                # Aave semi-fork: prices, balances, liquidity index
-npm run lending:seed                  # deposit 10 USDC + 10 EURC into the lending pool
+npm run lending:seed                  # deposit 10 USDC + 1 NVDA into the lending pool
 npm run hook:demo -- --status         # live TrancheJITHook demo (fees, toxic surge, Aave rest)
 npm run agent:keygen                  # generate the local agent-operator key (testnet only)
 npm run agent:tick                    # offchain agent dry-run (regime -> params, no tx)
@@ -69,6 +69,11 @@ forge build
 ```
 
 Environment: copy `.env.example` to `.env` and fill in secrets (never committed).
+
+Before running anything onchain, set `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA token),
+`NVDA_ORACLE`, and `NVDA_PEGGED_PRICE` (USD 8d); the pool knobs (`NVDA_POOL_FEE`,
+`NVDA_POOL_TICK_SPACING`, `NVDA_POOL_PRICE`) derive the tick automatically. Then seed with
+`npm run lending:seed` (10 USDC + 1 NVDA) and `npm run seed:nvda -- --execute`.
 
 ## Dependencies (pinned)
 
@@ -87,7 +92,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 - `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
 - `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, senior-priority keeper
 - `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
-- `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps
+- `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + NVDA markets, pegs, gaps
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)

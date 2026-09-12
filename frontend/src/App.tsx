@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   buildApproveAndSwapCalls,
   connectPasskeyWallet,
+  formatNvda,
   formatUsdc,
   readBalances,
   type Wallet,
@@ -56,7 +57,7 @@ export default function App() {
     <main style={{ fontFamily: "ui-monospace, monospace", maxWidth: 760, margin: "40px auto", padding: 16 }}>
       <h1 style={{ fontSize: 20 }}>Tranched Arc — Arc testnet console</h1>
       <p style={{ color: "#666" }}>
-        Circle modular wallet (passkey) + Gas Station Paymaster: gasless USDC/EURC swap on the real Arc testnet FX pool.
+        Circle modular wallet (passkey) + Gas Station Paymaster: gasless USDC/NVDA swap on the Arc testnet demo pool.
       </p>
 
       <section style={{ border: "1px solid #ddd", padding: 16, borderRadius: 12, marginBottom: 16 }}>
@@ -76,7 +77,7 @@ export default function App() {
         <p>{status}</p>
         {wallet && (
           <p>
-            USDC: {balances ? formatUsdc(balances.usdc) : "…"} · EURC: {balances ? formatUsdc(balances.nvda) : "…"}{" "}
+            USDC: {balances ? formatUsdc(balances.usdc) : "…"} · NVDA: {balances ? formatNvda(balances.nvda) : "…"}{" "}
             <button onClick={refreshBalances} disabled={busy}>
               refresh
             </button>
@@ -87,7 +88,7 @@ export default function App() {
       <section style={{ border: "1px solid #ddd", padding: 16, borderRadius: 12 }}>
         <h2 style={{ fontSize: 16 }}>2. Gasless swap (Paymaster)</h2>
         <button disabled={!wallet || busy} onClick={gaslessSwap}>
-          Swap 1 USDC → EURC (sponsored)
+          Swap 1 USDC → NVDA (sponsored)
         </button>
         {txHash && (
           <p>

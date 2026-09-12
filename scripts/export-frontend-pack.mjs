@@ -22,7 +22,7 @@ const arcTestnet = defineChain({
 
 const contracts = {
   usdc: process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000",
-  nvda: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  nvda: process.env.NVDA_ADDRESS || null,
   poolManager: process.env.V4_POOL_MANAGER || "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
   demoRouter: process.env.DEMO_ROUTER || "0xC76fd7Ee062C5E498a0E2be6CcB7c2aD2dF0d062",
   positionManager: process.env.POSITION_MANAGER || "0x7Cdfa5f9369c3869c63B0fF0Ca89165Ae2B2b111",
@@ -41,8 +41,8 @@ const contracts = {
   peggedPriceOracle: process.env.LENDING_ORACLE || "0x6DC2A77B42B4049f96593b5Aa979227580aA510b",
   aUsdc: process.env.A_USDC || "0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1",
   dUsdc: process.env.D_USDC || "0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6",
-  aEurc: process.env.A_EURC || "0x24f73520cB400a8d978C5AB0c358755536cA99fa",
-  dEurc: process.env.D_EURC || "0xAfcEB101607Ff5f190E3E7F534a927078AF70053",
+  aNvda: process.env.A_NVDA || null,
+  dNvda: process.env.D_NVDA || null,
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   multicall3: "0xcA11bde05977b3631167028862bE2a173976CA11",
   create2Deployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
@@ -94,7 +94,15 @@ function sortedKey(a, b, fee, tickSpacing, hooks) {
 }
 
 const mockPoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, zero);
-const nvdaPoolKey = sortedKey(contracts.usdc, contracts.nvda, 100, 1, zero);
+const nvdaPoolKey = contracts.nvda
+  ? sortedKey(
+      contracts.usdc,
+      contracts.nvda,
+      Number(process.env.NVDA_POOL_FEE || 3000),
+      Number(process.env.NVDA_POOL_TICK_SPACING || 60),
+      zero
+    )
+  : null;
 const smokePoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, contracts.smokeHook);
 
 const oracleAbi = parseAbi([
@@ -184,7 +192,15 @@ const ABI_CONTRACTS = [
 fs.mkdirSync("docs/abis", { recursive: true });
 const exported = [];
 for (const name of ABI_CONTRACTS) {
-  const artifact = `out/${name}.sol/${name}.json`;
+  let artifact = `out/${name}.sol/${name}.json`;
+  if (!fs.existsSync(artifact)) {
+    // Contracts compiled under multiple solc versions get a `<name>.<version>.json` artifact.
+    const dir = `out/${name}.sol`;
+    const versioned = fs.existsSync(dir)
+      ? fs.readdirSync(dir).find((file) => file.startsWith(`${name}.`) && file.endsWith(".json"))
+      : null;
+    if (versioned) artifact = `${dir}/${versioned}`;
+  }
   if (!fs.existsSync(artifact)) {
     console.warn(`missing artifact for ${name}; run \`forge build\` first`);
     continue;
@@ -221,13 +237,15 @@ const manifest = {
   stack,
   tokens: {
     USDC: { address: contracts.usdc, decimals: 6 },
-    EURC: { address: contracts.nvda, decimals: 6 },
+    ...(contracts.nvda ? { NVDA: { address: contracts.nvda, decimals: 18 } } : {}),
     mockUSDC: { address: contracts.mockUsdc, decimals: 6 },
     mockNVDA: { address: contracts.mockNvda, decimals: 18 },
     mockWETH9: { address: contracts.mockWeth9, decimals: 18 },
   },
   pools: {
-    usdcEurc: { ...(await poolState(nvdaPoolKey)), priceUsdPerEurc: 1.1617, note: "real USDC/EURC FX pool, fee 0.01%, tickSpacing 1" },
+    usdcNvda: nvdaPoolKey
+      ? { ...(await poolState(nvdaPoolKey)), note: "USDC/NVDA pool (NVDA_POOL_FEE / NVDA_POOL_TICK_SPACING, no hook)" }
+      : null,
     mockNvdaUsdc: { ...(await poolState(mockPoolKey)), note: "demo pool, no hook" },
     smokeHookPool: { ...(await poolState(smokePoolKey)), note: "hook callback proof pool (test-only hook)" },
   },
@@ -247,7 +265,7 @@ const manifest = {
     model: "Aave V2 semi-fork (independent implementation) — supply/withdraw, variable borrow/repay, no liquidations",
     markets: [
       { symbol: "USDC", underlying: contracts.usdc, decimals: 6, aToken: contracts.aUsdc, variableDebtToken: contracts.dUsdc, peggedPriceUsd8: 100000000 },
-      { symbol: "EURC", underlying: contracts.nvda, decimals: 6, aToken: contracts.aEurc, variableDebtToken: contracts.dEurc, peggedPriceUsd8: 116170000 },
+      { symbol: "NVDA", underlying: contracts.nvda ?? contracts.mockNvda, decimals: 18, aToken: contracts.aNvda, variableDebtToken: contracts.dNvda, peggedPriceUsd8: Number(process.env.NVDA_PEGGED_PRICE || 20000000000) },
     ],
     note: "Rest state for the tranche hook; see docs/LENDING.md",
   },

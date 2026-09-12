@@ -39,6 +39,7 @@ contract TrancheJITTest is Test {
     uint256 internal constant SEED_USDC = 5_000_000;
     uint256 internal constant SEED_NVDA = 25_000_000_000_000_000;
     uint256 internal constant SWAP_IN = 100_000;
+    uint256 internal constant SWAP_IN_NVDA = 500_000_000_000_000;
 
     PoolManager internal manager;
     DemoRouter internal router;
@@ -209,11 +210,16 @@ contract TrancheJITTest is Test {
         router.swapExactIn(key, zeroForOne, amountIn, 0, address(this), bytes(""));
     }
 
+    function _swapIn(bool zeroForOne) internal view returns (uint256) {
+        address tokenIn = Currency.unwrap(zeroForOne ? key.currency0 : key.currency1);
+        return tokenIn == address(usdc) ? SWAP_IN : SWAP_IN_NVDA;
+    }
+
     function test_jit_swap_worksWithZeroStandingLiquidity() public {
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);
         assertFalse(_jitActive());
 
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
 
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0, "JIT must leave zero residual liquidity");
         assertFalse(_jitActive());
@@ -225,17 +231,17 @@ contract TrancheJITTest is Test {
     }
 
     function test_jit_bothDirections() public {
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);
 
-        _swap(false, SWAP_IN);
+        _swap(false, _swapIn(false));
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);
         assertFalse(_jitActive());
     }
 
     function test_jit_feeAccruesToHook() public {
         uint256 before = hook.totalManagedAssets();
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
         uint256 afterSwap = hook.totalManagedAssets();
         assertGt(afterSwap, before, "JIT fee should accrue to the hook");
     }
@@ -244,7 +250,7 @@ contract TrancheJITTest is Test {
         uint256 suppliedBefore = hook.aToken().balanceOf(address(hook)) + hook.aTokenEquity().balanceOf(address(hook));
         assertEq(suppliedBefore, SEED_USDC + SEED_NVDA);
 
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
 
         uint256 suppliedAfter = hook.aToken().balanceOf(address(hook)) + hook.aTokenEquity().balanceOf(address(hook));
         assertGt(suppliedAfter, 0, "inventory must return to Aave");
@@ -253,14 +259,14 @@ contract TrancheJITTest is Test {
 
     function test_jit_capacityExceeded_reverts() public {
         vm.expectRevert();
-        _swap(true, 100_000_000);
+        _swap(usdcIsToken0, 100_000_000);
     }
 
     function test_jit_budgetZero_blocksQuoting() public {
         risk.setEscrowFunded(false);
         assertEq(hook.effectiveMaxDeploy(), 0);
         vm.expectRevert();
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
     }
 
     function test_jit_disabled_skipsJitAndUsesStandingLiquidity() public {
@@ -270,23 +276,23 @@ contract TrancheJITTest is Test {
             key,
             initialTick - 600,
             initialTick + 600,
-            1e8,
+            1e13,
             type(uint256).max,
             type(uint256).max,
             address(this),
             bytes("")
         );
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
         assertGt(IPoolManager(address(manager)).getLiquidity(poolId), 0);
         assertFalse(_jitActive());
     }
 
     function test_jit_sequentialSwaps_noResidue() public {
         uint256 aumBefore = hook.totalManagedAssets();
-        _swap(true, SWAP_IN);
-        _swap(false, SWAP_IN);
-        _swap(true, SWAP_IN);
-        _swap(false, SWAP_IN);
+        _swap(true, _swapIn(true));
+        _swap(false, _swapIn(false));
+        _swap(true, _swapIn(true));
+        _swap(false, _swapIn(false));
 
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);
         assertFalse(_jitActive());
@@ -304,7 +310,7 @@ contract TrancheJITTest is Test {
     }
 
     function test_jit_unwindClaims_redeemsOutsideSwap() public {
-        _swap(true, SWAP_IN);
+        _swap(true, _swapIn(true));
         assertGt(_claims(address(nvda)) + _claims(address(usdc)), 0, "swap must leave claims");
 
         uint256 aumBefore = hook.totalManagedAssets();
@@ -341,7 +347,7 @@ contract TrancheJITTest is Test {
     }
 
     function test_jit_oversizedWithinBudget_boundedPriceImpact() public {
-        _swap(true, 1_000_000);
+        _swap(usdcIsToken0, 1_000_000);
         (, int24 tickAfter,,) = IPoolManager(address(manager)).getSlot0(poolId);
         assertGe(tickAfter, initialTick - int24(BUCKET_TICKS));
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);

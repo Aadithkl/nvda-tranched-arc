@@ -7,7 +7,7 @@ import {
 } from "@circle-fin/modular-wallets-core";
 import { createPublicClient, encodeFunctionData, parseUnits, type Address } from "viem";
 import { createBundlerClient, toWebAuthnAccount } from "viem/account-abstraction";
-import { ADDRESSES, CLIENT_KEY, CLIENT_URL, USDC_EURC_KEY, arcTestnet, erc20Abi, routerAbi } from "./config";
+import { ADDRESSES, CLIENT_KEY, CLIENT_URL, USDC_IS_TOKEN0, USDC_NVDA_KEY, arcTestnet, erc20Abi, routerAbi } from "./config";
 
 export type Wallet = {
   address: Address;
@@ -59,7 +59,7 @@ export function buildApproveAndSwapCalls(address: Address, amountUsdc = "1"): { 
   const swapData = encodeFunctionData({
     abi: routerAbi,
     functionName: "swapExactIn",
-    args: [USDC_EURC_KEY, true, parseUnits(amountUsdc, 6), 0n, address, "0x"],
+    args: [USDC_NVDA_KEY, USDC_IS_TOKEN0, parseUnits(amountUsdc, 6), 0n, address, "0x"],
   });
   return [
     { to: ADDRESSES.usdc, data: approveData },
@@ -77,4 +77,8 @@ export async function readBalances(wallet: Wallet): Promise<{ usdc: bigint; nvda
 
 export function formatUsdc(amount: bigint): string {
   return (Number(amount) / 1e6).toFixed(4);
+}
+
+export function formatNvda(amount: bigint): string {
+  return (Number(amount) / 1e18).toFixed(6);
 }

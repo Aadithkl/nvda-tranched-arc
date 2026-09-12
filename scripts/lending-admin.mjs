@@ -54,9 +54,10 @@ const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc
 const walletClient = createWalletClient({ account, chain: arcTestnet, transport: http(rpc) });
 
 const usdc = process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
-const nvda = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
+const nvda = process.env.NVDA_ADDRESS;
 const pool = process.env.LENDING_POOL || "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8";
 const oracle = process.env.LENDING_ORACLE || "0x6DC2A77B42B4049f96593b5Aa979227580aA510b";
+if (!nvda) throw new Error("NVDA_ADDRESS must be set in .env");
 
 const explorer = (hash) => `https://testnet.arcscan.app/tx/${hash}`;
 
@@ -70,23 +71,37 @@ async function send(hashPromise, label) {
 }
 
 async function status() {
-  const [usdcPrice, nvdaPrice] = await Promise.all([
-    publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [usdc] }),
-    publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [nvda] }),
-  ]);
-  console.log(`oracle USDC price: ${Number(usdcPrice) / 1e8} (${usdcPrice})`);
-  console.log(`oracle EURC price: ${Number(nvdaPrice) / 1e8} (${nvdaPrice})`);
+  let usdcPrice = null;
+  let nvdaPrice = null;
+  try {
+    usdcPrice = await publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [usdc] });
+  } catch {
+    usdcPrice = null;
+  }
+  try {
+    nvdaPrice = await publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [nvda] });
+  } catch {
+    nvdaPrice = null;
+  }
+  console.log(`oracle USDC price: ${usdcPrice === null ? "unset" : `${Number(usdcPrice) / 1e8} (${usdcPrice})`}`);
+  console.log(`oracle NVDA price: ${nvdaPrice === null ? "unset" : `${Number(nvdaPrice) / 1e8} (${nvdaPrice})`}`);
 
   for (const [symbol, token] of [
     ["USDC", usdc],
-    ["EURC", nvda],
+    ["NVDA", nvda],
   ]) {
-    const reserve = await publicClient.readContract({
-      address: pool,
-      abi: poolAbi,
-      functionName: "getReserveData",
-      args: [token],
-    });
+    let reserve;
+    try {
+      reserve = await publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "getReserveData",
+        args: [token],
+      });
+    } catch {
+      console.log(`${symbol}: reserve not configured on this pool`);
+      continue;
+    }
     const [walletBalance, aTokenBalance, decimals] = await Promise.all([
       publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
       publicClient.readContract({ address: reserve.aTokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
@@ -100,15 +115,15 @@ async function status() {
 
 async function setPrices() {
   const usdcPrice = BigInt(value("--usdc-price", process.env.USDC_PEGGED_PRICE || "100000000"));
-  const nvdaPrice = BigInt(value("--nvda-price", process.env.EURC_PEGGED_PRICE || "116170000"));
-  console.log(`setting pegs: USDC=${usdcPrice} EURC=${nvdaPrice} (USD, 8d)`);
+  const nvdaPrice = BigInt(value("--nvda-price", process.env.NVDA_PEGGED_PRICE || "20000000000"));
+  console.log(`setting pegs: USDC=${usdcPrice} NVDA=${nvdaPrice} (USD, 8d)`);
   await send(
     walletClient.writeContract({ address: oracle, abi: oracleAbi, functionName: "setAssetPrice", args: [usdc, usdcPrice] }),
     "setAssetPrice(USDC)",
   );
   await send(
     walletClient.writeContract({ address: oracle, abi: oracleAbi, functionName: "setAssetPrice", args: [nvda, nvdaPrice] }),
-    "setAssetPrice(EURC)",
+    "setAssetPrice(NVDA)",
   );
 }
 
@@ -138,10 +153,10 @@ async function depositOne(token, symbol, amount) {
 
 async function seed() {
   const usdcAmount = BigInt(value("--usdc-amount", "10000000"));
-  const nvdaAmount = BigInt(value("--nvda-amount", "10000000"));
-  console.log(`seeding Aave: ${formatUnits(usdcAmount, 6)} USDC + ${formatUnits(nvdaAmount, 6)} EURC`);
+  const nvdaAmount = BigInt(value("--nvda-amount", "1000000000000000000"));
+  console.log(`seeding Aave: ${formatUnits(usdcAmount, 6)} USDC + ${formatUnits(nvdaAmount, 18)} NVDA`);
   await depositOne(usdc, "USDC", usdcAmount);
-  await depositOne(nvda, "EURC", nvdaAmount);
+  await depositOne(nvda, "NVDA", nvdaAmount);
 }
 
 const doSetPrice = has("--set-price");

@@ -30,6 +30,14 @@ export async function createPasskeyWallet(clientKey: string, username: string) {
 
 // Gasless batched flow: approve USDC + swap in one sponsored user operation
 export async function gaslessSwap(bundlerClient: ReturnType<typeof createBundlerClient>, amountUsdc = "1") {
+  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const tokenIn = [pool.key.currency0, pool.key.currency1].some(
+    (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
+  )
+    ? contracts.usdc
+    : contracts.mockUsdc;
+  const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
+
   const approveData = encodeFunctionData({
     abi: erc20Abi,
     functionName: "approve",
@@ -38,12 +46,12 @@ export async function gaslessSwap(bundlerClient: ReturnType<typeof createBundler
   const swapData = encodeFunctionData({
     abi: routerAbi,
     functionName: "swapExactIn",
-    args: [pools.usdcEurc.key, true, parseUnits(amountUsdc, 6), 0n, bundlerClient.account.address, "0x"],
+    args: [pool.key, zeroForOne, parseUnits(amountUsdc, 6), 0n, bundlerClient.account.address, "0x"],
   });
 
   return bundlerClient.sendUserOperation({
     calls: [
-      { to: contracts.usdc as `0x${string}`, data: approveData },
+      { to: tokenIn as `0x${string}`, data: approveData },
       { to: contracts.demoRouter as `0x${string}`, data: swapData },
     ],
     paymaster: true, // testnet sponsorship is automatic

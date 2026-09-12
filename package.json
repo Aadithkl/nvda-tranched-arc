@@ -10,7 +10,7 @@
     "x402:price": "node scripts/x402-price.mjs",
     "x402:seller": "node scripts/x402-seller.mjs",
     "x402:probe": "node scripts/x402-price.mjs --probe",
-    "seed:eurc": "node scripts/seed-usdc-eurc.mjs",
+    "seed:nvda": "node scripts/seed-usdc-nvda.mjs",
     "lending:status": "node scripts/lending-admin.mjs",
     "lending:set-price": "node scripts/lending-admin.mjs --set-price",
     "lending:seed": "node scripts/lending-admin.mjs --seed",
@@ -20,7 +20,6 @@
     "agent:refresh": "node agent/refresh.mjs",
     "market": "node agent/market.mjs",
     "market:json": "node agent/market.mjs --json",
-    "quote:compare": "node scripts/quote-compare.mjs",
     "ai:reason": "node scripts/x402-ai.mjs",
     "ai:models": "node scripts/x402-ai.mjs --list-models",
     "circle:discover": "node scripts/agent-market.mjs --search llm",
@@ -33,8 +32,6 @@
     "graph:query": "node scripts/graph-query.mjs"
   },
   "dependencies": {
-    "@circle-fin/adapter-viem-v2": "^1.17.1",
-    "@circle-fin/app-kit": "^1.14.0",
     "@circle-fin/x402-batching": "3.4.0",
     "@x402/evm": "2.25.0",
     "@x402/fetch": "2.25.0",

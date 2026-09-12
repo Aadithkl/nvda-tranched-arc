@@ -12,18 +12,22 @@ export const arcTestnet = defineChain({
 });
 
 export const ADDRESSES = {
-  usdc: "0x3600000000000000000000000000000000000000",
-  nvda: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  // Defaults target the live Arc testnet demo pool (MockUSDC / MockNVDA). Point
+  // VITE_USDC_ADDRESS / VITE_NVDA_ADDRESS at the v3 USDC/NVDA assets after redeploy.
+  usdc: import.meta.env.VITE_USDC_ADDRESS ?? "0x071E67900B728370969eFF988085CF3D84195E31",
+  nvda: import.meta.env.VITE_NVDA_ADDRESS ?? "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
   demoRouter: "0xC76fd7Ee062C5E498a0E2be6CcB7c2aD2dF0d062",
   poolManager: "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
 } as const;
 
-// Real USDC/EURC FX pool (fee 0.01%, tickSpacing 1, no hook)
-export const USDC_EURC_KEY = {
-  currency0: ADDRESSES.usdc,
-  currency1: ADDRESSES.nvda,
-  fee: 100,
-  tickSpacing: 1,
+export const USDC_IS_TOKEN0 = ADDRESSES.usdc.toLowerCase() < ADDRESSES.nvda.toLowerCase();
+
+// USDC/NVDA pool (defaults: live demo pool, fee 0.3%, tickSpacing 60, no hook)
+export const USDC_NVDA_KEY = {
+  currency0: USDC_IS_TOKEN0 ? ADDRESSES.usdc : ADDRESSES.nvda,
+  currency1: USDC_IS_TOKEN0 ? ADDRESSES.nvda : ADDRESSES.usdc,
+  fee: Number(import.meta.env.VITE_NVDA_POOL_FEE ?? 3000),
+  tickSpacing: Number(import.meta.env.VITE_NVDA_POOL_TICK_SPACING ?? 60),
   hooks: "0x0000000000000000000000000000000000000000",
 } as const;
 
