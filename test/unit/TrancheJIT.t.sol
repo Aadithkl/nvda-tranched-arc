@@ -34,16 +34,17 @@ contract TrancheJITTest is Test {
     using StateLibrary for IPoolManager;
     using CurrencyLibrary for Currency;
 
-    uint256 internal constant EURC_MID = 1.1617e8;
-    int24 internal constant INITIAL_TICK = 1499;
-    uint256 internal constant SEED_AMOUNT = 5_000_000;
+    uint256 internal constant NVDA_MID = 200e8;
     int24 internal constant BUCKET_TICKS = 1;
+    uint256 internal constant SEED_USDC = 5_000_000;
+    uint256 internal constant SEED_NVDA = 25_000_000_000_000_000;
     uint256 internal constant SWAP_IN = 100_000;
 
     PoolManager internal manager;
     DemoRouter internal router;
     MockToken internal usdc;
-    MockToken internal eurc;
+    MockToken internal nvda;
+    bool internal usdcIsToken0;
 
     NVDAPriceOracle internal priceOracle;
     LendingPoolAddressesProvider internal provider;
@@ -60,6 +61,7 @@ contract TrancheJITTest is Test {
 
     PoolKey internal key;
     PoolId internal poolId;
+    int24 internal initialTick;
 
     address internal operator;
     address internal alice;
@@ -71,14 +73,15 @@ contract TrancheJITTest is Test {
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
         usdc = new MockToken("USD Coin", "mUSDC", 6);
-        eurc = new MockToken("Euro Coin", "mEURC", 6);
+        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdcIsToken0 = address(usdc) < address(nvda);
 
         _deployLending();
 
         priceOracle = new NVDAPriceOracle(8, address(this));
         priceOracle.setWriter(address(this), true);
         priceOracle.setMaxStaleness(300);
-        priceOracle.updatePrice(int192(int256(EURC_MID)), 2, uint32(block.timestamp), bytes32(0));
+        priceOracle.updatePrice(int192(int256(NVDA_MID)), 2, uint32(block.timestamp), bytes32(0));
 
         controller = new StrategyController(address(this));
         hook = _deployHook();
@@ -99,13 +102,13 @@ contract TrancheJITTest is Test {
         _submitParams();
 
         usdc.mint(address(this), 100_000_000);
-        eurc.mint(address(this), 100_000_000);
+        nvda.mint(address(this), 1_000e18);
         usdc.approve(address(hook), type(uint256).max);
-        eurc.approve(address(hook), type(uint256).max);
+        nvda.approve(address(hook), type(uint256).max);
         usdc.approve(address(router), type(uint256).max);
-        eurc.approve(address(router), type(uint256).max);
-        hook.seedInventory(IERC20(address(usdc)), SEED_AMOUNT);
-        hook.seedInventory(IERC20(address(eurc)), SEED_AMOUNT);
+        nvda.approve(address(router), type(uint256).max);
+        hook.seedInventory(IERC20(address(usdc)), SEED_USDC);
+        hook.seedInventory(IERC20(address(nvda)), SEED_NVDA);
     }
 
     function _deployLending() internal {
@@ -118,16 +121,16 @@ contract TrancheJITTest is Test {
         provider.setAddress(provider.LENDING_POOL_CONFIGURATOR(), address(configurator));
 
         pegged.setAssetPrice(address(usdc), 1e8);
-        pegged.setAssetPrice(address(eurc), EURC_MID);
+        pegged.setAssetPrice(address(nvda), NVDA_MID);
         strategy = new DefaultReserveInterestRateStrategy(0, 0.04e27, 0.6e27, 0.8e27);
         configurator.initReserve(address(usdc), 6, "Aave Arc USDC", "aUSDC", address(strategy));
-        configurator.initReserve(address(eurc), 6, "Aave Arc EURC", "aEURC", address(strategy));
+        configurator.initReserve(address(nvda), 18, "Aave Arc NVDA", "aNVDA", address(strategy));
         configurator.configureReserveAsCollateral(address(usdc), 7500, 8000, 10500);
-        configurator.configureReserveAsCollateral(address(eurc), 7500, 8000, 10500);
+        configurator.configureReserveAsCollateral(address(nvda), 7500, 8000, 10500);
         configurator.enableBorrowingOnReserve(address(usdc), true);
-        configurator.enableBorrowingOnReserve(address(eurc), true);
+        configurator.enableBorrowingOnReserve(address(nvda), true);
         configurator.setReserveFactor(address(usdc), 1000);
-        configurator.setReserveFactor(address(eurc), 1000);
+        configurator.setReserveFactor(address(nvda), 1000);
     }
 
     function _deployHook() internal returns (TrancheJITHook deployed) {
@@ -138,7 +141,7 @@ contract TrancheJITTest is Test {
         bytes memory args = abi.encode(
             IPoolManager(address(manager)),
             IERC20(address(usdc)),
-            IERC20(address(eurc)),
+            IERC20(address(nvda)),
             address(priceOracle),
             address(this),
             address(controller)
@@ -148,7 +151,7 @@ contract TrancheJITTest is Test {
         deployed = new TrancheJITHook{ salt: salt }(
             IPoolManager(address(manager)),
             IERC20(address(usdc)),
-            IERC20(address(eurc)),
+            IERC20(address(nvda)),
             address(priceOracle),
             address(this),
             address(controller)
@@ -156,9 +159,17 @@ contract TrancheJITTest is Test {
         assertEq(address(deployed), hookAddress);
     }
 
+    function _sqrtPriceX96For(uint256 usdPerEquity) internal view returns (uint160) {
+        uint256 p1e18 = usdcIsToken0 ? (1e18 * 1e8) / usdPerEquity : usdPerEquity * 1e10;
+        uint256 dec0 = usdcIsToken0 ? 6 : 18;
+        uint256 dec1 = usdcIsToken0 ? 18 : 6;
+        uint256 raw1e18 = (p1e18 * (10 ** dec1)) / (10 ** dec0);
+        return uint160(Math.sqrt(Math.mulDiv(raw1e18, uint256(1) << 192, 1e18)));
+    }
+
     function _initializePool() internal {
-        (address token0, address token1) =
-            address(usdc) < address(eurc) ? (address(usdc), address(eurc)) : (address(eurc), address(usdc));
+        address token0 = usdcIsToken0 ? address(usdc) : address(nvda);
+        address token1 = usdcIsToken0 ? address(nvda) : address(usdc);
         key = PoolKey({
             currency0: Currency.wrap(token0),
             currency1: Currency.wrap(token1),
@@ -167,7 +178,9 @@ contract TrancheJITTest is Test {
             hooks: IHooks(address(hook))
         });
         poolId = key.toId();
-        hook.initializePool(key, TickMath.getSqrtPriceAtTick(INITIAL_TICK));
+        uint160 sqrtPriceX96 = _sqrtPriceX96For(NVDA_MID);
+        initialTick = TickMath.getTickAtSqrtPrice(sqrtPriceX96);
+        hook.initializePool(key, TickMath.getSqrtPriceAtTick(initialTick));
     }
 
     function _submitParams() internal {
@@ -207,8 +220,8 @@ contract TrancheJITTest is Test {
         assertEq(hook.lastQuotedAt(), block.timestamp);
 
         (, int24 tickAfter,,) = IPoolManager(address(manager)).getSlot0(poolId);
-        assertGe(tickAfter, INITIAL_TICK - int24(BUCKET_TICKS));
-        assertLe(tickAfter, INITIAL_TICK);
+        assertGe(tickAfter, initialTick - int24(BUCKET_TICKS));
+        assertLe(tickAfter, initialTick);
     }
 
     function test_jit_bothDirections() public {
@@ -229,13 +242,13 @@ contract TrancheJITTest is Test {
 
     function test_jit_aaveRoundTrip() public {
         uint256 suppliedBefore = hook.aToken().balanceOf(address(hook)) + hook.aTokenEquity().balanceOf(address(hook));
-        assertEq(suppliedBefore, 2 * SEED_AMOUNT);
+        assertEq(suppliedBefore, SEED_USDC + SEED_NVDA);
 
         _swap(true, SWAP_IN);
 
         uint256 suppliedAfter = hook.aToken().balanceOf(address(hook)) + hook.aTokenEquity().balanceOf(address(hook));
         assertGt(suppliedAfter, 0, "inventory must return to Aave");
-        assertGt(hook.totalManagedAssets(), SEED_AMOUNT);
+        assertGt(hook.totalManagedAssets(), SEED_USDC);
     }
 
     function test_jit_capacityExceeded_reverts() public {
@@ -255,8 +268,8 @@ contract TrancheJITTest is Test {
         hook.setLiquidityGuard(false);
         router.addLiquidity(
             key,
-            INITIAL_TICK - 600,
-            INITIAL_TICK + 600,
+            initialTick - 600,
+            initialTick + 600,
             1e8,
             type(uint256).max,
             type(uint256).max,
@@ -292,12 +305,12 @@ contract TrancheJITTest is Test {
 
     function test_jit_unwindClaims_redeemsOutsideSwap() public {
         _swap(true, SWAP_IN);
-        assertGt(_claims(address(eurc)) + _claims(address(usdc)), 0, "swap must leave claims");
+        assertGt(_claims(address(nvda)) + _claims(address(usdc)), 0, "swap must leave claims");
 
         uint256 aumBefore = hook.totalManagedAssets();
         hook.unwindClaims();
 
-        assertEq(_claims(address(eurc)), 0, "claims must be redeemed");
+        assertEq(_claims(address(nvda)), 0, "claims must be redeemed");
         assertEq(_claims(address(usdc)), 0);
         assertApproxEqAbs(hook.totalManagedAssets(), aumBefore, 2, "value must be conserved");
 
@@ -316,21 +329,21 @@ contract TrancheJITTest is Test {
             cooldownSeconds: 0,
             ttl: 3600,
             gracePeriod: 3600,
-            maxDeployPerSwap: 90_000,
+            maxDeployPerSwap: 100_000_000,
             bucketTicks: BUCKET_TICKS
         });
         vm.prank(operator);
         agent.submitParams(params);
 
-        // Seed is ~86.7k EURC (nominal < 90k) but ~100.7k USDC in value > budget.
-        vm.expectRevert();
-        _swap(false, SWAP_IN);
+        // 1 USDC -> ~0.005e18 NVDA: the raw NVDA output (~5e15 wei) dwarfs the raw 100e6 budget,
+        // so a naive nominal comparison would revert; oracle valuation in USDC keeps it inside.
+        _swap(usdcIsToken0, 1_000_000);
     }
 
     function test_jit_oversizedWithinBudget_boundedPriceImpact() public {
         _swap(true, 1_000_000);
         (, int24 tickAfter,,) = IPoolManager(address(manager)).getSlot0(poolId);
-        assertGe(tickAfter, INITIAL_TICK - int24(BUCKET_TICKS));
+        assertGe(tickAfter, initialTick - int24(BUCKET_TICKS));
         assertEq(IPoolManager(address(manager)).getLiquidity(poolId), 0);
     }
 }

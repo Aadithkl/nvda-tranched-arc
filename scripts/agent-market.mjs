@@ -15,7 +15,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { SYSTEM_PROMPT, compactMarket } from "../agent/ai-prompt.mjs";
+import { SYSTEM_PROMPT, compactMarket, compactPolicy } from "../agent/ai-prompt.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DISCOVERY_URL = "https://api.circle.com/v2/x402/discovery/resources";
@@ -131,11 +131,23 @@ function buildRequestBody(model, maxTokens) {
   const marketPath = path.resolve(root, process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json");
   if (!fs.existsSync(marketPath)) throw new Error(`market snapshot missing at ${marketPath} - run "npm run market" first`);
   const market = JSON.parse(fs.readFileSync(marketPath, "utf8"));
+  const policyPath = path.resolve(root, process.env.AGENT_POLICY_CACHE || "agent/.cache/policy.json");
+  let policy = null;
+  if (fs.existsSync(policyPath)) {
+    try {
+      policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    } catch {
+      policy = null;
+    }
+  }
   const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: JSON.stringify(compactMarket(market)) },
+      {
+        role: "user",
+        content: JSON.stringify({ market: compactMarket(market), policy: compactPolicy(policy) }),
+      },
     ],
     max_tokens: maxTokens,
   };
@@ -319,6 +331,9 @@ async function main() {
         snapshotHash,
         decision: parsed?.decision ?? null,
         confidence: parsed?.confidence ?? null,
+        paramOverrides: parsed?.paramOverrides ?? null,
+        auditOverrides: parsed?.auditOverrides ?? null,
+        rebalance: parsed?.rebalance ?? null,
         recommendedBucketTicks: parsed?.recommendedBucketTicks ?? null,
         recommendedMaxDeployUsdc: parsed?.recommendedMaxDeployUsdc ?? null,
         rationale: parsed?.rationale ?? (content ? String(content).slice(0, 300) : null),

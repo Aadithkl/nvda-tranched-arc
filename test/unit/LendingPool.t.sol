@@ -18,7 +18,7 @@ contract LendingPoolTest is Test {
     uint256 internal constant YEAR = 365 days;
 
     MockToken internal usdc;
-    MockToken internal eurc;
+    MockToken internal nvda;
 
     LendingPoolAddressesProvider internal provider;
     PeggedPriceOracle internal oracle;
@@ -27,9 +27,9 @@ contract LendingPoolTest is Test {
     DefaultReserveInterestRateStrategy internal strategy;
 
     AToken internal aUsdc;
-    AToken internal aEurc;
+    AToken internal aNvda;
     VariableDebtToken internal dUsdc;
-    VariableDebtToken internal dEurc;
+    VariableDebtToken internal dNvda;
 
     address internal alice;
     address internal bob;
@@ -39,7 +39,7 @@ contract LendingPoolTest is Test {
         bob = makeAddr("bob");
 
         usdc = new MockToken("USD Coin", "mUSDC", 6);
-        eurc = new MockToken("Euro Coin", "mEURC", 6);
+        nvda = new MockToken("NVIDIA", "mNVDA", 18);
 
         provider = new LendingPoolAddressesProvider("nvda-tranched-arc");
         oracle = new PeggedPriceOracle(address(this));
@@ -51,39 +51,39 @@ contract LendingPoolTest is Test {
         provider.setAddress(provider.LENDING_POOL_CONFIGURATOR(), address(configurator));
 
         oracle.setAssetPrice(address(usdc), 1e8);
-        oracle.setAssetPrice(address(eurc), 1.1617e8);
+        oracle.setAssetPrice(address(nvda), 200e8);
 
         strategy = new DefaultReserveInterestRateStrategy(0, 0.04e27, 0.6e27, 0.8e27);
 
         (address aUsdcAddr, address dUsdcAddr) =
             configurator.initReserve(address(usdc), 6, "Aave Arc USDC", "aUSDC", address(strategy));
-        (address aEurcAddr, address dEurcAddr) =
-            configurator.initReserve(address(eurc), 6, "Aave Arc EURC", "aEURC", address(strategy));
+        (address aNvdaAddr, address dNvdaAddr) =
+            configurator.initReserve(address(nvda), 18, "Aave Arc NVDA", "aNVDA", address(strategy));
         aUsdc = AToken(aUsdcAddr);
-        aEurc = AToken(aEurcAddr);
+        aNvda = AToken(aNvdaAddr);
         dUsdc = VariableDebtToken(dUsdcAddr);
-        dEurc = VariableDebtToken(dEurcAddr);
+        dNvda = VariableDebtToken(dNvdaAddr);
 
         configurator.configureReserveAsCollateral(address(usdc), 7500, 8000, 10500);
         configurator.enableBorrowingOnReserve(address(usdc), true);
         configurator.setReserveFactor(address(usdc), 1000);
-        configurator.configureReserveAsCollateral(address(eurc), 7500, 8000, 10500);
-        configurator.enableBorrowingOnReserve(address(eurc), true);
-        configurator.setReserveFactor(address(eurc), 1000);
+        configurator.configureReserveAsCollateral(address(nvda), 7500, 8000, 10500);
+        configurator.enableBorrowingOnReserve(address(nvda), true);
+        configurator.setReserveFactor(address(nvda), 1000);
 
         usdc.mint(alice, 1_000_000e6);
         usdc.mint(bob, 1_000_000e6);
-        eurc.mint(alice, 1_000_000e6);
-        eurc.mint(bob, 1_000_000e6);
+        nvda.mint(alice, 1_000_000e18);
+        nvda.mint(bob, 1_000_000e18);
 
         vm.prank(alice);
         usdc.approve(address(pool), type(uint256).max);
         vm.prank(bob);
         usdc.approve(address(pool), type(uint256).max);
         vm.prank(alice);
-        eurc.approve(address(pool), type(uint256).max);
+        nvda.approve(address(pool), type(uint256).max);
         vm.prank(bob);
-        eurc.approve(address(pool), type(uint256).max);
+        nvda.approve(address(pool), type(uint256).max);
     }
 
     function _deposit(address user, MockToken token, uint256 amount) internal {
@@ -101,9 +101,9 @@ contract LendingPoolTest is Test {
         assertEq(data.id, 0);
         assertEq(pool.getReservesList().length, 2);
 
-        DataTypes.ReserveData memory eurcData = pool.getReserveData(address(eurc));
-        assertEq(eurcData.id, 1);
-        assertEq(eurcData.aTokenAddress, address(aEurc));
+        DataTypes.ReserveData memory nvdaData = pool.getReserveData(address(nvda));
+        assertEq(nvdaData.id, 1);
+        assertEq(nvdaData.aTokenAddress, address(aNvda));
     }
 
     function test_deposit_mintsAToken() public {
@@ -207,7 +207,7 @@ contract LendingPoolTest is Test {
 
     function test_withdraw_blockedByInsufficientLiquidity() public {
         _deposit(alice, usdc, 1_500e6);
-        _deposit(bob, eurc, 12_000e6);
+        _deposit(bob, nvda, 12_000e18);
 
         vm.prank(bob);
         pool.borrow(address(usdc), 1_400e6, 2, 0, bob);
@@ -256,8 +256,8 @@ contract LendingPoolTest is Test {
 
     function test_multiMarket_isolatedIndexes() public {
         _deposit(alice, usdc, 10_000e6);
-        _deposit(bob, eurc, 10_000e6);
-        _deposit(alice, eurc, 10_000e6);
+        _deposit(bob, nvda, 10_000e18);
+        _deposit(alice, nvda, 10_000e18);
 
         vm.prank(alice);
         pool.borrow(address(usdc), 3_000e6, 2, 0, alice);
@@ -266,21 +266,21 @@ contract LendingPoolTest is Test {
         pool.updateState(address(usdc));
 
         assertGt(pool.getReserveNormalizedIncome(address(usdc)), RAY);
-        assertEq(pool.getReserveNormalizedIncome(address(eurc)), RAY);
+        assertEq(pool.getReserveNormalizedIncome(address(nvda)), RAY);
         assertGt(aUsdc.balanceOf(alice), 10_000e6);
-        assertEq(aEurc.balanceOf(alice), 10_000e6);
+        assertEq(aNvda.balanceOf(alice), 10_000e18);
     }
 
-    function test_crossMarket_collateral_eurchBorrow() public {
+    function test_crossMarket_collateral_nvdaBorrow() public {
         _deposit(alice, usdc, 10_000e6);
-        _deposit(bob, eurc, 10_000e6);
+        _deposit(bob, nvda, 10_000e18);
 
         vm.prank(bob);
         pool.borrow(address(usdc), 5_000e6, 2, 0, bob);
         assertEq(dUsdc.balanceOf(bob), 5_000e6);
 
         (uint256 collateral, uint256 debt,,,, uint256 hf) = pool.getUserAccountData(bob);
-        assertEq(collateral, uint256(10_000e6) * 1.1617e8 / 1e6);
+        assertEq(collateral, uint256(10_000e18) * 200e8 / 1e18);
         assertEq(debt, 5_000e8);
         assertGt(hf, 1e18);
     }
@@ -380,7 +380,7 @@ contract LendingPoolTest is Test {
 
     function test_oracle_pegs() public view {
         assertEq(oracle.getAssetPrice(address(usdc)), 1e8);
-        assertEq(oracle.getAssetPrice(address(eurc)), 1.1617e8);
+        assertEq(oracle.getAssetPrice(address(nvda)), 200e8);
         assertEq(oracle.BASE_CURRENCY_UNIT(), 1e8);
     }
 

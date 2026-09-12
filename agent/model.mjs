@@ -429,6 +429,141 @@ export function decide(poolMetrics, bands, opts = {}) {
   };
 }
 
+// ---------- economic audit ----------
+
+// Pre-trade economic audit for the tranched book. The agent must run this on every tick and
+// only deploy when every hard check passes; otherwise it holds or disables quoting. The audit
+// decomposes yield (who pays), marks the first-loss structure, and computes the maximum size
+// the junior buffer can underwrite.
+//
+// Yield decomposition (bps of deployed capital, annualized where noted):
+//   - baseYieldBps: exogenous cash yield from the Aave rest state (someone else's borrow demand)
+//   - feeYieldBps:  endogenous JIT fees - paid by swappers, depends on our own quoting
+//   - incentivesBps: token incentives (always 0 here; no emissions in this design)
+// Costs:
+//   - expectedIlBps: concentrated-liquidity IL from the Monte-Carlo model (negative = loss)
+//   - swapCostBps:  rebalancing slippage/fees paid to enter/exit inventory
+//   - gasCostUsd:   fixed tx cost converted at NAV (rough)
+// Hard checks:
+//   1. oracle valid (no stale/closed market)
+//   2. senior escrow funded (junior buffer exists before risk)
+//   3. junior buffer >= minJuniorBufferBps of senior claim (first-loss skin in the game)
+//   4. net edge after IL and swap costs > minNetEdgeBps
+//   5. p(IL > fees) <= maxPIlExceedsFees
+//   6. VaR95 no worse than -maxVar95Bps
+//   7. requested deploy <= maxDeployOfJuniorBps of the junior claim
+export function economicAudit({
+  oracleValid = true,
+  escrowFunded = false,
+  seniorClaimUsd = 0,
+  juniorClaimUsd = 0,
+  expectedFeeBps = 0,
+  expectedIlBps = 0,
+  netEdgeBps = null,
+  pIlExceedsFees = 0,
+  var95Bps = 0,
+  cvar95Bps = 0,
+  swapCostBps = 0,
+  deployUsd = 0,
+  baseYieldBps = 0,
+  feeYieldBps = null,
+  minNetEdgeBps = 0.2,
+  minJuniorBufferBps = 500,
+  maxDeployOfJuniorBps = 5_000,
+  maxVar95Bps = 500,
+  maxPIlExceedsFees = 0.35,
+} = {}) {
+  const senior = Math.max(0, Number(seniorClaimUsd) || 0);
+  const junior = Math.max(0, Number(juniorClaimUsd) || 0);
+  const juniorBufferBps = senior > 0 ? (junior / senior) * 10_000 : junior > 0 ? 10_000 : 0;
+
+  const grossEdgeBps = netEdgeBps != null ? Number(netEdgeBps) : Number(expectedFeeBps) + Number(expectedIlBps);
+  const netAfterCostsBps = grossEdgeBps - (Number(swapCostBps) || 0);
+
+  const maxDeployUsd = Math.floor((junior * maxDeployOfJuniorBps) / 10_000);
+  const cappedDeployUsd = Math.max(0, Math.min(Number(deployUsd) || 0, maxDeployUsd));
+
+  const checks = [
+    { name: "oracle_valid", pass: Boolean(oracleValid), value: oracleValid, limit: true },
+    { name: "senior_escrow_funded", pass: Boolean(escrowFunded), value: escrowFunded, limit: true },
+    {
+      name: "junior_buffer",
+      pass: juniorBufferBps >= minJuniorBufferBps,
+      value: Math.round(juniorBufferBps),
+      limit: minJuniorBufferBps,
+    },
+    {
+      name: "net_edge_after_costs",
+      pass: netAfterCostsBps >= minNetEdgeBps,
+      value: Number(netAfterCostsBps.toFixed(4)),
+      limit: minNetEdgeBps,
+    },
+    {
+      name: "il_probability",
+      pass: Number(pIlExceedsFees) <= maxPIlExceedsFees,
+      value: Number(pIlExceedsFees),
+      limit: maxPIlExceedsFees,
+    },
+    { name: "var95", pass: Number(var95Bps) >= -Math.abs(maxVar95Bps), value: Number(var95Bps), limit: -Math.abs(maxVar95Bps) },
+    {
+      name: "deploy_within_junior",
+      pass: (Number(deployUsd) || 0) <= maxDeployUsd,
+      value: Number(deployUsd) || 0,
+      limit: maxDeployUsd,
+    },
+  ];
+
+  const structuralFail = checks[0].pass === false || checks[1].pass === false || checks[2].pass === false;
+  const failed = checks.filter((c) => !c.pass);
+  const verdict = structuralFail ? "disable" : failed.length ? "hold" : "deploy";
+  const reason = structuralFail
+    ? !oracleValid
+      ? "oracle_invalid"
+      : !escrowFunded
+        ? "escrow_unfunded"
+        : "junior_buffer_too_thin"
+    : failed.length
+      ? failed[0].name
+      : "all_checks_passed";
+
+  return {
+    verdict,
+    reason,
+    checks,
+    juniorBufferBps: Math.round(juniorBufferBps),
+    netAfterCostsBps: Number(netAfterCostsBps.toFixed(4)),
+    maxDeployUsd,
+    cappedDeployUsd,
+    yieldSplit: {
+      baseYieldBps: Number(baseYieldBps) || 0,
+      feeYieldBps: feeYieldBps == null ? Number(expectedFeeBps) || 0 : Number(feeYieldBps),
+      incentivesBps: 0,
+      endogenous: "jit_fees_depend_on_our_quoting",
+      exogenous: "aave_borrower_demand",
+    },
+    risk: {
+      firstLoss: "junior",
+      seniorClaimUsd: senior,
+      juniorClaimUsd: junior,
+      var95Bps: Number(var95Bps),
+      cvar95Bps: Number(cvar95Bps),
+      pIlExceedsFees: Number(pIlExceedsFees),
+      swapCostBps: Number(swapCostBps) || 0,
+    },
+    // Conditions that must invalidate the current posture; the daemon logs these and the
+    // regime policy flips quoting accordingly.
+    invalidationTriggers: [
+      { when: "oracle.valid == false", action: "disable" },
+      { when: "escrowFunded == false", action: "disable" },
+      { when: `juniorBufferBps < ${minJuniorBufferBps}`, action: "disable" },
+      { when: `netAfterCostsBps < ${minNetEdgeBps}`, action: "hold" },
+      { when: `pIlExceedsFees > ${maxPIlExceedsFees}`, action: "hold" },
+      { when: `var95Bps < ${-Math.abs(maxVar95Bps)}`, action: "hold" },
+      { when: `deployUsd > ${maxDeployOfJuniorBps}bps of juniorClaim`, action: "cap_deploy" },
+    ],
+  };
+}
+
 // ---------- dual-asset (USDC/equity) rebalancing ----------
 
 // Portfolio USD value from unit amounts.
@@ -461,44 +596,135 @@ export function rebalanceCostBps({ oracleOut, quotedOut }) {
   return ((o - Number(quotedOut)) / o) * 10_000;
 }
 
-// Agent rebalance policy for a hard-cap, no-target dual-asset book.
-// - above the hard cap: trim equity (senior protection, always allowed)
-// - funded + positive LP edge + below cap-margin: build equity inventory for JIT
-// - otherwise hold
-export function rebalanceDecision({
-  equityBps,
-  hardCapBps,
-  escrowFunded,
-  oracleValid = true,
-  worthLp = false,
-  lpEdgeBps = 0,
-  minEdgeBps = 0,
-  navUsd = 0,
-  suggestedDeployUsd = 0,
-  minSwapUsd = 0,
-  maxSwapUsd = Infinity,
-  capMarginBps = 500,
-}) {
-  const bps = Number(equityBps) || 0;
-  const cap = Number(hardCapBps) || 0;
-  const nav = Number(navUsd) || 0;
+// ---------- LLM strategy-manager rails ----------
+// The LLM owns the slow policy: hook params (JIT range/size, dynamic fees), audit thresholds and
+// rebalancing. Deterministic code only clamps and validates; it never decides direction itself.
+
+// Hard clamps for LLM audit-threshold overrides (bounded both ways, never structural disables).
+export const AUDIT_CLAMPS = {
+  minNetEdgeBps: [0.2, 50],
+  minJuniorBufferBps: [500, 5_000],
+  maxDeployOfJuniorBps: [0, 5_000],
+  maxVar95Bps: [100, 500],
+  maxPIlExceedsFees: [0, 0.35],
+};
+
+// Effective audit thresholds = env defaults overridden by the LLM, clamped per field.
+export function clampAuditOverrides(defaults = {}, overrides = {}) {
+  const effective = {};
+  for (const [key, [lo, hi]] of Object.entries(AUDIT_CLAMPS)) {
+    const base = Number(defaults[key]);
+    const raw = overrides?.[key] == null ? base : Number(overrides[key]);
+    const value = Number.isFinite(raw) ? raw : base;
+    if (!Number.isFinite(value)) continue;
+    effective[key] = Math.min(hi, Math.max(lo, value));
+  }
+  return effective;
+}
+
+// Hard clamps for LLM param overrides. `bounds` mirrors the onchain StrategyController bounds
+// (read at perceive time); each clamp is the tighter of the protocol max and the controller bound.
+export const PARAM_CLAMPS = {
+  baseFee: [100, 1_000_000],
+  maxSurgeFee: [100, 1_000_000],
+  maxDeviationBps: [10, 5_000],
+  toxicityMultiplierBps: [0, 10_000],
+  minEvBps: [0, 1_000],
+  cooldownSeconds: [0, 3_600],
+  ttl: [300, 86_400],
+  gracePeriod: [0, 86_400],
+  maxDeployPerSwap: [0n, 100_000_000_000n],
+  bucketTicks: [1, 5_000],
+};
+
+function paramCeiling(key, protocolCap, bounds) {
+  const fromBounds = (() => {
+    if (!bounds) return null;
+    switch (key) {
+      case "baseFee":
+        return bounds.maxBaseFee;
+      case "maxSurgeFee":
+        return bounds.maxSurgeFee;
+      case "maxDeviationBps":
+        return bounds.maxDeviationBps;
+      case "toxicityMultiplierBps":
+        return bounds.maxToxicityMultiplierBps;
+      case "ttl":
+        return bounds.maxTtl;
+      case "gracePeriod":
+        return bounds.maxGracePeriod;
+      case "maxDeployPerSwap":
+        return bounds.maxDeployPerSwap;
+      default:
+        return null;
+    }
+  })();
+  if (fromBounds == null) return protocolCap;
+  if (typeof protocolCap === "bigint") {
+    const bound = BigInt(fromBounds);
+    return bound < protocolCap ? bound : protocolCap;
+  }
+  return Math.min(Number(protocolCap), Number(fromBounds));
+}
+
+// Apply LLM param overrides (JIT range, dynamic fees, TTL, quoting switch) on top of the
+// deterministic params, clamped to the hard rails. Unknown or malformed fields are ignored.
+export function clampParamOverrides(params, overrides = {}, bounds = null) {
+  const next = { ...params };
+  if (!overrides || typeof overrides !== "object") return next;
+  if (overrides.quotingEnabled != null) next.quotingEnabled = Boolean(overrides.quotingEnabled);
+  for (const [key, [lo, hi]] of Object.entries(PARAM_CLAMPS)) {
+    if (overrides[key] == null) continue;
+    const raw = overrides[key];
+    const isBig = typeof lo === "bigint";
+    const value = isBig ? BigInt(Math.round(Number(raw))) : Number(raw);
+    if (isBig ? !Number.isFinite(Number(value)) : !Number.isFinite(value)) continue;
+    const hiBound = paramCeiling(key, hi, bounds);
+    next[key] = value < lo ? lo : value > hiBound ? hiBound : value;
+  }
+  if (next.maxSurgeFee != null && next.baseFee != null && next.maxSurgeFee < next.baseFee) {
+    next.maxSurgeFee = next.baseFee;
+  }
+  return next;
+}
+
+// LLM rebalance proposal validated against the hard rails only. The model picks
+// buy/sell/hold and the size; this function enforces validity, the equity cap, size limits
+// and funding. It never invents direction or size.
+export function validateRebalanceProposal(
+  proposal,
+  {
+    oracleValid = true,
+    escrowFunded = false,
+    equityBps = 0,
+    hardCapBps = 10_000,
+    navUsd = 0,
+    compositionAvailable = true,
+    minSwapUsd = 0,
+    maxSwapUsd = Infinity,
+  } = {},
+) {
+  if (!proposal || proposal.action === "hold") return { action: "hold", reason: "ai_hold", sizeUsd: 0 };
+  const action = proposal.action;
+  if (action !== "buy" && action !== "sell") return { action: "hold", reason: "unknown_action", sizeUsd: 0 };
+  if (!oracleValid) return { action: "hold", reason: "oracle_invalid", sizeUsd: 0 };
+  const sizeUsd = Number(proposal.sizeUsd);
+  if (!Number.isFinite(sizeUsd) || sizeUsd <= 0) return { action: "hold", reason: "size_missing", sizeUsd: 0 };
+  if (action === "buy" && !escrowFunded) return { action: "hold", reason: "escrow_unfunded", sizeUsd: 0 };
+  if (action === "buy" && !compositionAvailable) {
+    return { action: "hold", reason: "composition_unavailable", sizeUsd: 0 };
+  }
   const minSwap = Number(minSwapUsd) || 0;
   const maxSwap = Number.isFinite(Number(maxSwapUsd)) ? Number(maxSwapUsd) : Infinity;
-
-  if (!oracleValid) return { action: "hold", reason: "oracle_invalid", sizeUsd: 0 };
-  if (bps > cap) {
-    const equityValueUsd = (nav * bps) / 10_000;
-    const targetEquityUsd = (nav * cap) / 10_000;
-    const sizeUsd = Math.min(equityValueUsd - targetEquityUsd, maxSwap);
-    if (sizeUsd < minSwap) return { action: "hold", reason: "trim_below_min_size", sizeUsd: 0 };
-    return { action: "sell", reason: "above_hard_cap", sizeUsd };
+  let size = Math.min(sizeUsd, maxSwap);
+  if (size < minSwap) return { action: "hold", reason: "below_min_size", sizeUsd: 0 };
+  if (action === "buy" && Number(navUsd) > 0) {
+    const capUsd = (Number(navUsd) * Number(hardCapBps)) / 10_000;
+    const equityUsd = (Number(navUsd) * Number(equityBps)) / 10_000;
+    const roomUsd = Math.max(0, capUsd - equityUsd);
+    if (roomUsd <= 0) return { action: "hold", reason: "at_hard_cap", sizeUsd: 0 };
+    size = Math.min(size, roomUsd);
+    if (size < minSwap) return { action: "hold", reason: "cap_room_below_min_size", sizeUsd: 0 };
   }
-  if (!escrowFunded) return { action: "hold", reason: "escrow_unfunded", sizeUsd: 0 };
-  if (bps >= cap - capMarginBps) return { action: "hold", reason: "within_cap_margin", sizeUsd: 0 };
-  if (!worthLp || Number(lpEdgeBps) <= Number(minEdgeBps)) {
-    return { action: "hold", reason: "no_positive_lp_edge", sizeUsd: 0 };
-  }
-  const sizeUsd = Math.min(Number(suggestedDeployUsd) || 0, maxSwap);
-  if (sizeUsd < minSwap) return { action: "hold", reason: "buy_below_min_size", sizeUsd: 0 };
-  return { action: "buy", reason: "jit_inventory_build", sizeUsd };
+  return { action, reason: "ai_proposal", sizeUsd: size };
 }

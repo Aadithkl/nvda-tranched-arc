@@ -40,4 +40,6 @@ contract MockRiskAccountant is ITrancheAccountant {
     function onTrancheDeposit(bool, uint256) external override { }
 
     function onTrancheRedeem(bool, uint256) external override { }
+
+    function onTrancheClaim(bool, uint256) external override { }
 }

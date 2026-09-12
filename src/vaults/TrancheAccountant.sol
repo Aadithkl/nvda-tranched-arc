@@ -22,6 +22,8 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     uint16 public escrowBps;
     uint256 public seniorPrincipal;
     uint256 public juniorPrincipal;
+    uint256 public claimableSenior;
+    uint256 public claimableJunior;
     uint256 public lastRebalanceAt;
 
     event HookUpdated(address indexed hook);
@@ -30,6 +32,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     event EscrowBpsUpdated(uint16 escrowBps);
     event DepositReported(bool indexed senior, uint256 hookShares, uint256 usdcValue);
     event RedeemReported(bool indexed senior, uint256 hookShares, uint256 usdcValue);
+    event ClaimReported(bool indexed senior, uint256 hookShares);
     event Rebalanced(uint256 movedToSenior, uint256 movedToJunior);
     event RedeemFulfilled(bool indexed senior, address indexed user, uint256 shares, uint256 assets);
 
@@ -99,10 +102,26 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         uint256 value = _valueOf(hookShares);
         if (senior) {
             seniorPrincipal = value > seniorPrincipal ? 0 : seniorPrincipal - value;
+            claimableSenior += hookShares;
         } else {
             juniorPrincipal = value > juniorPrincipal ? 0 : juniorPrincipal - value;
+            claimableJunior += hookShares;
         }
         emit RedeemReported(senior, hookShares, value);
+    }
+
+    /// @notice Called by a vault when a user claims fulfilled redemption assets. The locked
+    ///         assets are no longer a liability of the tranche once they leave the vault.
+    function onTrancheClaim(bool senior, uint256 hookShares) external override onlyVault {
+        _checkVaultDirection(senior);
+        if (senior) {
+            uint256 locked = claimableSenior;
+            claimableSenior = hookShares > locked ? 0 : locked - hookShares;
+        } else {
+            uint256 locked = claimableJunior;
+            claimableJunior = hookShares > locked ? 0 : locked - hookShares;
+        }
+        emit ClaimReported(senior, hookShares);
     }
 
     function _checkVaultDirection(bool senior) internal view {
@@ -117,18 +136,27 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         return _valueOf(totalShares);
     }
 
-    function seniorClaim() public view override returns (uint256) {
+    /// @notice Pool value net of assets already locked for fulfilled redemptions. Those assets
+    ///         still sit in the vaults (they back user claims) but are no longer part of the
+    ///         tranche P&L, so claims and the JIT risk budget must exclude them.
+    function effectivePool() public view returns (uint256) {
         uint256 pool = poolValue();
+        uint256 locked = _valueOf(claimableSenior + claimableJunior);
+        return pool > locked ? pool - locked : 0;
+    }
+
+    function seniorClaim() public view override returns (uint256) {
+        uint256 pool = effectivePool();
         uint256 target = seniorPrincipal + _escrowTarget();
         return target < pool ? target : pool;
     }
 
     function juniorClaim() public view override returns (uint256) {
-        return poolValue() - seniorClaim();
+        return effectivePool() - seniorClaim();
     }
 
     function escrowFunded() public view override returns (bool) {
-        return poolValue() >= seniorPrincipal + _escrowTarget();
+        return effectivePool() >= seniorPrincipal + _escrowTarget();
     }
 
     function rebalance() public override returns (uint256 movedToSenior, uint256 movedToJunior) {
@@ -142,15 +170,20 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
             return (0, 0);
         }
 
-        uint256 targetSenior = Math.mulDiv(totalShares, seniorClaim(), pool);
+        uint256 seniorEntitlement = seniorClaim() + _valueOf(claimableSenior);
+        uint256 targetSenior = Math.mulDiv(totalShares, seniorEntitlement, pool);
         uint256 actualSenior = share.balanceOf(seniorVault);
 
         if (targetSenior > actualSenior) {
             movedToSenior = targetSenior - actualSenior;
-            TrancheVault(juniorVault).moveShares(seniorVault, movedToSenior);
+            uint256 juniorAvailable = _spendable(share.balanceOf(juniorVault), claimableJunior);
+            if (movedToSenior > juniorAvailable) movedToSenior = juniorAvailable;
+            if (movedToSenior != 0) TrancheVault(juniorVault).moveShares(seniorVault, movedToSenior);
         } else if (actualSenior > targetSenior) {
             movedToJunior = actualSenior - targetSenior;
-            TrancheVault(seniorVault).moveShares(juniorVault, movedToJunior);
+            uint256 seniorAvailable = _spendable(share.balanceOf(seniorVault), claimableSenior);
+            if (movedToJunior > seniorAvailable) movedToJunior = seniorAvailable;
+            if (movedToJunior != 0) TrancheVault(seniorVault).moveShares(juniorVault, movedToJunior);
         }
 
         lastRebalanceAt = block.timestamp;
@@ -167,12 +200,23 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
 
         rebalance();
         uint256 assets = vault.convertToAssets(shares);
+        // Never lock more than the tranche can back after assets already locked for earlier
+        // fulfillments; integer dust cannot leave fulfilled claims unbacked.
+        IERC20 share = _hookShare();
+        uint256 balance = share.balanceOf(address(vault));
+        uint256 locked = senior ? claimableSenior : claimableJunior;
+        uint256 available = balance > locked ? balance - locked : 0;
+        if (assets > available) assets = available;
         vault.fulfillRedeem(shares, assets, user);
         emit RedeemFulfilled(senior, user, shares, assets);
     }
 
     function _escrowTarget() internal view returns (uint256) {
         return Math.mulDiv(seniorPrincipal, escrowBps, BPS);
+    }
+
+    function _spendable(uint256 balance, uint256 locked) internal pure returns (uint256) {
+        return balance > locked ? balance - locked : 0;
     }
 
     function _hookShare() internal view returns (IERC20) {

@@ -14,7 +14,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
 | M3 | `TrancheJITHook` — JIT engine, dynamic fee, toxic-flow pricing, Aave rest | live (v3 dual-token USDC/equity redeploy pending) |
-| M4 | `StrategyController` + agent daemon | live — bounded controller + agent-driven rebalancing |
+| M4 | `StrategyController` + agent daemon | live — bounded controller; LLM strategy manager (6h paid verdict) with deterministic rails |
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share + `TrancheAccountant` | live — dual-token exits via `TranchePipeModule` |
 | M6 | E2E on Arc Testnet, docs/ABIs | pending |
 
@@ -22,7 +22,8 @@ Indexing: The Graph subgraph (`subgraph/`) indexes the x402 oracle, v4 pools, an
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
-Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and controller-driven rebalancing.
+Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and LLM-proposed, rail-validated rebalancing (75% equity hard cap).
+Hardening (v3.1): bucket-exact JIT sizing from v4 amount-delta math (replacing the spot approximation, under EIP-170); deadline-enforced, `SafeERC20` rebalancing router; controller guardian pause + bounds validation; two-step oracle ownership with oracle-decimal scaling; locked-redemption accounting fix; invariant suite (`test/invariant/`, 174 tests total); agent-side economic audit gate (`agent/model.mjs`) with LLM manager: paid verdict every 6h owns params/audit thresholds/rebalances, deterministic clamps and per-swap onchain gates enforce the rails.
 
 ## Architecture (target)
 
@@ -35,9 +36,10 @@ Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook sh
   return-delta flags). Hook deploy path proven with `SmokeHook`.
 - **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
 - **Vaults**: Senior/Junior as ERC-7540 async vaults; hook strategy receipt as ERC-7575.
-- **Agent**: role-based EOA calling a bounded `StrategyController` — can reallocate
-  between venues, pause swaps and adjust distribution within caps; can never withdraw
-  funds to arbitrary addresses or mint/burn user shares.
+- **Agent**: role-based EOA calling a bounded `StrategyController` — an LLM strategy manager refreshes
+  params/audit thresholds/rebalance proposals every 6h; deterministic code clamps them per tick and the
+  hook checks profitability + hard gates on every swap. It can pause swaps and adjust distribution
+  within caps, but can never withdraw funds to arbitrary addresses or mint/burn user shares.
 - **Indexing**: The Graph subgraph on Arc Testnet for fast reads of prices, pool state
   and swaps (`docs/GRAPH.md`); RPC remains the trust layer.
 

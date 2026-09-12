@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   activeTvl,
   bandToTicks,
+  clampAuditOverrides,
+  clampParamOverrides,
   decide,
+  economicAudit,
   feeMetrics,
   ilBpsAtPrice,
   ilShockTable,
@@ -13,11 +16,11 @@ import {
   portfolioIlBps,
   portfolioValueUsd,
   rebalanceCostBps,
-  rebalanceDecision,
   rebalancingPremiumBps,
   simulateRange,
   tickSpacingForFee,
   tokenUsdPrices,
+  validateRebalanceProposal,
 } from "../model.mjs";
 
 const close = (x) => Math.abs(x) < 1e-12;
@@ -270,44 +273,223 @@ test("rebalanceCostBps measures quote slippage versus oracle", () => {
   assert.equal(rebalanceCostBps({ oracleOut: 0, quotedOut: 1 }), null);
 });
 
-test("rebalanceDecision trims above the hard cap regardless of edge", () => {
-  const d = rebalanceDecision({
-    equityBps: 9000,
-    hardCapBps: 8000,
-    escrowFunded: false,
-    worthLp: false,
-    navUsd: 100_000,
-    minSwapUsd: 10,
-  });
-  assert.equal(d.action, "sell");
-  assert.equal(d.reason, "above_hard_cap");
-  assert.equal(d.sizeUsd, 10_000);
-});
-
-test("rebalanceDecision buys inventory only when funded with positive edge and cap headroom", () => {
+test("validateRebalanceProposal lets the LLM pick direction but enforces the hard rails", () => {
   const base = {
-    equityBps: 3000,
-    hardCapBps: 8000,
-    escrowFunded: true,
     oracleValid: true,
-    worthLp: true,
-    lpEdgeBps: 5,
-    minEdgeBps: 0.2,
+    escrowFunded: true,
+    equityBps: 3000,
+    hardCapBps: 7500,
     navUsd: 100_000,
-    suggestedDeployUsd: 500,
+    compositionAvailable: true,
     minSwapUsd: 10,
     maxSwapUsd: 1_000,
   };
-  assert.equal(rebalanceDecision(base).action, "buy");
-  assert.equal(rebalanceDecision({ ...base, escrowFunded: false }).reason, "escrow_unfunded");
-  assert.equal(rebalanceDecision({ ...base, worthLp: false }).reason, "no_positive_lp_edge");
-  assert.equal(rebalanceDecision({ ...base, lpEdgeBps: 0 }).reason, "no_positive_lp_edge");
-  assert.equal(rebalanceDecision({ ...base, oracleValid: false }).reason, "oracle_invalid");
-  assert.equal(rebalanceDecision({ ...base, equityBps: 7700 }).reason, "within_cap_margin");
-  const small = rebalanceDecision({ ...base, suggestedDeployUsd: 5 });
-  assert.equal(small.action, "hold");
-  assert.equal(small.reason, "buy_below_min_size");
-  const capped = rebalanceDecision({ ...base, suggestedDeployUsd: 99_999 });
-  assert.equal(capped.action, "buy");
-  assert.equal(capped.sizeUsd, 1_000);
+  const buy = validateRebalanceProposal({ action: "buy", sizeUsd: 500 }, base);
+  assert.equal(buy.action, "buy");
+  assert.equal(buy.sizeUsd, 500);
+  assert.equal(validateRebalanceProposal({ action: "buy", sizeUsd: 99_999 }, base).sizeUsd, 1_000);
+  assert.equal(
+    validateRebalanceProposal(
+      { action: "buy", sizeUsd: 1_000 },
+      { ...base, equityBps: 7400, navUsd: 50_000 },
+    ).sizeUsd,
+    500,
+  );
+  assert.equal(
+    validateRebalanceProposal({ action: "buy", sizeUsd: 500 }, { ...base, equityBps: 7500 }).reason,
+    "at_hard_cap",
+  );
+  assert.equal(
+    validateRebalanceProposal({ action: "buy", sizeUsd: 500 }, { ...base, escrowFunded: false }).reason,
+    "escrow_unfunded",
+  );
+  assert.equal(
+    validateRebalanceProposal({ action: "sell", sizeUsd: 500 }, { ...base, escrowFunded: false }).action,
+    "sell",
+  );
+  assert.equal(
+    validateRebalanceProposal({ action: "buy", sizeUsd: 500 }, { ...base, oracleValid: false }).reason,
+    "oracle_invalid",
+  );
+  assert.equal(validateRebalanceProposal({ action: "hold", sizeUsd: 0 }, base).reason, "ai_hold");
+  assert.equal(validateRebalanceProposal({ action: "moon", sizeUsd: 1 }, base).reason, "unknown_action");
+  assert.equal(validateRebalanceProposal({ action: "buy", sizeUsd: 5 }, base).reason, "below_min_size");
+  assert.equal(
+    validateRebalanceProposal({ action: "buy", sizeUsd: 500 }, { ...base, compositionAvailable: false }).reason,
+    "composition_unavailable",
+  );
+});
+
+test("clampAuditOverrides bounds both ways and rejects garbage", () => {
+  const defaults = {
+    minNetEdgeBps: 0.2,
+    minJuniorBufferBps: 500,
+    maxDeployOfJuniorBps: 5000,
+    maxVar95Bps: 500,
+    maxPIlExceedsFees: 0.35,
+  };
+  const tightened = clampAuditOverrides(defaults, {
+    minNetEdgeBps: 5,
+    maxDeployOfJuniorBps: 1000,
+    maxPIlExceedsFees: 0.1,
+  });
+  assert.equal(tightened.minNetEdgeBps, 5);
+  assert.equal(tightened.maxDeployOfJuniorBps, 1000);
+  assert.equal(tightened.maxPIlExceedsFees, 0.1);
+  assert.equal(tightened.minJuniorBufferBps, 500);
+  assert.equal(tightened.maxVar95Bps, 500);
+  const wild = clampAuditOverrides(defaults, {
+    minNetEdgeBps: -5,
+    minJuniorBufferBps: 1,
+    maxDeployOfJuniorBps: 999_999,
+    maxVar95Bps: 0,
+    maxPIlExceedsFees: 2,
+  });
+  assert.equal(wild.minNetEdgeBps, 0.2);
+  assert.equal(wild.minJuniorBufferBps, 500);
+  assert.equal(wild.maxDeployOfJuniorBps, 5000);
+  assert.equal(wild.maxVar95Bps, 100);
+  assert.equal(wild.maxPIlExceedsFees, 0.35);
+  assert.equal(clampAuditOverrides(defaults, { minNetEdgeBps: "abc" }).minNetEdgeBps, 0.2);
+});
+
+test("clampParamOverrides respects controller bounds and fee ordering", () => {
+  const params = {
+    quotingEnabled: true,
+    baseFee: 3000,
+    maxSurgeFee: 30_000,
+    maxDeviationBps: 300,
+    toxicityMultiplierBps: 1000,
+    minEvBps: 0,
+    cooldownSeconds: 0,
+    ttl: 3600,
+    gracePeriod: 3600,
+    maxDeployPerSwap: 1_000_000n,
+    bucketTicks: 1,
+  };
+  const bounds = {
+    maxBaseFee: 20_000,
+    maxSurgeFee: 40_000,
+    maxDeviationBps: 400,
+    maxToxicityMultiplierBps: 2000,
+    maxTtl: 7_200,
+    maxGracePeriod: 7_200,
+    maxDeployPerSwap: 900_000_000n,
+  };
+  const out = clampParamOverrides(
+    params,
+    {
+      baseFee: 50_000,
+      maxSurgeFee: 10_000,
+      maxDeviationBps: 9_000,
+      ttl: 99_999,
+      maxDeployPerSwap: 123_456_789_000_000n,
+      bucketTicks: 7,
+      quotingEnabled: false,
+    },
+    bounds,
+  );
+  assert.equal(out.baseFee, 20_000);
+  assert.equal(out.maxSurgeFee, 20_000);
+  assert.equal(out.maxDeviationBps, 400);
+  assert.equal(out.ttl, 7_200);
+  assert.equal(out.maxDeployPerSwap, 900_000_000n);
+  assert.equal(out.bucketTicks, 7);
+  assert.equal(out.quotingEnabled, false);
+  assert.equal(clampParamOverrides(params, { bucketTicks: "wide" }).bucketTicks, 1);
+});
+
+test("economicAudit deploys only when every hard check passes", () => {
+  const audit = economicAudit({
+    oracleValid: true,
+    escrowFunded: true,
+    seniorClaimUsd: 100_000,
+    juniorClaimUsd: 20_000,
+    expectedFeeBps: 8,
+    expectedIlBps: -3,
+    pIlExceedsFees: 0.2,
+    var95Bps: -120,
+    swapCostBps: 1,
+    deployUsd: 5_000,
+  });
+  assert.equal(audit.verdict, "deploy");
+  assert.equal(audit.reason, "all_checks_passed");
+  assert.ok(audit.checks.every((check) => check.pass));
+  assert.equal(audit.juniorBufferBps, 2_000);
+  assert.equal(audit.netAfterCostsBps, 4); // 8 - 3 - 1
+  assert.equal(audit.maxDeployUsd, 10_000); // 50% of junior
+  assert.equal(audit.cappedDeployUsd, 5_000);
+  assert.equal(audit.yieldSplit.incentivesBps, 0);
+  assert.ok(audit.invalidationTriggers.length >= 6);
+});
+
+test("economicAudit disables on unfunded escrow or a thin junior buffer", () => {
+  const base = {
+    oracleValid: true,
+    escrowFunded: true,
+    seniorClaimUsd: 100_000,
+    juniorClaimUsd: 20_000,
+    expectedFeeBps: 8,
+    expectedIlBps: -3,
+    pIlExceedsFees: 0.2,
+    var95Bps: -120,
+  };
+  assert.equal(economicAudit({ ...base, escrowFunded: false }).verdict, "disable");
+  assert.equal(economicAudit({ ...base, escrowFunded: false }).reason, "escrow_unfunded");
+  assert.equal(economicAudit({ ...base, oracleValid: false }).reason, "oracle_invalid");
+  const thin = economicAudit({ ...base, juniorClaimUsd: 2_000 }); // 200 bps < 500 bps floor
+  assert.equal(thin.verdict, "disable");
+  assert.equal(thin.reason, "junior_buffer_too_thin");
+});
+
+test("economicAudit holds when net edge after costs is not positive", () => {
+  const audit = economicAudit({
+    oracleValid: true,
+    escrowFunded: true,
+    seniorClaimUsd: 100_000,
+    juniorClaimUsd: 20_000,
+    expectedFeeBps: 4,
+    expectedIlBps: -3.5,
+    pIlExceedsFees: 0.2,
+    var95Bps: -120,
+    swapCostBps: 1,
+    deployUsd: 1_000,
+  });
+  assert.equal(audit.verdict, "hold");
+  assert.equal(audit.reason, "net_edge_after_costs");
+  assert.ok(audit.netAfterCostsBps < 0.2);
+});
+
+test("economicAudit caps deploy size at a fraction of the junior claim", () => {
+  const audit = economicAudit({
+    oracleValid: true,
+    escrowFunded: true,
+    seniorClaimUsd: 100_000,
+    juniorClaimUsd: 10_000,
+    expectedFeeBps: 8,
+    expectedIlBps: -3,
+    pIlExceedsFees: 0.1,
+    var95Bps: -50,
+    deployUsd: 50_000,
+  });
+  assert.equal(audit.maxDeployUsd, 5_000);
+  assert.equal(audit.cappedDeployUsd, 5_000);
+  assert.equal(audit.verdict, "hold");
+  assert.equal(audit.reason, "deploy_within_junior");
+});
+
+test("economicAudit holds on VaR95 and IL-probability breaches", () => {
+  const base = {
+    oracleValid: true,
+    escrowFunded: true,
+    seniorClaimUsd: 100_000,
+    juniorClaimUsd: 20_000,
+    expectedFeeBps: 8,
+    expectedIlBps: -3,
+    swapCostBps: 0,
+    deployUsd: 1_000,
+  };
+  assert.equal(economicAudit({ ...base, var95Bps: -900 }).reason, "var95");
+  assert.equal(economicAudit({ ...base, pIlExceedsFees: 0.9 }).reason, "il_probability");
+  assert.equal(economicAudit({ ...base, pIlExceedsFees: 0.2, var95Bps: -100 }).verdict, "deploy");
 });

@@ -17,6 +17,7 @@
     "hook:demo": "node scripts/hook-demo.mjs",
     "agent:keygen": "node scripts/agent-keygen.mjs",
     "agent:tick": "node agent/index.mjs --once",
+    "agent:refresh": "node agent/refresh.mjs",
     "market": "node agent/market.mjs",
     "market:json": "node agent/market.mjs --json",
     "quote:compare": "node scripts/quote-compare.mjs",

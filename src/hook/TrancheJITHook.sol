@@ -39,7 +39,6 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     uint256 public constant SHARE_SCALE = 1e12;
     uint256 public constant DEGRADED_DIVISOR = 4;
     uint256 internal constant Q96 = 1 << 96;
-    uint256 internal constant Q192 = 1 << 192;
     uint256 internal constant VIRTUAL_SHARES = 1e3;
     uint256 internal constant VIRTUAL_ASSETS = 1;
     bytes32 internal constant JIT_SALT = keccak256("tranche.jit.v1");
@@ -69,6 +68,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     address public guardian;
     address public controller;
     address public priceOracle;
+    uint8 public oracleDecimals;
     address public lendingPool;
     IAToken public aToken;
     IAToken public aTokenEquity;
@@ -94,6 +94,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     event GuardianUpdated(address indexed guardian);
     event ControllerUpdated(address indexed controller);
     event PriceOracleUpdated(address indexed priceOracle);
+    event OracleDecimalsUpdated(uint8 decimals);
     event LendingPoolUpdated(address indexed lendingPool, address indexed aToken, address indexed aTokenEquity);
     event AccountantUpdated(address indexed accountant);
     event PausedSet(bool paused);
@@ -135,6 +136,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     error NotDynamicFee();
     error OracleInvalid();
     error OracleStale(uint256 updatedAt);
+    error InvalidOracleDecimals(uint8 decimals);
     error PoolPriceOutOfBounds(uint160 sqrtPriceX96);
     error SlippageExceeded(uint256 received, uint256 minOut);
     error DeviationTooHigh(uint16 deviationBps);
@@ -183,7 +185,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         usdcDecimals = IERC20Metadata(address(usdc_)).decimals();
         equity = equity_;
         equityDecimals = IERC20Metadata(address(equity_)).decimals();
-        priceOracle = priceOracle_;
+        _setPriceOracle(priceOracle_);
         owner = owner_ == address(0) ? msg.sender : owner_;
         guardian = owner;
         controller = controller_;
@@ -192,7 +194,6 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         emit OwnerUpdated(owner);
         emit GuardianUpdated(guardian);
         emit ControllerUpdated(controller_);
-        emit PriceOracleUpdated(priceOracle_);
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory permissions) {
@@ -236,8 +237,16 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
 
     function setPriceOracle(address newOracle) external onlyOwner {
         if (newOracle == address(0)) revert ZeroAddress();
+        _setPriceOracle(newOracle);
+    }
+
+    function _setPriceOracle(address newOracle) internal {
+        uint8 decimals_ = INVDAPriceOracle(newOracle).decimals();
+        if (decimals_ > 18) revert InvalidOracleDecimals(decimals_);
         priceOracle = newOracle;
+        oracleDecimals = decimals_;
         emit PriceOracleUpdated(newOracle);
+        emit OracleDecimalsUpdated(decimals_);
     }
 
     function setLendingPool(address pool) external onlyOwner {
@@ -253,6 +262,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     }
 
     function setAccountant(address newAccountant) external onlyOwner {
+        if (newAccountant == address(0)) revert ZeroAddress();
         accountant = newAccountant;
         emit AccountantUpdated(newAccountant);
     }
@@ -480,34 +490,27 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         int24 bucketTicks = _params.bucketTicks;
         if (bucketTicks == 0 || bucketTicks % spacing != 0) revert InvalidBucketWidth(bucketTicks, spacing);
 
-        (uint160 sqrtPriceX96, int24 tick,,) = poolManager.getSlot0(PoolId.wrap(activePoolId));
+        (, int24 tick,,) = poolManager.getSlot0(PoolId.wrap(activePoolId));
         bool zeroForOne = swapParams.zeroForOne;
-
-        IERC20 seedAsset = zeroForOne ? IERC20(Currency.unwrap(key.currency1)) : IERC20(Currency.unwrap(key.currency0));
-        uint256 expectedOut = _expectedOutput(swapParams, sqrtPriceX96, fee);
-        uint256 seed = Math.mulDiv(expectedOut, 10_100, 10_000) + 1;
-        uint256 seedValueUsdc = address(seedAsset) == address(usdc) ? seed : _equityValueInUsdc(seed);
-        if (seedValueUsdc > budget) revert JitCapacityExceeded(seedValueUsdc, budget);
 
         int24 tickLower;
         int24 tickUpper;
-        uint128 liquidity;
         if (zeroForOne) {
             int24 upper = _floorAlign(tick, spacing);
             tickLower = upper - bucketTicks;
             tickUpper = upper;
-            liquidity = _liquidityForToken1(
-                seed, TickMath.getSqrtPriceAtTick(tickUpper), TickMath.getSqrtPriceAtTick(tickLower)
-            );
         } else {
             int24 lower = _floorAlign(tick, spacing) + spacing;
             tickLower = lower;
             tickUpper = lower + bucketTicks;
-            liquidity = _liquidityForToken0(
-                seed, TickMath.getSqrtPriceAtTick(tickLower), TickMath.getSqrtPriceAtTick(tickUpper)
-            );
         }
-        if (liquidity == 0) revert JitCapacityExceeded(0, budget);
+
+        IERC20 seedAsset = zeroForOne ? IERC20(Currency.unwrap(key.currency1)) : IERC20(Currency.unwrap(key.currency0));
+        (uint128 liquidity, uint256 seed) = _sizeJit(swapParams, tickLower, tickUpper, fee);
+        if (liquidity == 0 || seed == 0) revert JitCapacityExceeded(0, budget);
+
+        uint256 seedValueUsdc = address(seedAsset) == address(usdc) ? seed : _equityValueInUsdc(seed);
+        if (seedValueUsdc > budget) revert JitCapacityExceeded(seedValueUsdc, budget);
 
         {
             uint256 available = _withdrawAsset(seedAsset, seed);
@@ -581,18 +584,58 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         emit JitClaimRedeemed(address(asset), amount);
     }
 
-    function _expectedOutput(SwapParams calldata swapParams, uint160 sqrtPriceX96, uint24 fee)
+    /// @notice Sizes the one-sided JIT position from the swap itself, not a constant-product
+    ///         spot approximation. The position is always the aligned bucket adjacent to the
+    ///         current tick, so the swap crosses the zero-liquidity gap for free and only
+    ///         consumes input inside [sqrtLower, sqrtUpper]; liquidity is therefore sized over
+    ///         the bucket itself (never over the gap). Exact-in solves the liquidity so the whole
+    ///         input stays inside the bucket; exact-out derives it from the requested output. A
+    ///         1% liquidity buffer keeps the swap strictly inside the bucket after rounding.
+    function _sizeJit(SwapParams calldata swapParams, int24 tickLower, int24 tickUpper, uint24 fee)
+        internal
+        pure
+        returns (uint128 liquidity, uint256 seed)
+    {
+        uint160 sqrtLower = TickMath.getSqrtPriceAtTick(tickLower);
+        uint160 sqrtUpper = TickMath.getSqrtPriceAtTick(tickUpper);
+
+        uint128 base;
+        if (swapParams.amountSpecified < 0) {
+            uint256 amountIn = uint256(-swapParams.amountSpecified);
+            uint256 amountInLessFee = Math.mulDiv(amountIn, 1_000_000 - fee, 1_000_000);
+            base = swapParams.zeroForOne
+                ? _liquidityForToken0(amountInLessFee, sqrtLower, sqrtUpper)
+                : _liquidityForToken1(amountInLessFee, sqrtUpper, sqrtLower);
+        } else {
+            uint256 amountOut = uint256(swapParams.amountSpecified);
+            base = swapParams.zeroForOne
+                ? _liquidityForToken1(amountOut, sqrtUpper, sqrtLower)
+                : _liquidityForToken0(amountOut, sqrtLower, sqrtUpper);
+        }
+        if (base == 0) return (0, 0);
+
+        liquidity = uint128(Math.mulDiv(base, 10_100, 10_000) + 1);
+        seed = swapParams.zeroForOne
+            ? _amount1ForLiquidity(liquidity, sqrtLower, sqrtUpper)
+            : _amount0ForLiquidity(liquidity, sqrtLower, sqrtUpper);
+    }
+
+    function _amount1ForLiquidity(uint128 liquidity, uint160 sqrtPriceLower, uint160 sqrtPriceUpper)
         internal
         pure
         returns (uint256)
     {
-        if (swapParams.amountSpecified > 0) return uint256(swapParams.amountSpecified);
-        uint256 amountIn = uint256(-swapParams.amountSpecified);
-        uint256 ratioX96 = Math.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), Q96);
-        if (ratioX96 == 0) revert PoolPriceOutOfBounds(sqrtPriceX96);
-        uint256 output =
-            swapParams.zeroForOne ? Math.mulDiv(amountIn, ratioX96, Q96) : Math.mulDiv(amountIn, Q96, ratioX96);
-        return Math.mulDiv(output, 1_000_000 - fee, 1_000_000);
+        return Math.mulDiv(uint256(liquidity), uint256(sqrtPriceUpper) - uint256(sqrtPriceLower), Q96);
+    }
+
+    function _amount0ForLiquidity(uint128 liquidity, uint160 sqrtPriceLower, uint160 sqrtPriceUpper)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 diff = uint256(sqrtPriceUpper) - uint256(sqrtPriceLower);
+        uint256 numerator = Math.mulDiv(uint256(liquidity), diff, uint256(sqrtPriceUpper));
+        return Math.mulDiv(numerator, Q96, uint256(sqrtPriceLower));
     }
 
     function _liquidityForToken1(uint256 amount1, uint160 sqrtPrice, uint160 sqrtPriceLower)
@@ -685,7 +728,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     }
 
     function _equityUnitsToUsdc(uint256 amount, uint256 mid) internal view returns (uint256) {
-        return Math.mulDiv(amount, mid, 10 ** (8 + equityDecimals - usdcDecimals));
+        return Math.mulDiv(amount, mid, 10 ** (oracleDecimals + equityDecimals - usdcDecimals));
     }
 
     function _activatePool(PoolKey calldata key) internal {
@@ -717,7 +760,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) revert OracleInvalid();
         if (block.timestamp > data.updatedAt + maxPriceAge) revert OracleStale(data.updatedAt);
-        oracleUsdPerEquity1e18 = uint256(uint192(data.mid)) * 1e10;
+        oracleUsdPerEquity1e18 = uint256(uint192(data.mid)) * 10 ** (18 - oracleDecimals);
 
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(PoolId.wrap(activePoolId));
         if (sqrtPriceX96 == 0) revert OracleInvalid();

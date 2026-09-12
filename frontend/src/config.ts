@@ -13,7 +13,7 @@ export const arcTestnet = defineChain({
 
 export const ADDRESSES = {
   usdc: "0x3600000000000000000000000000000000000000",
-  eurc: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  nvda: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
   demoRouter: "0xC76fd7Ee062C5E498a0E2be6CcB7c2aD2dF0d062",
   poolManager: "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
 } as const;
@@ -21,7 +21,7 @@ export const ADDRESSES = {
 // Real USDC/EURC FX pool (fee 0.01%, tickSpacing 1, no hook)
 export const USDC_EURC_KEY = {
   currency0: ADDRESSES.usdc,
-  currency1: ADDRESSES.eurc,
+  currency1: ADDRESSES.nvda,
   fee: 100,
   tickSpacing: 1,
   hooks: "0x0000000000000000000000000000000000000000",

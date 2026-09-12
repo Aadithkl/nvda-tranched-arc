@@ -23,6 +23,7 @@ contract NVDAPriceOracle {
 
     uint8 public immutable decimals;
     address public owner;
+    address public pendingOwner;
     bool public paused;
     uint32 public maxStaleness;
     uint32 public marketStatus;
@@ -35,6 +36,7 @@ contract NVDAPriceOracle {
     uint256 internal _updatedAt;
 
     event OwnerUpdated(address indexed owner);
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event PausedSet(bool paused);
     event WriterUpdated(address indexed writer, bool allowed);
     event MaxStalenessUpdated(uint32 maxStaleness);
@@ -49,6 +51,8 @@ contract NVDAPriceOracle {
     );
 
     error NotOwner(address caller);
+    error NotPendingOwner(address caller);
+    error ZeroAddress();
     error NotWriter(address caller);
     error IsPaused();
     error InvalidMarketStatus(uint32 marketStatus);
@@ -87,8 +91,16 @@ contract NVDAPriceOracle {
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
-        owner = newOwner;
-        emit OwnerUpdated(newOwner);
+        if (newOwner == address(0)) revert ZeroAddress();
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        pendingOwner = address(0);
+        owner = msg.sender;
+        emit OwnerUpdated(msg.sender);
     }
 
     function updatePrice(int192 mid, uint32 marketStatus_, uint32 sourceTimestamp, bytes32 paymentRef)

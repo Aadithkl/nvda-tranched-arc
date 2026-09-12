@@ -26,7 +26,7 @@ contract DeployTrancheHookV2 is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address eurc = vm.envAddress("EURC_ADDRESS");
+        address nvda = vm.envAddress("EURC_ADDRESS");
         address lendingPool = vm.envAddress("LENDING_POOL");
         address priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
         address controllerAddr = vm.envAddress("HOOK_DEMO_CONTROLLER");
@@ -40,7 +40,7 @@ contract DeployTrancheHookV2 is Script {
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
         );
         bytes memory constructorArgs =
-            abi.encode(IPoolManager(poolManager), IERC20(usdc), IERC20(eurc), priceOracle, deployer, controllerAddr);
+            abi.encode(IPoolManager(poolManager), IERC20(usdc), IERC20(nvda), priceOracle, deployer, controllerAddr);
         bytes memory initcode = abi.encodePacked(type(TrancheJITHook).creationCode, constructorArgs);
         (address expectedHook, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(TrancheJITHook).creationCode, constructorArgs);
@@ -52,7 +52,7 @@ contract DeployTrancheHookV2 is Script {
 
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(eurc),
+            currency1: Currency.wrap(nvda),
             fee: 0x800000,
             tickSpacing: 1,
             hooks: IHooks(hook)

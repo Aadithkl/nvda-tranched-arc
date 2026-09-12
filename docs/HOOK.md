@@ -17,15 +17,16 @@ The hook is the only bridge between the tranche stack and the two markets:
 | `src/interfaces/INVDAPriceOracle.sol` | Oracle read (`mid`, `valid`) for gate pricing |
 
 **Safety notes:** hook share math uses virtual shares/assets (inflation defense); `maxPriceAge` (default
-300s) is enforced on top of the oracle's own staleness; `wrapUSDC`/`unwrapUSDC`/`seedInventory`/
-`unwindClaims` are `nonReentrant`; `unwindClaims()` is intentionally permissionless (moves hook-owned
-claims to Aave only).
+300s) is enforced on top of the oracle's own staleness; oracle decimals are read from the oracle and
+scaled (no hard-coded 8); `wrapUSDC`/`unwrapUSDC`/`seedInventory`/`unwindClaims` are `nonReentrant`;
+`unwindClaims()` is intentionally permissionless (moves hook-owned claims to Aave only).
 
 ## Quote flow (`beforeSwap`)
 
 1. `_checkActivePool` (only the active poolId, hooks == this)
 2. gate: `quoteState() != REST`, cooldown elapsed, `_checkActivePool`
-3. price: `poolUsdPerEquity` (v4 slot0 via `StateLibrary`) vs `oracleUsdPerEquity` (`mid × 1e10`)
+3. price: `poolUsdPerEquity` (v4 slot0 via `StateLibrary`) vs `oracleUsdPerEquity` (`mid` scaled to 1e18
+   by the oracle's own `decimals`)
 4. `deviationBps = |pool − oracle| / oracle`; `> maxDeviationBps` → `DeviationTooHigh`
 5. `toxic` = trade pushes pool price **toward** oracle; non-toxic → `baseFee`; toxic →
    `min(baseFee + deviationBps × toxicityMultiplierBps, maxSurgeFee)`
@@ -54,8 +55,13 @@ liquidity.
   trades into:
   - `zeroForOne` (price down) → range `[tick - bucketTicks, tick]`, seeded with **token1**
   - `oneForZero` (price up) → range `[tick + spacing, tick + spacing + bucketTicks]`, seeded with **token0**
-  - size = expected swap output × 1.01, **valued in USDC via the price oracle** and capped by
-    `effectiveMaxDeploy()`; oversized swaps revert `JitCapacityExceeded`
+  - sizing is **bucket-exact**, derived from the swap itself (`_sizeJit`): exact-in liquidity is solved
+    from v4's amount-delta equations so the whole fee-adjusted input stays inside the bucket, exact-out
+    from the requested output, +1% buffer for rounding. (An inline `SwapMath.computeSwapStep` validation
+    step was removed because it pushed the hook over EIP-170; the closed form is exact for the single
+    one-sided bucket and the buffer covers rounding.)
+  - the seed is **valued in USDC via the price oracle** and capped by `effectiveMaxDeploy()`; oversized
+    swaps revert `JitCapacityExceeded`
   - inventory is withdrawn from Aave and settled to the PoolManager (`sync` + `settle`)
 - **After swap**: the exact liquidity is removed; positive deltas are converted to **ERC-6909 claims**
   (`PoolManager.mint`) because the swapper's input is settled after `afterSwap`; negative deltas are paid
@@ -95,14 +101,16 @@ set as the controller `rebalanceTarget` (`PIPE_ADDRESS` in the stack deploy); it
 plain external pool via `setRebalanceVenue(key, router)` and the controller calls
 `rebalanceSwap(equityOut, amountIn, minOut, deadline)`:
 
-- hard cap only (`hardMaxEquityBps`, default 8000, max 9500) — no target ratio;
+- hard cap only (`hardMaxEquityBps`, default 7500, max 9500) — no target ratio;
 - `minOut` must beat the oracle-implied output minus `maxRebalanceSlippageBps` (`SlippageBoundUnmet`);
 - buying equity reverts `RebalanceNotFunded` while the senior escrow is unfunded, and reverts
   `EquityCapExceeded` if the post-swap book breaches the cap;
 - controller-side per-call cap (`maxRebalanceSwapUsdc`, equity sells valued at the oracle) and cooldown.
 
-The offchain agent computes portfolio IL, inventory drift, and JIT edge (`agent/model.mjs`) and submits
-through `StrategyAgent.submitRebalance`; the chain only enforces bounds.
+The offchain LLM manager proposes `buy`/`sell`/`hold` plus size every few hours; deterministic code
+(`agent/model.mjs` `validateRebalanceProposal`) validates the hard rails and submits through
+`StrategyAgent.submitRebalance`; the chain only enforces bounds. Portfolio IL, inventory drift and JIT
+edge are computed as manager context, not as a deterministic trading policy.
 
 ## Next
 

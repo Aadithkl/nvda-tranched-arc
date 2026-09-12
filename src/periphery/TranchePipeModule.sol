@@ -25,7 +25,8 @@ interface IDemoRouter {
         bool zeroForOne,
         uint256 amountIn,
         uint256 minAmountOut,
-        address recipient
+        address recipient,
+        uint256 deadline
     ) external returns (BalanceDelta delta);
 }
 
@@ -50,7 +51,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     uint8 public immutable equityDecimals;
 
     address public controller;
-    uint16 public hardMaxEquityBps = 8_000;
+    uint16 public hardMaxEquityBps = 7_500;
     uint16 public conversionFeeBps;
     uint16 public maxRebalanceSlippageBps = 100;
     address public rebalanceRouter;
@@ -102,6 +103,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     }
 
     function setController(address controller_) external onlyOwner {
+        if (controller_ == address(0)) revert ZeroAddress();
         controller = controller_;
         emit ControllerUpdated(controller_);
     }
@@ -247,7 +249,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
         PoolKey memory venueKey = _rebalanceKey;
         bool zeroForOne = Currency.unwrap(venueKey.currency0) == address(tokenIn);
         tokenIn.forceApprove(rebalanceRouter, amountIn);
-        IDemoRouter(rebalanceRouter).swapExactIn(venueKey, zeroForOne, amountIn, minOut, address(this));
+        IDemoRouter(rebalanceRouter).swapExactIn(venueKey, zeroForOne, amountIn, minOut, address(this), deadline);
         tokenIn.forceApprove(rebalanceRouter, 0);
         uint256 amountOut = tokenOut.balanceOf(address(this)) - before;
         tokenOut.safeTransfer(address(hook), amountOut);
@@ -288,10 +290,10 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     }
 
     function _equityUnitsToUsdc(uint256 amount, uint256 mid) internal view returns (uint256) {
-        return Math.mulDiv(amount, mid, 10 ** (8 + equityDecimals - usdcDecimals));
+        return Math.mulDiv(amount, mid, 10 ** (hook.oracleDecimals() + equityDecimals - usdcDecimals));
     }
 
     function _usdcToEquityUnits(uint256 amount, uint256 mid) internal view returns (uint256) {
-        return Math.mulDiv(amount, 10 ** (8 + equityDecimals - usdcDecimals), mid);
+        return Math.mulDiv(amount, 10 ** (hook.oracleDecimals() + equityDecimals - usdcDecimals), mid);
     }
 }

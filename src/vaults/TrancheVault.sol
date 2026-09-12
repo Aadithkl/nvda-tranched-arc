@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { ERC7540 } from "openzeppelin-community-contracts/token/ERC20/extensions/ERC7540.sol";
 import { ERC7540SyncDeposit } from "openzeppelin-community-contracts/token/ERC20/extensions/ERC7540SyncDeposit.sol";
 import { ERC7540AdminRedeem } from "openzeppelin-community-contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol";
@@ -12,7 +13,7 @@ import { IHookShareToken } from "../interfaces/IHookShareToken.sol";
 import { IHookSharePipe } from "../interfaces/IHookSharePipe.sol";
 import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 
-abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
+abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -49,6 +50,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
     error ZeroAddress();
     error ZeroAmount();
     error DepositCapExceeded(uint256 assets, uint256 maxAssets);
+    error DepositsPaused();
     error SeniorUsdcOnly();
 
     modifier onlyOwner() {
@@ -132,15 +134,19 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         emit SharesMoved(to, amount);
     }
 
-    function depositUSDC(uint256 usdcAmount, address receiver) external returns (uint256 shares) {
+    function depositUSDC(uint256 usdcAmount, address receiver) external nonReentrant returns (uint256 shares) {
         if (usdcAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
+        if (depositsPaused) revert DepositsPaused();
 
-        uint256 maxAssets = maxDeposit(receiver);
+        uint256 cap = maxTotalAssets;
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         usdc.forceApprove(address(pipe), usdcAmount);
         uint256 assets = pipe.wrapUSDC(usdcAmount, address(this));
-        if (assets > maxAssets) revert DepositCapExceeded(assets, maxAssets);
+
+        // Re-check the cap against post-wrap state so a reentrant or upgraded pipe cannot bypass it
+        // with the pre-call snapshot (Slither reentrancy-balance).
+        if (cap != 0 && totalAssets() > cap) revert DepositCapExceeded(totalAssets(), cap);
 
         uint256 assetsBefore = totalAssets() - assets;
         shares = assets.mulDiv(totalSupply() + 10 ** _decimalsOffset(), assetsBefore + 1, Math.Rounding.Floor);
@@ -150,7 +156,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         _notifyDeposit(assets);
     }
 
-    function deposit(uint256 assets, address receiver) public virtual override returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) public virtual override nonReentrant returns (uint256 shares) {
         shares = super.deposit(assets, receiver);
         _notifyDeposit(assets);
     }
@@ -165,6 +171,22 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         if (acct != address(0)) ITrancheAccountant(acct).onTrancheRedeem(isSenior, hookShares);
     }
 
+    function _notifyClaim(uint256 hookShares) internal {
+        address acct = accountant;
+        if (acct != address(0)) ITrancheAccountant(acct).onTrancheClaim(isSenior, hookShares);
+    }
+
+    /// @dev Fulfilled redemption assets leave the vault only when the user claims. Report the
+    ///      claim so the accountant releases the locked-claim liability tracked at fulfillment.
+    function _withdraw(address caller, address receiver, address sharesOwner, uint256 assets, uint256 shares)
+        internal
+        virtual
+        override
+    {
+        super._withdraw(caller, receiver, sharesOwner, assets, shares);
+        _notifyClaim(assets);
+    }
+
     function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController)
         external
         returns (uint256 usdcAmount)
@@ -174,6 +196,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
 
     function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController, uint256 minUsdcOut)
         public
+        nonReentrant
         returns (uint256 usdcAmount)
     {
         if (receiver == address(0)) revert ZeroAddress();
@@ -191,6 +214,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
 
     function claimAndUnwrapEquity(uint256 shares, address receiver, address ownerOrController, uint256 minEquityOut)
         public
+        nonReentrant
         returns (uint256 equityAmount)
     {
         if (isSenior) revert SeniorUsdcOnly();
@@ -213,7 +237,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem {
         address ownerOrController,
         uint256 minUsdcOut,
         uint256 minEquityOut
-    ) public returns (uint256 usdcAmount, uint256 equityAmount) {
+    ) public nonReentrant returns (uint256 usdcAmount, uint256 equityAmount) {
         if (isSenior) revert SeniorUsdcOnly();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 assets = redeem(shares, address(this), ownerOrController);

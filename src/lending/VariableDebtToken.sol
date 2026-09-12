@@ -12,6 +12,9 @@ contract VariableDebtToken is IVariableDebtToken {
     mapping(address => uint256) private _scaledBalances;
     uint256 private _scaledTotalSupply;
 
+    event Mint(address indexed user, uint256 amount, uint256 scaledAmount);
+    event Burn(address indexed user, uint256 amount, uint256 scaledAmount);
+
     error NotPool(address caller);
     error InsufficientBalance(address user, uint256 amount);
     error InvalidAddress();
@@ -47,6 +50,7 @@ contract VariableDebtToken is IVariableDebtToken {
         uint256 scaled = WadRayMath.rayDiv(amount, _index());
         _scaledBalances[user] += scaled;
         _scaledTotalSupply += scaled;
+        emit Mint(user, amount, scaled);
         return true;
     }
 
@@ -56,6 +60,7 @@ contract VariableDebtToken is IVariableDebtToken {
         if (scaled > balance) revert InsufficientBalance(user, amount);
         _scaledBalances[user] = balance - scaled;
         _scaledTotalSupply -= scaled;
+        emit Burn(user, amount, scaled);
         return true;
     }
 

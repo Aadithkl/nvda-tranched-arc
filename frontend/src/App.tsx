@@ -11,7 +11,7 @@ import { explorerTx } from "./config";
 export default function App() {
   const [username, setUsername] = useState("");
   const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [balances, setBalances] = useState<{ usdc: bigint; eurc: bigint } | null>(null);
+  const [balances, setBalances] = useState<{ usdc: bigint; nvda: bigint } | null>(null);
   const [status, setStatus] = useState("Not connected");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,7 +76,7 @@ export default function App() {
         <p>{status}</p>
         {wallet && (
           <p>
-            USDC: {balances ? formatUsdc(balances.usdc) : "…"} · EURC: {balances ? formatUsdc(balances.eurc) : "…"}{" "}
+            USDC: {balances ? formatUsdc(balances.usdc) : "…"} · EURC: {balances ? formatUsdc(balances.nvda) : "…"}{" "}
             <button onClick={refreshBalances} disabled={busy}>
               refresh
             </button>
