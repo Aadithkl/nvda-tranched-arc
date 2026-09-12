@@ -75,11 +75,7 @@ function printDiscovery(items) {
 }
 
 async function inspect(url) {
-  const cli = spawnSync("circle", ["services", "inspect", url, "-X", "POST", "-o", "json"], {
-    encoding: "utf8",
-    shell: true,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  const cli = circleCli(["services", "inspect", url, "-X", "POST", "-o", "json"]);
   if (cli.status === 0 && cli.stdout.trim()) {
     console.log(cli.stdout.trim());
     return;
@@ -97,12 +93,24 @@ async function inspect(url) {
   console.log(JSON.stringify({ status: response.status, body: (await response.text()).slice(0, 400), challenge }, null, 2));
 }
 
+function circleCliEntry() {
+  const npmRoot = spawnSync("npm", ["root", "-g"], { encoding: "utf8", shell: true }).stdout?.trim();
+  if (!npmRoot) throw new Error("npm root -g failed; is npm on PATH?");
+  return path.join(npmRoot, "@circle-fin", "cli", "dist", "index.js");
+}
+
+// Run the Circle CLI without a shell so JSON bodies are passed verbatim (Windows-safe).
+function circleCli(args) {
+  return spawnSync(process.execPath, [circleCliEntry(), ...args], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+    env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" },
+  });
+}
+
 function agentWalletAddress() {
   if (process.env.AGENT_CIRCLE_WALLET) return process.env.AGENT_CIRCLE_WALLET;
-  const result = spawnSync("circle", ["wallet", "list", "--type", "agent", "--chain", process.env.AGENT_AI_CHAIN || "BASE", "-o", "json"], {
-    encoding: "utf8",
-    shell: true,
-  });
+  const result = circleCli(["wallet", "list", "--type", "agent", "--chain", process.env.AGENT_AI_CHAIN || "BASE", "-o", "json"]);
   if (result.status !== 0) {
     throw new Error(
       "no agent wallet address; run `circle wallet login <email>` (and set AGENT_CIRCLE_WALLET) first",
@@ -110,7 +118,7 @@ function agentWalletAddress() {
   }
   try {
     const parsed = JSON.parse(result.stdout);
-    const wallets = parsed.wallets ?? parsed.items ?? parsed;
+    const wallets = parsed.data?.wallets ?? parsed.wallets ?? parsed.items ?? parsed;
     const address = wallets?.[0]?.address ?? wallets?.data?.[0]?.address;
     if (address) return address;
   } catch {
@@ -134,8 +142,8 @@ function buildRequestBody(model, maxTokens) {
   return { body, snapshotHash: hashSnapshot(market), market };
 }
 
-function payViaCli({ url, body, address, chain, maxAmount }) {
-  const args = [
+function payArgs({ url, body, address, chain, maxAmount }) {
+  return [
     "services",
     "pay",
     url,
@@ -152,11 +160,36 @@ function payViaCli({ url, body, address, chain, maxAmount }) {
     "-o",
     "json",
   ];
-  const result = spawnSync("circle", args, { encoding: "utf8", shell: true, maxBuffer: 32 * 1024 * 1024 });
+}
+
+function payViaCli({ url, body, address, chain, maxAmount }) {
+  const result = circleCli(payArgs({ url, body, address, chain, maxAmount }));
   if (result.status !== 0) {
     throw new Error(`circle services pay failed: ${(result.stderr || result.stdout || "").slice(0, 500)}`);
   }
   return result.stdout;
+}
+
+function estimateViaCli({ url, body, address, chain, maxAmount }) {
+  const result = circleCli([...payArgs({ url, body, address, chain, maxAmount }).slice(0, -2), "--estimate", "-o", "json"]);
+  if (result.status !== 0) {
+    throw new Error(`circle services pay --estimate failed: ${(result.stderr || result.stdout || "").slice(0, 500)}`);
+  }
+  return result.stdout;
+}
+
+function extractJson(text) {
+  if (typeof text !== "string") return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    return null;
+  }
 }
 
 function parseContent(raw) {
@@ -164,7 +197,7 @@ function parseContent(raw) {
   try {
     payload = JSON.parse(raw);
   } catch {
-    return { content: raw, parsed: null, usage: null, model: null };
+    return { content: raw, parsed: extractJson(raw), usage: null, model: null };
   }
   const body =
     payload.response?.body ??
@@ -178,15 +211,7 @@ function parseContent(raw) {
     body?.content ??
     body?.output_text ??
     (typeof body === "string" ? body : null);
-  let parsed = null;
-  if (typeof content === "string") {
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      parsed = null;
-    }
-  }
-  return { content: content ?? JSON.stringify(body).slice(0, 2000), parsed, usage: body?.usage ?? payload.usage ?? null, model: body?.model ?? payload.model ?? null, raw: payload };
+  return { content: content ?? JSON.stringify(body).slice(0, 2000), parsed: extractJson(content), usage: body?.usage ?? payload.usage ?? null, model: body?.model ?? payload.model ?? null, raw: payload };
 }
 
 async function main() {
@@ -239,8 +264,32 @@ async function main() {
     console.log(JSON.stringify({ service: url, model, chain, maxAmount, address, snapshotHash, body, command: `circle ${cliArgs.join(" ")}` }, null, 2));
     return;
   }
-
   const address = agentWalletAddress();
+
+  if (arg("--challenge", false)) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const header = response.headers.get("payment-required");
+    let challenge = null;
+    if (header) {
+      try {
+        challenge = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+      } catch {
+        challenge = { raw: header };
+      }
+    }
+    console.log(JSON.stringify({ status: response.status, challenge }, null, 2));
+    return;
+  }
+
+  if (arg("--estimate", false)) {
+    console.log(estimateViaCli({ url, body, address, chain, maxAmount }));
+    return;
+  }
+
   const raw = payViaCli({ url, body, address, chain, maxAmount });
   const { content, parsed, usage, model: responseModel } = parseContent(raw);
 

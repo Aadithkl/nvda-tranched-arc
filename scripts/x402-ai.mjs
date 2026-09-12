@@ -126,8 +126,8 @@ async function main() {
       { role: "user", content: JSON.stringify(compactMarket(market)) },
     ],
     max_tokens: maxTokens,
-    reasoning: { effort: "low" },
   };
+  if (!arg("--no-reasoning", false)) body.reasoning = { effort: "low" };
 
   if (arg("--probe", false)) {
     const probeResponse = await fetch(url, {
