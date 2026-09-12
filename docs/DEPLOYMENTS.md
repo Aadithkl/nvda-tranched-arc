@@ -88,6 +88,10 @@
 - `poolAdmin` / provider owner = deployer `0x749E3A3a743889beC27584C1C8212f4cf926b431`.
 - Deploy: `forge script script/DeployLending.s.sol --rpc-url arc_testnet --broadcast` (no USDC transfers, so Foundry simulation is safe);
   txs in `broadcast/DeployLending.s.sol/5042002/run-latest.json`.
+- Seeded: **10 USDC + 10 EURC** deposited by the deployer — `aUSDC` / `aEURC` balances = 10 each.
+  - approve USDC `0x9388b95e…`, deposit USDC `0xbb4e6fcf…`, approve EURC `0x2fbd9daf…`, deposit EURC `0xdac4d2c4…`
+- Pegs (softcoded, owner-settable): USDC `1e8`, EURC `1.1617e8`; demo re-set txs `0x54f26bf3…` (USDC), `0x89444df1…` (EURC).
+  Ops tool: `npm run lending:status | lending:set-price | lending:seed` (`scripts/lending-admin.mjs`).
 - Verified onchain: provider wiring, oracle pegs, aToken names/symbols. Docs: `docs/LENDING.md`.
 
 ### Hook proof (SmokeHook, test-only)
