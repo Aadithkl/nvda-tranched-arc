@@ -1,0 +1,24 @@
+{
+  "name": "nvda-tranched-arc-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@circle-fin/modular-wallets-core": "1.0.15",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.0",
+    "@types/react-dom": "19.2.0",
+    "@vitejs/plugin-react": "5.1.0",
+    "typescript": "5.9.3",
+    "vite": "7.1.5"
+  }
+}
