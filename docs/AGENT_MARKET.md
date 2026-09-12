@@ -67,7 +67,6 @@ ranges, so chosen bands err wide/safe); 1h horizon approximates a JIT episode pl
 npm run market                 # table
 npm run market:json            # cached JSON snapshot (agent reads this)
 node agent/market.mjs --pool uni-v3-usdc-nvdac --no-cache
-npm run test:agent             # offline math tests
 ```
 
 Cache: `agent/.cache/market.json`, TTL `AGENT_MARKET_CACHE_TTL` (default 900s). The agent reads the

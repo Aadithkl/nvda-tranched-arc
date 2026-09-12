@@ -41,9 +41,3 @@ JuniorVault ─┤ ────────────────────�
 | keeper | `fulfillRedeem(senior, user)` |
 | vaults | `onTrancheDeposit` / `onTrancheRedeem` (must match their tranche) |
 | anyone | `rebalance()`, all views |
-
-## Tests
-
-`test/unit/TrancheAccountant.t.sol` — 12 tests: principal reporting, 5% coupon / junior residual,
-escrow share rebalance, profit/loss waterfalls, senior haircut, escrow-funded gating, senior-priority
-fulfillment, keeper-only guards, risk-budget reads.

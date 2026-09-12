@@ -19,7 +19,7 @@ The hook is the only bridge between the tranche stack and the two markets:
 **Safety notes:** hook share math uses virtual shares/assets (inflation defense); `maxPriceAge` (default
 300s) is enforced on top of the oracle's own staleness; `wrapUSDC`/`unwrapUSDC`/`seedInventory`/
 `unwindClaims` are `nonReentrant`; `unwindClaims()` is intentionally permissionless (moves hook-owned
-claims to Aave only). See `docs/SECURITY_REVIEW.md`.
+claims to Aave only).
 
 ## Quote flow (`beforeSwap`)
 
@@ -103,15 +103,6 @@ plain external pool via `setRebalanceVenue(key, router)` and the controller call
 
 The offchain agent computes portfolio IL, inventory drift, and JIT edge (`agent/model.mjs`) and submits
 through `StrategyAgent.submitRebalance`; the chain only enforces bounds.
-
-## Tests
-
-- `test/unit/TrancheJITHook.t.sol` — 28 tests: permissions, pool init gating, oracle/toxic pricing,
-  surge cap, hard band, TTL states, risk budget, controller bounds, agent whitelist, cooldown,
-  dynamic fee update on the pool, Aave rest + yield share pricing, wrap/unwrap, liquidity guard.
-- `test/unit/TrancheJIT.t.sol` — 12 tests: zero standing liquidity, both directions, Aave round trip,
-  fee accrual, capacity/budget guards (budget valued in USDC), claim unwind outside a swap,
-  sequential swaps with no residue, range bounds, JIT-disabled fallback.
 
 ## Next
 

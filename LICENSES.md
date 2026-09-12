@@ -1,6 +1,6 @@
-# Dependency License Audit
+# Dependency Licenses
 
-Audited during M0. Re-check whenever a dependency is updated.
+Checked during M0. Re-check whenever a dependency is updated.
 
 | Dependency | Version / Commit | License | Notes |
 |---|---|---|---|
@@ -8,7 +8,7 @@ Audited during M0. Re-check whenever a dependency is updated.
 | `Uniswap/v4-periphery` | `dce236d4e2057422d0791d9a973a58765eb46f65` | MIT | Repo `LICENSE` is MIT. Note: current version no longer ships `BaseHook.sol`; hooks implement `IHooks` directly. `HookMiner` is in `test/shared/`. |
 | `OpenZeppelin/openzeppelin-contracts` | `v5.7.0` (`cab19933`) | MIT | OK |
 | `OpenZeppelin/openzeppelin-community-contracts` | `92f252851c41449bd8417a6ebdcc8db95c8f66c9` | MIT | Vendored for ERC-7540 (`ERC7540` base + `ERC7540SyncDeposit` + `ERC7540AdminRedeem`). Its own pinned OZ commit is `cab19933` (v5.7.0) — matches ours, so remappings align. |
-| `OpenZeppelin/uniswap-hooks` | `2ae32be4906d300fc49b4384842ef6bc3e902d73` | MIT | Hook plumbing: `BaseHook`, fee-module patterns (see `docs/PRIOR_ART.md`). |
+| `OpenZeppelin/uniswap-hooks` | `2ae32be4906d300fc49b4384842ef6bc3e902d73` | MIT | Hook plumbing: `BaseHook`, fee-module patterns. |
 | `foundry-rs/forge-std` | pinned via `forge init` | MIT | OK |
 | `Uniswap/v4-hooks-public` (DualPoolHook reference) | not vendored | MIT (verified) | Used as a *reference* for the JIT design; MIT permits direct reuse with attribution. |
 | Aave V2 semi-fork (`src/lending/`) | independent implementation | MIT (ours) | Architecture + `IAaveV2Pool` subset inspired by Aave V2; written from scratch, no upstream code copied. Upstream `aave/protocol-v2` is **NOASSERTION** — do not copy its source. |

@@ -9,21 +9,20 @@ oracle-valid windows under an agent-operated strategy controller.
 
 | Milestone | Scope | State |
 |---|---|---|
-| M0 | Env, repo, Foundry, deps, license audit | done |
+| M0 | Env, repo, Foundry, deps, licenses | done |
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
-| M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | in progress — base, dynamic fee, toxic-flow pricing, TTL state machine, Aave rest + share pipe + **JIT engine** (one-sided transient ranges, ERC-6909 claims, 38 tests); multi-bucket next |
-| M4 | `StrategyController` + agent daemon + CRE safety stub | in progress — controller bounds + whitelisted `StrategyAgent` + offchain agent daemon (`agent/`, GitHub heartbeat) landed |
-| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vaults + **TrancheAccountant** (escrow, waterfalls, senior-priority keeper, share rebalancing) landed; 136 tests |
-| M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
+| M3 | `TrancheJITHook` — JIT engine, dynamic fee, toxic-flow pricing, Aave rest | live (v3 dual-token USDC/equity redeploy pending) |
+| M4 | `StrategyController` + agent daemon | live — bounded controller + agent-driven rebalancing |
+| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share + `TrancheAccountant` | live — dual-token exits via `TranchePipeModule` |
+| M6 | E2E on Arc Testnet, docs/ABIs | pending |
 
-Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
+Indexing: The Graph subgraph (`subgraph/`) indexes the x402 oracle, v4 pools, and the tranche stack; live query URL in `deployments/arc-testnet.json`.
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
-Vault/hook build plan (P1–P8): `docs/VAULT_HOOK_MASTER_PLAN.md` — tranches (7540), rules, JIT hook (7575), agent control plane.
-Tranche vaults: `src/vaults/` — ERC-7540 (sync deposit, keeper/admin redeem rate fixed at fulfillment), asset = hook share, `depositUSDC` wrap pipe + `claimAndUnwrapUSDC`; rules module (`TrancheAccountant`) and hook share token next.
+Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and controller-driven rebalancing.
 
 ## Architecture (target)
 
@@ -45,7 +44,7 @@ Tranche vaults: `src/vaults/` — ERC-7540 (sync deposit, keeper/admin redeem ra
 ## Tools
 
 ```shell
-forge build && forge test             # contracts
+forge build                          # contracts
 npm install                           # keeper tooling
 node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
 node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
@@ -63,11 +62,8 @@ cd subgraph && npm install && npm run build    # subgraph codegen + compile
 
 ## Setup
 
-Foundry (this machine): `C:\Users\klaad\.foundry\bin` (v1.8.1), git: `C:\Users\klaad\tools\PortableGit`.
-
 ```shell
 forge build
-forge test
 ```
 
 Environment: copy `.env.example` to `.env` and fill in secrets (never committed).
@@ -84,17 +80,12 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 ## Docs
 
-- `LICENSES.md` — dependency license audit
+- `LICENSES.md` — dependency licenses
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
 - `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, senior-priority keeper
-- `docs/SECURITY_REVIEW.md` — external audit triage: findings, verdicts, fixes, accepted risks
 - `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
-- `docs/PRIOR_ART.md` — landscape (OZ/DualPool/EulerSwap), what we borrow vs what is ours
 - `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps
-- `docs/VAULT_HOOK_MASTER_PLAN.md` — locked master plan: tranche → rules → hook → agent (P1–P8)
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)
-- `docs/VERIFICATION.md` — copy-paste checks for contracts, deployments, x402 loop, subgraph
-- `docs/` — architecture, security, agent, frontend pack (added through M3–M6)
