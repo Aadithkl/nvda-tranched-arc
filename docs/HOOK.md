@@ -44,14 +44,15 @@ The hook is the only bridge between the tranche stack and the two markets:
   trades into:
   - `zeroForOne` (price down) → range `[tick - bucketTicks, tick]`, seeded with **token1**
   - `oneForZero` (price up) → range `[tick + spacing, tick + spacing + bucketTicks]`, seeded with **token0**
-  - size = expected swap output × 1.01, capped by `effectiveMaxDeploy()`; oversized swaps revert
-    `JitCapacityExceeded`
+  - size = expected swap output × 1.01, **valued in USDC via the price oracle** and capped by
+    `effectiveMaxDeploy()`; oversized swaps revert `JitCapacityExceeded`
   - inventory is withdrawn from Aave and settled to the PoolManager (`sync` + `settle`)
 - **After swap**: the exact liquidity is removed; positive deltas are converted to **ERC-6909 claims**
   (`PoolManager.mint`) because the swapper's input is settled after `afterSwap`; negative deltas are paid
   from Aave. `JitRangeExceeded` reverts the whole swap if price left the range (safety valve).
-- **Claim redemption**: `_redeemClaims` (`burn` + `take` → Aave) runs at the start of every JIT and is
-  exposed as `unwindClaims()` for keepers. Fees accrue to the hook as claims and are redeemable to Aave.
+- **Claim redemption**: `_redeemClaims` (partial-safe `burn` + `take` → Aave) runs at the start of every JIT;
+  `unwindClaims()` opens a PoolManager unlock (`unlockCallback`) so keepers can redeem the full claim
+  balance outside a swap. Fees accrue to the hook as claims and are redeemable to Aave.
 - **Enable/bootstrap**: `setJitEnabled(bool)` + `seedInventory(asset, amount)` (owner) to fund the Aave
   rest state before the first swap. `setLiquidityGuard(true)` blocks external LPs once live.
 - **Invariant**: pool liquidity returns to zero after every swap; value grows by the quoted fee minus
@@ -70,9 +71,9 @@ The hook is the only bridge between the tranche stack and the two markets:
 - `test/unit/TrancheJITHook.t.sol` — 28 tests: permissions, pool init gating, oracle/toxic pricing,
   surge cap, hard band, TTL states, risk budget, controller bounds, agent whitelist, cooldown,
   dynamic fee update on the pool, Aave rest + yield share pricing, wrap/unwrap, liquidity guard.
-- `test/unit/TrancheJIT.t.sol` — 10 tests: zero standing liquidity, both directions, Aave round trip,
-  fee accrual, capacity/budget guards, claims unwind, sequential swaps with no residue, range bounds,
-  JIT-disabled fallback.
+- `test/unit/TrancheJIT.t.sol` — 12 tests: zero standing liquidity, both directions, Aave round trip,
+  fee accrual, capacity/budget guards (budget valued in USDC), claim unwind outside a swap,
+  sequential swaps with no residue, range bounds, JIT-disabled fallback.
 
 ## Next
 
