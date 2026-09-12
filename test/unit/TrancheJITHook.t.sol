@@ -17,6 +17,7 @@ import { DemoRouter } from "../../src/router/DemoRouter.sol";
 import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { HookShareToken } from "../../src/core/HookShareToken.sol";
 import { TrancheJITHook } from "../../src/hook/TrancheJITHook.sol";
+import { TranchePipeModule } from "../../src/periphery/TranchePipeModule.sol";
 import { INVDAPriceOracle } from "../../src/interfaces/INVDAPriceOracle.sol";
 import { HookParams } from "../../src/hook/libraries/HookParams.sol";
 import { StrategyController } from "../../src/strategy/StrategyController.sol";
@@ -53,11 +54,13 @@ contract TrancheJITHookTest is Test {
     StrategyController internal controller;
     StrategyAgent internal agent;
     TrancheJITHook internal hook;
+    TranchePipeModule internal pipe;
     HookShareToken internal shareToken;
     MockRiskAccountant internal risk;
 
     PoolKey internal key;
     PoolId internal poolId;
+    PoolKey internal venueKey;
     bool internal usdcIsToken0;
     int24 internal tickLower;
     int24 internal tickUpper;
@@ -87,6 +90,11 @@ contract TrancheJITHookTest is Test {
         controller.setHook(address(hook));
         agent = new StrategyAgent(address(this), operator, address(controller));
         controller.setAgent(address(agent), true);
+
+        pipe = new TranchePipeModule(address(hook), address(this));
+        hook.setModule(address(pipe));
+        pipe.setController(address(controller));
+        controller.setRebalanceTarget(address(pipe));
 
         hook.setLendingPool(address(lendingPool));
         risk = new MockRiskAccountant();
@@ -188,6 +196,40 @@ contract TrancheJITHookTest is Test {
         router.addLiquidity(
             key, tickLower, tickUpper, int256(LIQUIDITY), type(uint256).max, type(uint256).max, address(this), bytes("")
         );
+    }
+
+    function _initVenuePool() internal {
+        venueKey = PoolKey({
+            currency0: key.currency0, currency1: key.currency1, fee: 3000, tickSpacing: 60, hooks: IHooks(address(0))
+        });
+        manager.initialize(venueKey, _sqrtPriceX96For(ORACLE_PRICE));
+        usdc.mint(address(this), 1_000_000e6);
+        nvda.mint(address(this), 10_000e18);
+        usdc.approve(address(router), type(uint256).max);
+        nvda.approve(address(router), type(uint256).max);
+        router.addLiquidity(
+            venueKey,
+            tickLower,
+            tickUpper,
+            int256(LIQUIDITY * 1000),
+            type(uint256).max,
+            type(uint256).max,
+            address(this),
+            bytes("")
+        );
+        pipe.setRebalanceVenue(venueKey, address(router));
+    }
+
+    function _oracleNvdaOut(uint256 usdcAmount) internal pure returns (uint256) {
+        return Math.mulDiv(usdcAmount, 1e20, ORACLE_PRICE);
+    }
+
+    function _oracleUsdcOut(uint256 nvdaAmount) internal pure returns (uint256) {
+        return Math.mulDiv(nvdaAmount, ORACLE_PRICE, 1e20);
+    }
+
+    function _oracleFloor(uint256 oracleOut) internal pure returns (uint256) {
+        return oracleOut * (10_000 - 100) / 10_000;
     }
 
     function _defaultParams() internal pure returns (HookParams.Params memory) {
@@ -598,5 +640,231 @@ contract TrancheJITHookTest is Test {
     function test_wrap_zeroAmount_reverts() public {
         vm.expectRevert(TrancheJITHook.ZeroAmount.selector);
         hook.wrapUSDC(0, alice);
+    }
+
+    function test_modulePrimitives_onlyModule() public {
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.NotModule.selector, address(this)));
+        hook.moduleBurn(alice, 1e18);
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.NotModule.selector, address(this)));
+        hook.modulePull(usdc, alice, 1);
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.NotModule.selector, address(this)));
+        hook.moduleSupplyIdle();
+    }
+
+    function test_setModule_onlyOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(TrancheJITHook.NotOwner.selector, alice));
+        hook.setModule(alice);
+
+        address next = makeAddr("module2");
+        hook.setModule(next);
+        assertEq(hook.module(), next);
+    }
+
+    function test_unwrapEquity_paysNvdaAtOracle() public {
+        nvda.mint(address(hook), 100e18);
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        uint256 expected = _oracleNvdaOut(hook.convertToUsdc(shares));
+        uint256 before = nvda.balanceOf(alice);
+        vm.prank(alice);
+        uint256 out = pipe.unwrapEquity(shares, alice, expected);
+        assertEq(out, expected);
+        assertEq(nvda.balanceOf(alice), before + expected);
+        assertEq(shareToken.balanceOf(alice), 0);
+    }
+
+    function test_unwrapEquity_staleOracle_reverts() public {
+        nvda.mint(address(hook), 100e18);
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        nvdaOracle.setMaxStaleness(1);
+        vm.warp(block.timestamp + 2);
+        vm.prank(alice);
+        vm.expectRevert(TranchePipeModule.OracleInvalid.selector);
+        pipe.unwrapEquity(shares, alice, 0);
+    }
+
+    function test_unwrapProportional_paysBoth() public {
+        nvda.mint(address(hook), 100e18);
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        uint256 half = shares / 2;
+        uint256 usdcBefore = usdc.balanceOf(alice);
+        uint256 nvdaBefore = nvda.balanceOf(alice);
+        vm.prank(alice);
+        (uint256 usdcOut, uint256 nvdaOut) = pipe.unwrapProportional(half, alice, 0, 0);
+        assertGt(usdcOut, 0);
+        assertGt(nvdaOut, 0);
+        assertEq(usdc.balanceOf(alice), usdcBefore + usdcOut);
+        assertEq(nvda.balanceOf(alice), nvdaBefore + nvdaOut);
+    }
+
+    function test_unwrapProportional_oracleFree() public {
+        nvda.mint(address(hook), 100e18);
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        nvdaOracle.setMaxStaleness(1);
+        vm.warp(block.timestamp + 2);
+        vm.prank(alice);
+        (uint256 usdcOut, uint256 nvdaOut) = pipe.unwrapProportional(shares, alice, 0, 0);
+        assertGt(usdcOut, 0);
+        assertGt(nvdaOut, 0);
+    }
+
+    function test_unwrapProportional_minOut_reverts() public {
+        nvda.mint(address(hook), 100e18);
+        usdc.mint(alice, 1_000e6);
+        vm.prank(alice);
+        usdc.approve(address(hook), type(uint256).max);
+        vm.prank(alice);
+        uint256 shares = hook.wrapUSDC(100e6, alice);
+
+        uint256 half = shares / 2;
+        uint256 expectedUsdc = Math.mulDiv(100e6, half, shareToken.totalSupply());
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(TranchePipeModule.SlippageExceeded.selector, expectedUsdc, expectedUsdc + 1)
+        );
+        pipe.unwrapProportional(half, alice, expectedUsdc + 1, 0);
+    }
+
+    function test_assetComposition_bps() public {
+        usdc.mint(address(hook), 800e6);
+        nvda.mint(address(hook), 1e18);
+        (uint256 usdcValue, uint256 equityValue, uint256 equityBps) = pipe.assetComposition();
+        assertEq(usdcValue, 800e6);
+        assertEq(equityValue, 200e6);
+        assertEq(equityBps, 2_000);
+    }
+
+    function test_rebalanceSwap_venueUnset_reverts() public {
+        usdc.mint(address(hook), 100e6);
+        vm.prank(operator);
+        vm.expectRevert(TranchePipeModule.RebalanceVenueUnset.selector);
+        agent.submitRebalance(false, 1e6, 0);
+    }
+
+    function test_rebalanceSwap_onlyController() public {
+        _initVenuePool();
+        vm.expectRevert(abi.encodeWithSelector(TranchePipeModule.NotController.selector, address(this)));
+        pipe.rebalanceSwap(false, 1e6, 0, block.timestamp);
+    }
+
+    function test_rebalanceSwap_buyNvda() public {
+        _initVenuePool();
+        usdc.mint(address(hook), 1_000e6);
+        uint256 amountIn = 10e6;
+        uint256 minOut = _oracleFloor(_oracleNvdaOut(amountIn));
+        uint256 nvdaBefore = nvda.balanceOf(address(hook));
+
+        vm.prank(operator);
+        agent.submitRebalance(false, amountIn, minOut);
+
+        uint256 gained = nvda.balanceOf(address(hook)) - nvdaBefore;
+        assertGe(gained, minOut);
+        (, uint256 equityValue, uint256 equityBps) = pipe.assetComposition();
+        assertGt(equityValue, 0);
+        assertLe(equityBps, pipe.hardMaxEquityBps());
+    }
+
+    function test_rebalanceSwap_sellNvda() public {
+        _initVenuePool();
+        nvda.mint(address(hook), 10e18);
+        uint256 amountIn = 0.1e18;
+        uint256 minOut = _oracleFloor(_oracleUsdcOut(amountIn));
+        uint256 usdcBefore = usdc.balanceOf(address(hook)) + aUsdc.balanceOf(address(hook));
+
+        vm.prank(operator);
+        agent.submitRebalance(true, amountIn, minOut);
+
+        uint256 gained = usdc.balanceOf(address(hook)) + aUsdc.balanceOf(address(hook)) - usdcBefore;
+        assertGe(gained, minOut);
+    }
+
+    function test_rebalanceSwap_slippageFloor() public {
+        _initVenuePool();
+        usdc.mint(address(hook), 1_000e6);
+        uint256 floor = _oracleFloor(_oracleNvdaOut(1e6));
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(TranchePipeModule.SlippageBoundUnmet.selector, 0, floor));
+        agent.submitRebalance(false, 1e6, 0);
+    }
+
+    function test_rebalanceSwap_cap_reverts() public {
+        _initVenuePool();
+        pipe.setHardMaxEquityBps(1);
+        usdc.mint(address(hook), 1_000e6);
+        uint256 minOut = _oracleFloor(_oracleNvdaOut(10e6));
+        vm.prank(operator);
+        vm.expectRevert();
+        agent.submitRebalance(false, 10e6, minOut);
+    }
+
+    function test_rebalanceSwap_unfunded_reverts() public {
+        _initVenuePool();
+        risk.setEscrowFunded(false);
+        usdc.mint(address(hook), 1_000e6);
+        vm.prank(operator);
+        vm.expectRevert(TranchePipeModule.RebalanceNotFunded.selector);
+        agent.submitRebalance(false, 1e6, _oracleNvdaOut(1e6));
+    }
+
+    function test_rebalance_cooldown() public {
+        _initVenuePool();
+        usdc.mint(address(hook), 1_000e6);
+        controller.setBounds(
+            StrategyController.Bounds({
+                maxBaseFee: 10_000,
+                maxSurgeFee: 100_000,
+                maxDeviationBps: 500,
+                maxToxicityMultiplierBps: 2_500,
+                maxTtl: 3_600,
+                maxGracePeriod: 3_600,
+                maxDeployPerSwap: 100_000e6,
+                maxRebalanceSwapUsdc: 10_000e6,
+                rebalanceCooldown: 60
+            })
+        );
+
+        uint256 minOut = _oracleFloor(_oracleNvdaOut(1e6));
+        vm.prank(operator);
+        agent.submitRebalance(false, 1e6, minOut);
+
+        uint256 readyAt = block.timestamp + 60;
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(StrategyController.RebalanceCooldownActive.selector, readyAt));
+        agent.submitRebalance(false, 1e6, minOut);
+    }
+
+    function test_rebalance_amountTooLarge() public {
+        _initVenuePool();
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(StrategyController.RebalanceTooLarge.selector, 20_000e6, 10_000e6));
+        agent.submitRebalance(false, 20_000e6, 0);
+    }
+
+    function test_setRebalanceVenue_mismatch() public {
+        PoolKey memory bad = key;
+        bad.hooks = IHooks(address(0));
+        bad.currency0 = Currency.wrap(address(0xdead));
+        vm.expectRevert(TranchePipeModule.RebalanceKeyMismatch.selector);
+        pipe.setRebalanceVenue(bad, address(router));
     }
 }

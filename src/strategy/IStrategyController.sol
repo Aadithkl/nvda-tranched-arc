@@ -9,4 +9,6 @@ interface IStrategyController {
     function setBaseFee(uint24 baseFee) external;
 
     function setQuotingEnabled(bool enabled) external;
+
+    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut) external;
 }

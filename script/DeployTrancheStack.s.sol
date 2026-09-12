@@ -30,14 +30,15 @@ contract DeployTrancheStack is Script {
 
         IHookConfig h = IHookConfig(hook);
         address share = h.shareToken();
+        address pipe = vm.envOr("PIPE_ADDRESS", hook);
 
         TrancheAccountant accountant = new TrancheAccountant(deployer);
         accountant.setKeeper(operator);
 
         SeniorVault senior =
-            new SeniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
+            new SeniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(pipe), deployer, address(accountant));
         JuniorVault junior =
-            new JuniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
+            new JuniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(pipe), deployer, address(accountant));
 
         accountant.setHook(hook);
         accountant.setVaults(address(senior), address(junior));
@@ -51,6 +52,7 @@ contract DeployTrancheStack is Script {
 
         console2.log("TrancheJITHook:", hook);
         console2.log("HookShareToken:", share);
+        console2.log("Pipe:", pipe);
         console2.log("TrancheAccountant:", address(accountant));
         console2.log("SeniorVault:", address(senior));
         console2.log("JuniorVault:", address(junior));
