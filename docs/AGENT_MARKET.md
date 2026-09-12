@@ -46,8 +46,17 @@ pools.json ──> gateway ──> pool state + 336h hourly + 30d daily
 | `E[IL]` | Monte Carlo (5,000 seeded paths, lognormal) of the exact concentrated-liquidity payoff vs 50/50 HODL, in bps of notional |
 | `E[fee]` | `feePerHourPerUsd × tvlUsd/(notional + activeTvlUsd) × H × pInRange × 10⁴` — only in-range (rewarded) value competes, so a small in-range share raises per-dollar yield and size dilutes it |
 | `netEdgeBps` | `E[IL] + E[fee]` (IL is negative); daily view = `× 24/H` |
-| verdict | `worthLp = netEdgeBps ≥ minEdgeBps && pInRange ≥ minPInRange` |
+| **`var95Bps`** | 5th percentile of the simulated IL distribution — loss not exceeded with 95% confidence (**IL VaR**) |
+| **`cvar95Bps`** | mean of the worst 5% of paths (**expected shortfall**) |
+| **`pIlExceedsFees`** | share of paths where fees fail to cover IL (loss probability) |
+| **`requiredFeeBps` / `breakevenFeePerHourPerUsd`** | fee level needed to exactly offset expected IL over the horizon |
+| **`expectedTimeInRange`** | probability-weighted fraction of time the price stays inside the band |
+| **`ilShocks`** | deterministic IL table: ±1/2/5/10% price moves and ±1/2/3σ moves |
+| verdict | `worthLp = netEdgeBps ≥ minEdgeBps && pInRange ≥ minPInRange && pIlExceedsFees ≤ maxPIlExceedsFees` |
 | suggested params | `bucketTicks = bandToTicks(bestBand)`, `maxDeployPerSwap ≈ netEdge × 1000` USDC (capped at controller bound), `baseFee` reference = median primary `effectiveFeeBps` |
+
+Risk gates: `AGENT_MIN_EDGE_BPS` (0.2), `AGENT_MIN_P_IN_RANGE` (0.6), `AGENT_MAX_P_IL_EXCEEDS_FEES` (0.35).
+If the best band breaches the IL-risk gate the verdict is `no-LP` with reason `il_risk_too_high`.
 
 Conservative choices: σ uses `max(σ3h, σ14d)`; fee share is band-independent (under-credits tighter
 ranges, so chosen bands err wide/safe); 1h horizon approximates a JIT episode plus margin.
@@ -67,12 +76,14 @@ cache each tick and overlays it on the regime decision: `worthLp=false` disables
 
 ## Latest live snapshot (2026-09-12)
 
-| Pool | TVL | Vol 24h | Fee APR | Active TVL | σ3h | σ14d | Best band | E[IL] | E[fee] | Edge | Verdict |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| USDC/NVDAc | $57.4k | $55.4k | 54.6% | $2.6k (4%) | 8.4 bps/h | 30.5 bps/h | 500 bps | −0.0 | +10.0 | **+10.0 bps/h** | LP |
-| WETH/NVDAc | $43.8k | $19.2k | 256% | $1.4k (3%) | 38.5 bps/h | 52.9 bps/h | 500 bps | −0.8 | +53.3 | **+52.5 bps/h** | LP |
+| Pool | TVL | Vol 24h | Fee APR | Active TVL | σ3h | σ14d | Best band | E[IL] | E[fee] | Edge | pLoss | VaR95 | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| USDC/NVDAc | $57.4k | $50.6k | 54.6% | $2.6k (4%) | 3.0 bps/h | 30.4 bps/h | 500 bps | −0.5 | +10.0 | **+9.6 bps/h** | 0.00 | −1.8 bps | LP |
+| WETH/NVDAc | $43.8k | $18.9k | 256% | $1.4k (3%) | 30.3 bps/h | 52.8 bps/h | 500 bps | −1.4 | +53.2 | **+51.8 bps/h** | 0.00 | −5.4 bps | LP |
 
-Aggregate σ14d ≈ 33.9 bps/h (≈ 32% annualized), reference fee 30 bps.
+Aggregate σ14d ≈ 34.0 bps/h (≈ 32% annualized), reference fee 30 bps. `pLoss = pIlExceedsFees`,
+`VaR95 = var95Bps`. The full JSON also carries `cvar95Bps`, `ilP99Bps`, `ilWorstBps`,
+`requiredFeeBps`, `expectedTimeInRange` and the `ilShocks` table (±1/2/5/10%, ±1/2/3σ) per band.
 
 ## Known limitations
 

@@ -244,6 +244,41 @@ function positionValue(liquidity, sqrtP, sqrtA, sqrtB) {
   return L * (2 * s - s * s / sb - sa);
 }
 
+function percentile(sortedAsc, p) {
+  if (!sortedAsc.length) return 0;
+  const idx = Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil(p * sortedAsc.length) - 1));
+  return sortedAsc[idx];
+}
+
+// Deterministic IL (bps of notional) for a given final price.
+export function ilBpsAtPrice(p0, pT, bandBps, notionalUsd = 1000) {
+  const band = bandBps / 10_000;
+  const pa = p0 / (1 + band);
+  const pb = p0 * (1 + band);
+  const sqrtA = Math.sqrt(pa);
+  const sqrtB = Math.sqrt(pb);
+  const L = notionalUsd / positionValue(1, Math.sqrt(p0), sqrtA, sqrtB);
+  const vLp = positionValue(L, Math.sqrt(pT), sqrtA, sqrtB);
+  const vHodl = (notionalUsd / 2 / p0) * pT + notionalUsd / 2;
+  return ((vLp - vHodl) / notionalUsd) * 10_000;
+}
+
+// Deterministic IL shock table: percent moves and (optionally) sigma moves.
+export function ilShockTable({ price, bandBps, sigmaHourly = null, movesPct = [-10, -5, -2, -1, 1, 2, 5, 10] }) {
+  const rows = movesPct.map((pct) => ({
+    kind: "pct",
+    move: pct,
+    ilBps: ilBpsAtPrice(price, price * (1 + pct / 100), bandBps),
+  }));
+  if (sigmaHourly) {
+    for (const mult of [-3, -2, -1, 1, 2, 3]) {
+      const pT = price * Math.exp(-0.5 * sigmaHourly * sigmaHourly + sigmaHourly * mult);
+      rows.push({ kind: "sigma", move: mult, ilBps: ilBpsAtPrice(price, pT, bandBps) });
+    }
+  }
+  return rows;
+}
+
 export function simulateRange({
   price,
   bandBps,
@@ -278,6 +313,7 @@ export function simulateRange({
   let ilSum = 0;
   let profitable = 0;
   let inRangePaths = 0;
+  const ilSamples = [];
 
   for (let i = 0; i < paths; i += 1) {
     const z = boxMuller(rand);
@@ -289,6 +325,7 @@ export function simulateRange({
     if (inRange) inRangePaths += 1;
     const feesBps = effectiveFeePerHourPerUsd * horizonHours * 10_000;
     ilSum += ilBps;
+    ilSamples.push(ilBps);
     const net = ilBps + (inRange ? feesBps : 0);
     if (net > 0) profitable += 1;
   }
@@ -297,15 +334,39 @@ export function simulateRange({
   const p = pInRange(bandBps, sigmaHourly, horizonHours);
   const expectedFeeBps = effectiveFeePerHourPerUsd * horizonHours * (p ?? inRangePaths / paths) * 10_000;
   const netEdgeBps = expectedIlBps + expectedFeeBps;
+
+  // IL risk analytics over the simulated paths.
+  ilSamples.sort((a, b) => a - b); // ascending: worst (most negative) first
+  const worstSampleCount = Math.max(1, Math.floor(paths * 0.05));
+  const cvar95Bps = ilSamples.slice(0, worstSampleCount).reduce((sum, v) => sum + v, 0) / worstSampleCount;
+  const var95Bps = percentile(ilSamples, 0.05);
+  const ilP50Bps = percentile(ilSamples, 0.5);
+  const ilP99Bps = percentile(ilSamples, 0.99);
+  const ilWorstBps = ilSamples[0];
+  const expectedTimeInRange = inRangePaths / paths;
+  const requiredFeeBps = Math.max(0, -expectedIlBps);
+  const breakevenFeePerHourPerUsd =
+    horizonHours > 0 && notionalUsd > 0 ? requiredFeeBps / 10_000 / horizonHours : null;
+
   return {
     bandBps,
     ticks: bandToTicks(bandBps),
-    pInRange: p ?? inRangePaths / paths,
+    pInRange: p ?? expectedTimeInRange,
+    expectedTimeInRange,
     expectedIlBps,
     expectedFeeBps,
     netEdgeBps,
     netEdgeDailyBps: (netEdgeBps * 24) / horizonHours,
     pProfitable: profitable / paths,
+    pIlExceedsFees: 1 - profitable / paths,
+    var95Bps,
+    cvar95Bps,
+    ilP50Bps,
+    ilP99Bps,
+    ilWorstBps,
+    requiredFeeBps,
+    breakevenFeePerHourPerUsd,
+    ilShocks: ilShockTable({ price: p0, bandBps, sigmaHourly }),
   };
 }
 
@@ -332,18 +393,36 @@ export function rangeSweep(poolMetrics, bands, opts = {}) {
 }
 
 export function decide(poolMetrics, bands, opts = {}) {
-  const minEdgeBps = opts.minEdgeBps ?? 5;
+  const minEdgeBps = opts.minEdgeBps ?? 0.2;
   const minP = opts.minPInRange ?? 0.6;
+  const maxPIl = opts.maxPIlExceedsFees ?? 0.35;
   const sweep = rangeSweep(poolMetrics, bands, opts);
-  const viable = sweep.filter((row) => row.pInRange >= minP);
+  const viable = sweep.filter((row) => row.pInRange >= minP && row.pIlExceedsFees <= maxPIl);
   const best = (viable.length ? viable : sweep)[0] ?? null;
   if (!best) return { worthLp: false, reason: "no_sigma_or_price", best: null, sweep };
-  const worthLp = best.netEdgeBps >= minEdgeBps && best.pInRange >= minP;
+  const riskOk = best.pIlExceedsFees <= maxPIl;
+  const edgeOk = best.netEdgeBps >= minEdgeBps && best.pInRange >= minP;
+  const worthLp = edgeOk && riskOk;
   const suggestedMaxDeployUsdc = Math.max(0, Math.min(100_000, Math.round((best.netEdgeBps * 1000) / 100) * 100));
   return {
     worthLp,
-    reason: worthLp ? "edge_above_threshold" : best.netEdgeBps < 0 ? "fees_below_il" : "edge_below_threshold",
+    reason: worthLp
+      ? "edge_above_threshold"
+      : !riskOk
+        ? "il_risk_too_high"
+        : best.netEdgeBps < 0
+          ? "fees_below_il"
+          : "edge_below_threshold",
     best,
+    risk: {
+      var95Bps: best.var95Bps,
+      cvar95Bps: best.cvar95Bps,
+      pIlExceedsFees: best.pIlExceedsFees,
+      ilWorstBps: best.ilWorstBps,
+      requiredFeeBps: best.requiredFeeBps,
+      expectedTimeInRange: best.expectedTimeInRange,
+      ilShocks: best.ilShocks,
+    },
     suggestedBucketTicks: best.ticks,
     suggestedMaxDeployUsdc,
     sweep,

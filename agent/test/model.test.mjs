@@ -5,6 +5,8 @@ import {
   bandToTicks,
   decide,
   feeMetrics,
+  ilBpsAtPrice,
+  ilShockTable,
   logReturns,
   hourlyVolatility,
   pInRange,
@@ -157,4 +159,69 @@ test("decide returns false when volatility dwarfs fees", () => {
   };
   const decision = decide(pool, [25, 50, 100], { horizonHours: 1, minEdgeBps: 0.2, minPInRange: 0.6, seed: 9 });
   assert.equal(decision.worthLp, false);
+});
+
+test("ilBpsAtPrice: zero move has zero IL, moves are negative and monotonic", () => {
+  const p0 = 100;
+  assert.ok(close(ilBpsAtPrice(p0, p0, 100)));
+  const down1 = ilBpsAtPrice(p0, 99, 100);
+  const down5 = ilBpsAtPrice(p0, 95, 100);
+  const up1 = ilBpsAtPrice(p0, 101, 100);
+  assert.ok(down1 < 0 && down5 < down1);
+  assert.ok(up1 < 0);
+  assert.ok(down5 < up1);
+});
+
+test("simulateRange risk analytics are coherent", () => {
+  const r = simulateRange({
+    price: 100,
+    bandBps: 100,
+    sigmaHourly: 0.005,
+    horizonHours: 1,
+    feePerHourPerUsd: 1e-5,
+    tvlUsd: 500_000,
+    activeTvlUsd: 10_000,
+    paths: 4000,
+    seed: 11,
+  });
+  assert.ok(r.var95Bps < r.ilP50Bps, "VaR95 must be worse than median");
+  assert.ok(r.cvar95Bps <= r.var95Bps, "CVaR95 must be at least as bad as VaR95");
+  assert.ok(r.ilWorstBps <= r.var95Bps);
+  assert.ok(r.pIlExceedsFees >= 0 && r.pIlExceedsFees <= 1);
+  assert.ok(r.requiredFeeBps >= 0);
+  assert.ok(r.breakevenFeePerHourPerUsd >= 0);
+  assert.ok(r.expectedTimeInRange > 0 && r.expectedTimeInRange <= 1);
+  const sigmaRows = r.ilShocks.filter((row) => row.kind === "sigma");
+  assert.equal(sigmaRows.length, 6);
+  assert.ok(sigmaRows.every((row) => row.ilBps <= 0));
+});
+
+test("ilShockTable percent rows are symmetric and deeper moves hurt more", () => {
+  const rows = ilShockTable({ price: 100, bandBps: 100, sigmaHourly: null });
+  const at = (pct) => rows.find((row) => row.move === pct).ilBps;
+  assert.ok(at(-10) < at(-5) && at(-5) < at(-1));
+  assert.ok(at(10) < at(5) && at(5) < at(1));
+  assert.ok(at(1) < 0 && at(-1) < 0);
+});
+
+test("decide rejects LP when IL risk exceeds the gate", () => {
+  const pool = {
+    available: true,
+    price: 1,
+    tvlUsd: 1_000_000,
+    active: { activeTvlUsd: 10_000 },
+    volatility: { h3: 0.05, h14d: 0.05 },
+    metrics: { feePerHourPerUsd: 1e-6 },
+  };
+  const decision = decide(pool, [25, 50, 100], {
+    horizonHours: 1,
+    minEdgeBps: 0.2,
+    minPInRange: 0.6,
+    maxPIlExceedsFees: 0.01,
+    seed: 13,
+  });
+  assert.equal(decision.worthLp, false);
+  assert.equal(decision.reason, "il_risk_too_high");
+  assert.ok(decision.risk.var95Bps < 0);
+  assert.ok(decision.risk.ilShocks.length >= 8);
 });

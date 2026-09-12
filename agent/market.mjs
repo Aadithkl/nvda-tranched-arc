@@ -48,8 +48,9 @@ const bands = (process.env.AGENT_MARKET_BANDS_BPS || "25,50,100,200,500")
   .map((v) => Number(v.trim()))
   .filter((v) => v > 0);
 const horizonHours = Number(process.env.AGENT_MARKET_HORIZON_HOURS || "1");
-const minEdgeBps = Number(process.env.AGENT_MIN_EDGE_BPS || "5");
+const minEdgeBps = Number(process.env.AGENT_MIN_EDGE_BPS || "0.2");
 const minPInRange = Number(process.env.AGENT_MIN_P_IN_RANGE || "0.6");
+const maxPIlExceedsFees = Number(process.env.AGENT_MAX_P_IL_EXCEEDS_FEES || "0.35");
 const cachePath = path.resolve(root, process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json");
 const cacheTtlSeconds = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
 
@@ -167,6 +168,8 @@ function printTable(pools, decisionSummary) {
     "E[IL]bps".padStart(9),
     "E[fee]bps".padStart(9),
     "edgeBps".padStart(8),
+    "pLoss".padStart(6),
+    "VaR95".padStart(8),
     "verdict".padStart(10),
     "maxDeploy$".padStart(10),
   ].join(" ");
@@ -194,6 +197,8 @@ function printTable(pools, decisionSummary) {
         (best.expectedIlBps?.toFixed(1) ?? "-").padStart(9),
         (best.expectedFeeBps?.toFixed(1) ?? "-").padStart(9),
         (best.netEdgeBps?.toFixed(1) ?? "-").padStart(8),
+        (best.pIlExceedsFees != null ? best.pIlExceedsFees.toFixed(2) : "-").padStart(6),
+        (best.var95Bps?.toFixed(1) ?? "-").padStart(8),
         (p.decision?.worthLp ? "LP" : "no-LP").padStart(10),
         String(p.decision?.suggestedMaxDeployUsdc ?? 0).padStart(10),
       ].join(" "),
@@ -236,6 +241,7 @@ async function main() {
       horizonHours,
       minEdgeBps,
       minPInRange,
+      maxPIlExceedsFees,
       seed: 42 + p.id.length,
     });
   }
