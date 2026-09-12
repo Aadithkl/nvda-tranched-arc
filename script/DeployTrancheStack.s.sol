@@ -34,8 +34,10 @@ contract DeployTrancheStack is Script {
         TrancheAccountant accountant = new TrancheAccountant(deployer);
         accountant.setKeeper(operator);
 
-        SeniorVault senior = new SeniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
-        JuniorVault junior = new JuniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
+        SeniorVault senior =
+            new SeniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
+        JuniorVault junior =
+            new JuniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(hook), deployer, address(accountant));
 
         accountant.setHook(hook);
         accountant.setVaults(address(senior), address(junior));
