@@ -47,7 +47,7 @@ yield subgraph (e.g. Yearn v2) without writing a new integration.
 
 1. **Discovery**: "Find the top yield aggregator subgraphs on The Graph" → MCP returns candidates
    (Yearn v2, Gamma, Vesper…).
-2. **Our protocol**: "Show the vaults and their TVL in subgraph `nvda-tranched-arc`" → the
+2. **Our protocol**: "Show the vaults and their TVL in subgraph `tranch-stock`" → the
    standardized `vaults` entities for the Arc share pipe.
 3. **Cross-protocol, same query**: "Run the same `vaults` query against the Yearn v2 subgraph
    `FDLuaz69DbMADuBjJDEcLnTuPnjhZqNbFVrkNiBLGkEg` and compare cumulative revenue" → identical fields,

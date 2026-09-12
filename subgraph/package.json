@@ -5,7 +5,7 @@
   "scripts": {
     "codegen": "graph codegen",
     "build": "graph build",
-    "deploy:studio": "graph deploy --studio nvda-tranched-arc"
+    "deploy:studio": "graph deploy tranch-stock --node https://api.studio.thegraph.com/deploy/ --version-label v0.1.0"
   },
   "dependencies": {
     "@graphprotocol/graph-ts": "0.38.2"

@@ -188,7 +188,7 @@
   },
   "subgraph": {
     "network": "arc-testnet",
-    "url": null,
+    "url": "https://api.studio.thegraph.com/query/1760210/tranch-stock/v0.1.0",
     "directory": "subgraph/",
     "entities": [
       "OracleState",
