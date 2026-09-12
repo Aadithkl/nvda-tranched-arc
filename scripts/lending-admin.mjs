@@ -54,7 +54,7 @@ const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc
 const walletClient = createWalletClient({ account, chain: arcTestnet, transport: http(rpc) });
 
 const usdc = process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
-const eurc = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
+const nvda = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
 const pool = process.env.LENDING_POOL || "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8";
 const oracle = process.env.LENDING_ORACLE || "0x6DC2A77B42B4049f96593b5Aa979227580aA510b";
 
@@ -70,16 +70,16 @@ async function send(hashPromise, label) {
 }
 
 async function status() {
-  const [usdcPrice, eurcPrice] = await Promise.all([
+  const [usdcPrice, nvdaPrice] = await Promise.all([
     publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [usdc] }),
-    publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [eurc] }),
+    publicClient.readContract({ address: oracle, abi: oracleAbi, functionName: "getAssetPrice", args: [nvda] }),
   ]);
   console.log(`oracle USDC price: ${Number(usdcPrice) / 1e8} (${usdcPrice})`);
-  console.log(`oracle EURC price: ${Number(eurcPrice) / 1e8} (${eurcPrice})`);
+  console.log(`oracle EURC price: ${Number(nvdaPrice) / 1e8} (${nvdaPrice})`);
 
   for (const [symbol, token] of [
     ["USDC", usdc],
-    ["EURC", eurc],
+    ["EURC", nvda],
   ]) {
     const reserve = await publicClient.readContract({
       address: pool,
@@ -100,14 +100,14 @@ async function status() {
 
 async function setPrices() {
   const usdcPrice = BigInt(value("--usdc-price", process.env.USDC_PEGGED_PRICE || "100000000"));
-  const eurcPrice = BigInt(value("--eurc-price", process.env.EURC_PEGGED_PRICE || "116170000"));
-  console.log(`setting pegs: USDC=${usdcPrice} EURC=${eurcPrice} (USD, 8d)`);
+  const nvdaPrice = BigInt(value("--nvda-price", process.env.EURC_PEGGED_PRICE || "116170000"));
+  console.log(`setting pegs: USDC=${usdcPrice} EURC=${nvdaPrice} (USD, 8d)`);
   await send(
     walletClient.writeContract({ address: oracle, abi: oracleAbi, functionName: "setAssetPrice", args: [usdc, usdcPrice] }),
     "setAssetPrice(USDC)",
   );
   await send(
-    walletClient.writeContract({ address: oracle, abi: oracleAbi, functionName: "setAssetPrice", args: [eurc, eurcPrice] }),
+    walletClient.writeContract({ address: oracle, abi: oracleAbi, functionName: "setAssetPrice", args: [nvda, nvdaPrice] }),
     "setAssetPrice(EURC)",
   );
 }
@@ -138,10 +138,10 @@ async function depositOne(token, symbol, amount) {
 
 async function seed() {
   const usdcAmount = BigInt(value("--usdc-amount", "10000000"));
-  const eurcAmount = BigInt(value("--eurc-amount", "10000000"));
-  console.log(`seeding Aave: ${formatUnits(usdcAmount, 6)} USDC + ${formatUnits(eurcAmount, 6)} EURC`);
+  const nvdaAmount = BigInt(value("--nvda-amount", "10000000"));
+  console.log(`seeding Aave: ${formatUnits(usdcAmount, 6)} USDC + ${formatUnits(nvdaAmount, 6)} EURC`);
   await depositOne(usdc, "USDC", usdcAmount);
-  await depositOne(eurc, "EURC", eurcAmount);
+  await depositOne(nvda, "EURC", nvdaAmount);
 }
 
 const doSetPrice = has("--set-price");

@@ -3,15 +3,17 @@ pragma solidity 0.8.26;
 
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
 import { IUnlockCallback } from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
 import { Currency } from "v4-core/src/types/Currency.sol";
 import { BalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
 import { ModifyLiquidityParams, SwapParams } from "v4-core/src/types/PoolOperation.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
-import { IERC20Minimal } from "v4-core/src/interfaces/external/IERC20Minimal.sol";
 
 contract DemoRouter is IUnlockCallback {
     using BalanceDeltaLibrary for BalanceDelta;
+    using SafeERC20 for IERC20;
 
     IPoolManager public immutable poolManager;
 
@@ -21,6 +23,8 @@ contract DemoRouter is IUnlockCallback {
     error NotPoolManager();
     error SlippageExceeded();
     error AmountExceeded(uint256 amount0, uint256 amount1);
+    error DeadlineExpired();
+    error ZeroAmount();
 
     struct SwapData {
         address payer;
@@ -59,7 +63,20 @@ contract DemoRouter is IUnlockCallback {
         uint256 minAmountOut,
         address recipient
     ) external returns (BalanceDelta delta) {
-        return swapExactIn(key, zeroForOne, amountIn, minAmountOut, recipient, bytes(""));
+        return _swapExactIn(key, zeroForOne, amountIn, minAmountOut, recipient, bytes(""));
+    }
+
+    /// @notice Deadline-enforcing exact-input swap used by the protocol rebalance path.
+    function swapExactIn(
+        PoolKey calldata key,
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        address recipient,
+        uint256 deadline
+    ) external returns (BalanceDelta delta) {
+        if (block.timestamp > deadline) revert DeadlineExpired();
+        return _swapExactIn(key, zeroForOne, amountIn, minAmountOut, recipient, bytes(""));
     }
 
     function swapExactIn(
@@ -70,6 +87,18 @@ contract DemoRouter is IUnlockCallback {
         address recipient,
         bytes memory hookData
     ) public returns (BalanceDelta delta) {
+        return _swapExactIn(key, zeroForOne, amountIn, minAmountOut, recipient, hookData);
+    }
+
+    function _swapExactIn(
+        PoolKey calldata key,
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        address recipient,
+        bytes memory hookData
+    ) internal returns (BalanceDelta delta) {
+        if (amountIn == 0) revert ZeroAmount();
         SwapData memory data = SwapData({
             payer: msg.sender,
             key: key,
@@ -231,7 +260,7 @@ contract DemoRouter is IUnlockCallback {
 
     function _settle(Currency currency, address payer, uint256 amount) internal {
         poolManager.sync(currency);
-        IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer, address(poolManager), amount);
+        IERC20(Currency.unwrap(currency)).safeTransferFrom(payer, address(poolManager), amount);
         poolManager.settle();
     }
 }

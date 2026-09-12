@@ -1,8 +1,9 @@
-// x402-paid AI reasoning over the live Graph market snapshot.
+// x402-paid AI strategy management over the live Graph market snapshot.
 //
-// Takes agent/.cache/market.json (volatility, fees, TVL, rewarded TVL, IL risk per NVDAc pool),
-// sends it to the metered model gateway at agent402.tools, pays per call in USDC over x402,
-// and stores the model's risk-committee answer in agent/.cache/reasoning.json.
+// Takes agent/.cache/market.json (volatility, fees, TVL, rewarded TVL, IL risk per NVDAc pool) and
+// agent/.cache/policy.json (current deterministic params/audit state), sends them to the metered
+// model gateway at agent402.tools, pays per call in USDC over x402, and stores the manager's
+// verdict in agent/.cache/reasoning.json bound to the market snapshot hash.
 //
 // Usage:
 //   node scripts/x402-ai.mjs --dry-run                 # prompt preview, no payment
@@ -11,11 +12,12 @@
 //   node scripts/x402-ai.mjs --model openai/gpt-4.1-mini
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { decodePaymentResponseHeader, wrapFetchWithPaymentFromConfig } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
 import { privateKeyToAccount } from "viem/accounts";
-import { SYSTEM_PROMPT, compactMarket } from "../agent/ai-prompt.mjs";
+import { SYSTEM_PROMPT, compactMarket, compactPolicy } from "../agent/ai-prompt.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_URL = process.env.AGENT_AI_URL ?? "https://agent402.tools/v1/metered/chat/completions";
@@ -114,16 +116,34 @@ async function main() {
   }
   const market = JSON.parse(fs.readFileSync(marketPath, "utf8"));
 
+  const policyPath = path.resolve(
+    root,
+    String(arg("--policy", process.env.AGENT_POLICY_CACHE || "agent/.cache/policy.json")),
+  );
+  let policy = null;
+  if (fs.existsSync(policyPath)) {
+    try {
+      policy = JSON.parse(fs.readFileSync(policyPath, "utf8"));
+    } catch {
+      policy = null;
+    }
+  }
+
   const model = String(arg("--model", process.env.AGENT_AI_MODEL || DEFAULT_MODEL));
   const maxTokens = Number(arg("--max-tokens", process.env.AGENT_AI_MAX_TOKENS || DEFAULT_MAX_TOKENS));
   const url = process.env.AGENT_AI_URL || DEFAULT_URL;
   const capUsdc = process.env.AGENT_AI_MAX_PAYMENT_USDC || DEFAULT_MAX_PAYMENT_USDC;
 
+  const snapshot = compactMarket(market);
+  const snapshotHash = `0x${crypto.createHash("sha256").update(JSON.stringify(snapshot)).digest("hex")}`;
   const body = {
     model,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: JSON.stringify(compactMarket(market)) },
+      {
+        role: "user",
+        content: JSON.stringify({ market: snapshot, policy: compactPolicy(policy) }),
+      },
     ],
     max_tokens: maxTokens,
   };
@@ -198,6 +218,7 @@ async function main() {
     latencyMs: Date.now() - started,
     usage: payload.usage ?? null,
     payment: receipt,
+    snapshotHash,
     content,
     reasoning: parsed,
   };
@@ -215,6 +236,9 @@ async function main() {
         payment: receipt.decoded ? { ...receipt.decoded, raw: undefined } : receipt.raw,
         decision: parsed?.decision ?? null,
         confidence: parsed?.confidence ?? null,
+        paramOverrides: parsed?.paramOverrides ?? null,
+        auditOverrides: parsed?.auditOverrides ?? null,
+        rebalance: parsed?.rebalance ?? null,
         recommendedBucketTicks: parsed?.recommendedBucketTicks ?? null,
         recommendedMaxDeployUsdc: parsed?.recommendedMaxDeployUsdc ?? null,
         rationale: parsed?.rationale ?? (content ? String(content).slice(0, 400) : null),

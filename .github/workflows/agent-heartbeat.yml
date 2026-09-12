@@ -5,9 +5,25 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: agent-heartbeat
+  cancel-in-progress: false
+
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
+    env:
+      ARC_RPC_URL: ${{ secrets.ARC_RPC_URL }}
+      AGENT_HOOK: ${{ secrets.AGENT_HOOK }}
+      AGENT_ORACLE: ${{ secrets.AGENT_ORACLE }}
+      AGENT_ADDRESS: ${{ secrets.AGENT_ADDRESS }}
+      AGENT_KEEPER: ${{ secrets.AGENT_KEEPER }}
+      AGENT_OPERATOR_PRIVATE_KEY: ${{ secrets.AGENT_OPERATOR_PRIVATE_KEY }}
+      GRAPH_API_KEY: ${{ secrets.GRAPH_API_KEY }}
+      X402_PAYER_PRIVATE_KEY: ${{ secrets.X402_PAYER_PRIVATE_KEY }}
+      AGENT_CADENCE_SECONDS: "600"
+      PARAMS_TTL_SECONDS: "3600"
+      AGENT_LLM_REFRESH_SECONDS: "21600"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -16,14 +32,20 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Restore agent cache (market snapshot + LLM verdict)
+        uses: actions/cache/restore@v4
+        with:
+          path: agent/.cache
+          key: agent-cache-${{ github.run_id }}
+          restore-keys: |
+            agent-cache-
+      - name: Refresh Graph market + paid LLM verdict (every 6h)
+        run: node agent/refresh.mjs
       - name: Agent tick (submit if regime changed / TTL refresh)
-        env:
-          ARC_RPC_URL: ${{ secrets.ARC_RPC_URL }}
-          AGENT_HOOK: ${{ secrets.AGENT_HOOK }}
-          AGENT_ORACLE: ${{ secrets.AGENT_ORACLE }}
-          AGENT_ADDRESS: ${{ secrets.AGENT_ADDRESS }}
-          AGENT_KEEPER: ${{ secrets.AGENT_KEEPER }}
-          AGENT_OPERATOR_PRIVATE_KEY: ${{ secrets.AGENT_OPERATOR_PRIVATE_KEY }}
-          AGENT_CADENCE_SECONDS: "600"
-          PARAMS_TTL_SECONDS: "3600"
         run: node agent/index.mjs --once --submit
+      - name: Save agent cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: agent/.cache
+          key: agent-cache-${{ github.run_id }}

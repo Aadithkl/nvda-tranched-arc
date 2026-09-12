@@ -97,7 +97,7 @@ const value = (flag, fallback) => {
 const rpc = process.env.ARC_RPC_URL || arcTestnet.rpcUrls.default.http[0];
 const config = {
   usdc: process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000",
-  eurc: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  nvda: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
   router: process.env.DEMO_ROUTER,
   hook: process.env.HOOK_DEMO_HOOK,
   oracle: process.env.HOOK_DEMO_ORACLE,
@@ -119,7 +119,7 @@ const deployerClient = createWalletClient({ account: deployer, chain: arcTestnet
 const operatorClient = operator ? createWalletClient({ account: operator, chain: arcTestnet, transport: http(rpc) }) : null;
 
 const [currency0, currency1] =
-  config.usdc.toLowerCase() < config.eurc.toLowerCase() ? [config.usdc, config.eurc] : [config.eurc, config.usdc];
+  config.usdc.toLowerCase() < config.nvda.toLowerCase() ? [config.usdc, config.nvda] : [config.nvda, config.usdc];
 const key = { currency0, currency1, fee: 0x800000, tickSpacing: 1, hooks: config.hook };
 const poolId = keccak256(
   encodeAbiParameters(
@@ -197,10 +197,10 @@ async function status() {
     publicClient.readContract({ address: config.hook, abi: hookAbi, functionName: "shareToken" }),
     publicClient.readContract({ address: config.hook, abi: hookAbi, functionName: "effectiveMaxDeploy" }),
   ]);
-  const [s0, usdcBal, eurcBal, aTokenBal, shareSupply] = await Promise.all([
+  const [s0, usdcBal, nvdaBal, aTokenBal, shareSupply] = await Promise.all([
     slot0(),
     publicClient.readContract({ address: config.usdc, abi: erc20Abi, functionName: "balanceOf", args: [deployer.address] }),
-    publicClient.readContract({ address: config.eurc, abi: erc20Abi, functionName: "balanceOf", args: [deployer.address] }),
+    publicClient.readContract({ address: config.nvda, abi: erc20Abi, functionName: "balanceOf", args: [deployer.address] }),
     publicClient.readContract({ address: aTokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [config.hook] }),
     publicClient.readContract({ address: shareTokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [deployer.address] }),
   ]);
@@ -213,7 +213,7 @@ async function status() {
   console.log(`quoteState: ${["Rest", "Degraded", "Active"][Number(state)]} | lastQuotedAt: ${lastQuotedAt}`);
   console.log(`effectiveMaxDeploy: ${maxDeploy} (risk budget)`);
   console.log(`hook Aave rest: aToken ${aTokenAddress} balance ${formatUnits(aTokenBal, 6)} USDC | totalManaged ${formatUnits(totalManaged, 6)} USDC | deployer shares ${formatUnits(shareSupply, 18)}`);
-  console.log(`deployer wallet: ${formatUnits(usdcBal, 6)} USDC / ${formatUnits(eurcBal, 6)} EURC`);
+  console.log(`deployer wallet: ${formatUnits(usdcBal, 6)} USDC / ${formatUnits(nvdaBal, 6)} EURC`);
   console.log(`previewQuote USDC→EURC:`, await tryPreview(true));
   console.log(`previewQuote EURC→USDC:`, await tryPreview(false));
 }
@@ -255,7 +255,7 @@ async function addLiquidity() {
   const max0 = BigInt(value("--max0", "1100000"));
   const max1 = BigInt(value("--max1", "1000000"));
   await approveIfNeeded(config.usdc, config.router, max0);
-  await approveIfNeeded(config.eurc, config.router, max1);
+  await approveIfNeeded(config.nvda, config.router, max1);
   await send(
     deployerClient.writeContract({
       address: config.router,
@@ -269,9 +269,9 @@ async function addLiquidity() {
 
 async function swap() {
   const amountIn = BigInt(value("--swap", "10000"));
-  const zeroForOne = value("--direction", "usdc-to-eurc") !== "eurc-to-usdc";
+  const zeroForOne = value("--direction", "usdc-to-nvda") !== "nvda-to-usdc";
   await approveIfNeeded(config.usdc, config.router, amountIn);
-  await approveIfNeeded(config.eurc, config.router, amountIn);
+  await approveIfNeeded(config.nvda, config.router, amountIn);
   const preview = await tryPreview(zeroForOne);
   console.log("preview before swap:", preview);
   const receipt = await send(

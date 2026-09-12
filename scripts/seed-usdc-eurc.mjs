@@ -58,7 +58,7 @@ const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc
 const walletClient = createWalletClient({ account, chain: arcTestnet, transport: http(rpc) });
 
 const usdc = process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
-const eurc = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
+const nvda = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
 const stateView = process.env.STATE_VIEW;
 const router = process.env.DEMO_ROUTER;
 if (!stateView || !router) throw new Error("STATE_VIEW and DEMO_ROUTER must be set in .env");
@@ -70,7 +70,7 @@ const tickLower = Number(process.env.EURC_POOL_TICK_LOWER || -1987);
 const tickUpper = Number(process.env.EURC_POOL_TICK_UPPER || -1062);
 const liquidity = BigInt(process.env.EURC_POOL_LIQUIDITY || "214639290");
 
-const [currency0, currency1] = usdc.toLowerCase() < eurc.toLowerCase() ? [usdc, eurc] : [eurc, usdc];
+const [currency0, currency1] = usdc.toLowerCase() < nvda.toLowerCase() ? [usdc, nvda] : [nvda, usdc];
 const key = { currency0, currency1, fee, tickSpacing, hooks: "0x0000000000000000000000000000000000000000" };
 const poolId = keccak256(
   encodeAbiParameters(
@@ -101,11 +101,11 @@ async function readPool() {
 
 async function status() {
   const pool = await readPool();
-  const [usdcBalance, eurcBalance, usdcAllowance, eurcAllowance] = await Promise.all([
+  const [usdcBalance, nvdaBalance, usdcAllowance, nvdaAllowance] = await Promise.all([
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
-    publicClient.readContract({ address: eurc, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
+    publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
-    publicClient.readContract({ address: eurc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
+    publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
   ]);
   const price = Math.exp(Number(pool.tick) * Math.log(1.0001));
   console.log(
@@ -116,13 +116,13 @@ async function status() {
         tick: Number(pool.tick),
         lpFee: Number(pool.lpFee),
         liquidity: pool.liquidity.toString(),
-        eurcPerUsdc: Number(price.toFixed(6)),
+        nvdaPerUsdc: Number(price.toFixed(6)),
         usdPerEurc: Number((1 / price).toFixed(4)),
         wallet: {
           usdc: usdcBalance.toString(),
-          eurc: eurcBalance.toString(),
+          nvda: nvdaBalance.toString(),
           usdcAllowance: usdcAllowance.toString(),
-          eurcAllowance: eurcAllowance.toString(),
+          nvdaAllowance: nvdaAllowance.toString(),
         },
       },
       null,
@@ -135,9 +135,9 @@ async function execute() {
   const pool = await readPool();
   const needsApprove = (allowance) => allowance < 10_000_000n;
 
-  const [usdcAllowance, eurcAllowance] = await Promise.all([
+  const [usdcAllowance, nvdaAllowance] = await Promise.all([
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
-    publicClient.readContract({ address: eurc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
+    publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
   ]);
 
   if (needsApprove(usdcAllowance)) {
@@ -150,9 +150,9 @@ async function execute() {
     await publicClient.waitForTransactionReceipt({ hash });
     console.log("approved USDC:", hash);
   }
-  if (needsApprove(eurcAllowance)) {
+  if (needsApprove(nvdaAllowance)) {
     const hash = await walletClient.writeContract({
-      address: eurc,
+      address: nvda,
       abi: erc20Abi,
       functionName: "approve",
       args: [router, maxUint256],

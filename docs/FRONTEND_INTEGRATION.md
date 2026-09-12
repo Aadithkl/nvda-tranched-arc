@@ -224,7 +224,8 @@ should show "stale / market closed" from `valid`, `marketStatus`, and
 
 - Oracle: `PriceUpdated(writer, mid, marketStatus, sourceTimestamp, paymentRef, updatedAt)`
 - PoolManager: `Initialize(...)`, `Swap(id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee)`
-- DemoRouter errors: `SlippageExceeded()`, `AmountExceeded(amount0, amount1)`
+- DemoRouter errors: `SlippageExceeded()`, `AmountExceeded(amount0, amount1)`, `DeadlineExpired()`,
+  `ZeroAmount()`
 - Oracle errors: `NotWriter(caller)`, `IsPaused()`, `InvalidPrice(mid)`, `InvalidMarketStatus(status)`
 
 Subgraph (indexed values/history): live at `manifest.subgraph.url` (Graph Studio `tranch-stock`,

@@ -6,6 +6,12 @@ import { ITrancheHookParams } from "./ITrancheHookParams.sol";
 import { IRebalanceModule } from "../interfaces/IRebalanceModule.sol";
 
 contract StrategyController {
+    uint256 public constant MAX_LP_FEE = 1_000_000;
+    uint16 public constant MAX_DEVIATION_BPS = 5_000;
+    uint16 public constant MAX_TOXICITY_MULTIPLIER_BPS = 10_000;
+    uint32 public constant MAX_TTL = 86_400;
+    uint32 public constant MAX_GRACE_PERIOD = 86_400;
+
     struct Bounds {
         uint24 maxBaseFee;
         uint24 maxSurgeFee;
@@ -20,14 +26,18 @@ contract StrategyController {
 
     address public owner;
     address public pendingOwner;
+    address public guardian;
     address public hook;
     address public rebalanceTarget;
     mapping(address => bool) public agents;
     Bounds public bounds;
+    bool public paused;
     uint256 public lastRebalanceAt;
 
     event OwnerUpdated(address indexed owner);
     event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
+    event GuardianUpdated(address indexed guardian);
+    event PausedSet(bool paused);
     event HookUpdated(address indexed hook);
     event RebalanceTargetUpdated(address indexed rebalanceTarget);
     event AgentUpdated(address indexed agent, bool allowed);
@@ -35,13 +45,17 @@ contract StrategyController {
     event ParamsSubmitted(address indexed agent, HookParams.Params params);
     event BaseFeeSubmitted(address indexed agent, uint24 baseFee);
     event QuotingSubmitted(address indexed agent, bool enabled);
-    event RebalanceSubmitted(address indexed agent, bool equityOut, uint256 amountIn, uint256 minOut);
+    event RebalanceSubmitted(address indexed agent, bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
+    error NotGuardianOrOwner(address caller);
     error NotAgent(address caller);
     error HookNotSet();
     error ZeroAddress();
+    error IsPaused();
+    error InvalidBounds();
+    error DeadlineExpired(uint256 deadline);
     error BaseFeeTooHigh(uint24 baseFee, uint24 maxBaseFee);
     error SurgeFeeTooHigh(uint24 maxSurgeFee, uint24 bound);
     error DeviationTooHigh(uint16 maxDeviationBps, uint16 bound);
@@ -64,8 +78,14 @@ contract StrategyController {
         _;
     }
 
+    modifier whenNotPaused() {
+        if (paused) revert IsPaused();
+        _;
+    }
+
     constructor(address owner_) {
         owner = owner_ == address(0) ? msg.sender : owner_;
+        guardian = owner;
         bounds = Bounds({
             maxBaseFee: 10_000,
             maxSurgeFee: 100_000,
@@ -77,7 +97,9 @@ contract StrategyController {
             maxRebalanceSwapUsdc: 10_000e6,
             rebalanceCooldown: 0
         });
+        _validateBounds(bounds);
         emit OwnerUpdated(owner);
+        emit GuardianUpdated(guardian);
         emit BoundsUpdated(bounds);
     }
 
@@ -92,6 +114,18 @@ contract StrategyController {
         pendingOwner = address(0);
         owner = msg.sender;
         emit OwnerUpdated(msg.sender);
+    }
+
+    function setGuardian(address newGuardian) external onlyOwner {
+        if (newGuardian == address(0)) revert ZeroAddress();
+        guardian = newGuardian;
+        emit GuardianUpdated(newGuardian);
+    }
+
+    function setPaused(bool paused_) external {
+        if (msg.sender != owner && msg.sender != guardian) revert NotGuardianOrOwner(msg.sender);
+        paused = paused_;
+        emit PausedSet(paused_);
     }
 
     function setHook(address hook_) external onlyOwner {
@@ -112,29 +146,37 @@ contract StrategyController {
     }
 
     function setBounds(Bounds calldata newBounds) external onlyOwner {
+        _validateBounds(newBounds);
         bounds = newBounds;
         emit BoundsUpdated(newBounds);
     }
 
-    function setHookParams(HookParams.Params calldata newParams) external onlyAgent {
+    function setHookParams(HookParams.Params calldata newParams) external onlyAgent whenNotPaused {
         _checkBounds(newParams);
         _hook().setParams(newParams);
         emit ParamsSubmitted(msg.sender, newParams);
     }
 
-    function setBaseFee(uint24 baseFee) external onlyAgent {
+    function setBaseFee(uint24 baseFee) external onlyAgent whenNotPaused {
         if (baseFee > bounds.maxBaseFee) revert BaseFeeTooHigh(baseFee, bounds.maxBaseFee);
         _hook().setBaseFee(baseFee);
         emit BaseFeeSubmitted(msg.sender, baseFee);
     }
 
     function setQuotingEnabled(bool enabled) external onlyAgent {
+        // While paused the agent may still reduce risk (disable quoting) but never re-enable it.
+        if (enabled && paused) revert IsPaused();
         _hook().setQuotingEnabled(enabled);
         emit QuotingSubmitted(msg.sender, enabled);
     }
 
-    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut) external onlyAgent {
+    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline)
+        external
+        onlyAgent
+        whenNotPaused
+    {
         if (amountIn == 0) revert ZeroAmount();
+        if (block.timestamp > deadline) revert DeadlineExpired(deadline);
         address target = rebalanceTarget;
         if (target == address(0)) revert RebalanceTargetNotSet();
         Bounds memory b = bounds;
@@ -144,8 +186,17 @@ contract StrategyController {
             revert RebalanceCooldownActive(lastRebalanceAt + b.rebalanceCooldown);
         }
         lastRebalanceAt = block.timestamp;
-        IRebalanceModule(target).rebalanceSwap(equityOut, amountIn, minOut, block.timestamp);
-        emit RebalanceSubmitted(msg.sender, equityOut, amountIn, minOut);
+        IRebalanceModule(target).rebalanceSwap(equityOut, amountIn, minOut, deadline);
+        emit RebalanceSubmitted(msg.sender, equityOut, amountIn, minOut, deadline);
+    }
+
+    function _validateBounds(Bounds memory b) internal pure {
+        if (
+            b.maxBaseFee > MAX_LP_FEE || b.maxSurgeFee > MAX_LP_FEE || b.maxSurgeFee < b.maxBaseFee
+                || b.maxDeviationBps > MAX_DEVIATION_BPS || b.maxToxicityMultiplierBps > MAX_TOXICITY_MULTIPLIER_BPS
+                || b.maxTtl == 0 || b.maxTtl > MAX_TTL || b.maxGracePeriod > MAX_GRACE_PERIOD || b.maxDeployPerSwap == 0
+                || b.maxRebalanceSwapUsdc == 0
+        ) revert InvalidBounds();
     }
 
     function _hook() internal view returns (ITrancheHookParams) {

@@ -15,6 +15,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
 
     error PriceNotSet(address asset);
     error InvalidPrice(uint256 price);
+    error LengthMismatch();
 
     constructor(address owner_) Ownable(owner_) { }
 
@@ -25,7 +26,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     }
 
     function setAssetPrices(address[] calldata assets, uint256[] calldata prices) external onlyOwner {
-        require(assets.length == prices.length, "length mismatch");
+        if (assets.length != prices.length) revert LengthMismatch();
         for (uint256 i; i < assets.length; ++i) {
             if (prices[i] == 0) revert InvalidPrice(prices[i]);
             _prices[assets[i]] = prices[i];

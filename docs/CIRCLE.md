@@ -80,7 +80,8 @@ npm run circle:reason     # pay per call with the agent wallet, store the verdic
   (destination is always Polygon; pay with `--chain MATIC`). Arc testnet uses
   `--method direct` (onchain, gas in native USDC).
 - Verified run: `decision="reduce"`, `confidence=0.7`, `recommendedBucketTicks=488`,
-  `recommendedMaxDeployUsdc=9600`, saved with `snapshotHash` to `agent/.cache/reasoning.json`.
+  `recommendedMaxDeployUsdc=9600`, saved with `snapshotHash` to `agent/.cache/reasoning.json`. Schema
+  v2 adds `paramOverrides`, `auditOverrides` and `rebalance`; legacy fields still work.
 - AIsa (`api.aisa.one`, 90 models) is listed but its server enforces exact requirement equality
   (`maxTimeoutSeconds 604900`) while the Circle CLI signs `2592000` → `payment_requirements_mismatch`
   (no funds moved). Workaround: pay via `@circle-fin/x402-batching` `GatewayClient` once a Gateway

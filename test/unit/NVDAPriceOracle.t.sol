@@ -159,4 +159,23 @@ contract NVDAPriceOracleTest is Test {
         assertTrue(data.valid);
         assertEq(data.mid, int192(mid));
     }
+
+    function test_transferOwnership_twoStep() public {
+        oracle.transferOwnership(STRANGER);
+        assertEq(oracle.owner(), address(this));
+        assertEq(oracle.pendingOwner(), STRANGER);
+
+        vm.expectRevert(abi.encodeWithSelector(NVDAPriceOracle.NotPendingOwner.selector, address(this)));
+        oracle.acceptOwnership();
+
+        vm.prank(STRANGER);
+        oracle.acceptOwnership();
+        assertEq(oracle.owner(), STRANGER);
+        assertEq(oracle.pendingOwner(), address(0));
+    }
+
+    function test_transferOwnership_zero_reverts() public {
+        vm.expectRevert(NVDAPriceOracle.ZeroAddress.selector);
+        oracle.transferOwnership(address(0));
+    }
 }

@@ -10,5 +10,5 @@ interface IStrategyController {
 
     function setQuotingEnabled(bool enabled) external;
 
-    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut) external;
+    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline) external;
 }

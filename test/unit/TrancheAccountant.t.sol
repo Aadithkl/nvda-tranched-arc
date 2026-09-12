@@ -159,6 +159,47 @@ contract TrancheAccountantTest is Test {
         accountant.fulfillRedeem(true, alice);
     }
 
+    function test_rebalance_keepsLockedRedeemAssets() public {
+        valueSource.setRate(1.05e6);
+        accountant.rebalance();
+
+        uint256 aliceShares = senior.balanceOf(alice);
+        vm.prank(alice);
+        senior.requestRedeem(aliceShares, alice, alice);
+
+        vm.prank(keeper);
+        accountant.fulfillRedeem(true, alice);
+        uint256 locked = senior.maxWithdraw(alice);
+        assertGt(locked, 0);
+        assertEq(accountant.claimableSenior(), locked);
+
+        // Any later rebalance must leave the assets backing the fulfilled claim untouched.
+        accountant.rebalance();
+        assertGe(hs.balanceOf(address(senior)), locked);
+
+        vm.prank(alice);
+        uint256 got = senior.redeem(aliceShares, alice, alice);
+        assertEq(got, locked);
+        assertEq(accountant.claimableSenior(), 0);
+    }
+
+    function test_effectivePool_excludesLockedClaims() public {
+        valueSource.setRate(1.05e6);
+        accountant.rebalance();
+        assertEq(accountant.effectivePool(), 210e6);
+
+        uint256 aliceShares = senior.balanceOf(alice);
+        vm.prank(alice);
+        senior.requestRedeem(aliceShares, alice, alice);
+        vm.prank(keeper);
+        accountant.fulfillRedeem(true, alice);
+
+        // The 105 USDC redeemed by alice is locked to her, not junior's claim.
+        assertEq(accountant.poolValue(), 210e6);
+        assertApproxEqAbs(accountant.juniorClaim(), 105e6, 1e4);
+        assertApproxEqAbs(accountant.effectivePool(), 105e6, 1e4);
+    }
+
     function test_setters_onlyOwner() public {
         vm.prank(alice);
         vm.expectRevert();

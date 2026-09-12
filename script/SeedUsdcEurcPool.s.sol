@@ -12,7 +12,7 @@ import { StateLibrary } from "v4-core/src/libraries/StateLibrary.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { DemoRouter } from "../src/router/DemoRouter.sol";
 
-contract SeedUsdcEurcPool is Script {
+contract SeedUsdcNvdaPool is Script {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
@@ -21,7 +21,7 @@ contract SeedUsdcEurcPool is Script {
         IPoolManager manager = IPoolManager(vm.envAddress("V4_POOL_MANAGER"));
         DemoRouter router = DemoRouter(vm.envAddress("DEMO_ROUTER"));
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address eurc = vm.envAddress("EURC_ADDRESS");
+        address nvda = vm.envAddress("EURC_ADDRESS");
         uint24 fee = uint24(vm.envOr("EURC_POOL_FEE", uint256(100)));
         int24 tickSpacing = int24(int256(vm.envOr("EURC_POOL_TICK_SPACING", uint256(1))));
         int24 tick = int24(vm.envInt("EURC_POOL_TICK"));
@@ -32,11 +32,11 @@ contract SeedUsdcEurcPool is Script {
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 
         IERC20(usdc).approve(address(router), type(uint256).max);
-        IERC20(eurc).approve(address(router), type(uint256).max);
+        IERC20(nvda).approve(address(router), type(uint256).max);
 
-        (PoolKey memory key,) = _poolKey(usdc, eurc, fee, tickSpacing);
+        (PoolKey memory key,) = _poolKey(usdc, nvda, fee, tickSpacing);
         router.initializePool(key, TickMath.getSqrtPriceAtTick(tick));
-        router.addLiquidity(key, tickLower, tickUpper, liquidity, 5_050_000, 4_850_000, deployer, bytes("usdc-eurc"));
+        router.addLiquidity(key, tickLower, tickUpper, liquidity, 5_050_000, 4_850_000, deployer, bytes("usdc-nvda"));
         router.swapExactIn(key, true, 500_000, 0, deployer, hex"01");
 
         vm.stopBroadcast();
@@ -47,7 +47,7 @@ contract SeedUsdcEurcPool is Script {
         console2.log("tickAfter:", endTick);
         console2.log("sqrtPriceX96:", uint256(sqrtPriceX96));
         console2.log("USDC balance:", IERC20(usdc).balanceOf(deployer));
-        console2.log("EURC balance:", IERC20(eurc).balanceOf(deployer));
+        console2.log("EURC balance:", IERC20(nvda).balanceOf(deployer));
     }
 
     function _poolKey(address tokenA, address tokenB, uint24 fee, int24 tickSpacing)

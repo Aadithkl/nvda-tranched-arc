@@ -17,7 +17,7 @@ contract StrategyAgent {
     event ParamsSubmitted(HookParams.Params params);
     event BaseFeeSubmitted(uint24 baseFee);
     event QuotingSubmitted(bool enabled);
-    event RebalanceSubmitted(bool equityOut, uint256 amountIn, uint256 minOut);
+    event RebalanceSubmitted(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -35,7 +35,7 @@ contract StrategyAgent {
     }
 
     constructor(address owner_, address operator_, address controller_) {
-        if (controller_ == address(0)) revert ZeroAddress();
+        if (controller_ == address(0) || operator_ == address(0)) revert ZeroAddress();
         owner = owner_ == address(0) ? msg.sender : owner_;
         operator = operator_;
         controller = IStrategyController(controller_);
@@ -84,8 +84,8 @@ contract StrategyAgent {
         emit QuotingSubmitted(enabled);
     }
 
-    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut) external onlyOperator {
-        controller.submitRebalance(equityOut, amountIn, minOut);
-        emit RebalanceSubmitted(equityOut, amountIn, minOut);
+    function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline) external onlyOperator {
+        controller.submitRebalance(equityOut, amountIn, minOut, deadline);
+        emit RebalanceSubmitted(equityOut, amountIn, minOut, deadline);
     }
 }

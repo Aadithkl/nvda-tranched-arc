@@ -1366,6 +1366,19 @@
   },
   {
     "type": "function",
+    "name": "oracleDecimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -2299,6 +2312,19 @@
   },
   {
     "type": "event",
+    "name": "OracleDecimalsUpdated",
+    "inputs": [
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnerUpdated",
     "inputs": [
       {
@@ -2719,6 +2745,17 @@
         "name": "toxicityMultiplierBps",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidOracleDecimals",
+    "inputs": [
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ]
   },

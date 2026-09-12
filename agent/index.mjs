@@ -1,9 +1,16 @@
 import fs from "node:fs";
+import path from "node:path";
 import crypto from "node:crypto";
 import { createPublicClient, createWalletClient, defineChain, formatUnits, http, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { compactMarket } from "./ai-prompt.mjs";
-import { rebalanceDecision, rebalancingPremiumBps } from "./model.mjs";
+import {
+  clampAuditOverrides,
+  clampParamOverrides,
+  economicAudit,
+  rebalancingPremiumBps,
+  validateRebalanceProposal,
+} from "./model.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -51,14 +58,20 @@ const oracleAbi = parseAbi([
 
 const agentAbi = parseAbi([
   "function operator() view returns (address)",
+  "function controller() view returns (address)",
   "function submitParams((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
   "function submitBaseFee(uint24 baseFee)",
   "function submitQuotingEnabled(bool enabled)",
-  "function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut)",
+  "function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline)",
+]);
+
+const controllerAbi = parseAbi([
+  "function bounds() view returns ((uint24 maxBaseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 maxToxicityMultiplierBps, uint32 maxTtl, uint32 maxGracePeriod, uint128 maxDeployPerSwap, uint128 maxRebalanceSwapUsdc, uint32 rebalanceCooldown))",
 ]);
 
 const accountantAbi = parseAbi([
   "function juniorClaim() view returns (uint256)",
+  "function seniorClaim() view returns (uint256)",
   "function escrowFunded() view returns (bool)",
   "function rebalance() returns (uint256, uint256)",
   "function fulfillRedeem(bool senior, address user)",
@@ -79,13 +92,29 @@ const ttlTarget = Number(process.env.PARAMS_TTL_SECONDS || "3600");
 const marketCachePath = process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json";
 const marketTtlSeconds = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
 const reasoningCachePath = "agent/.cache/reasoning.json";
+const policyCachePath = process.env.AGENT_POLICY_CACHE || "agent/.cache/policy.json";
+// LLM manager cadence: the paid verdict is refreshed every AGENT_LLM_REFRESH_SECONDS (6h default)
+// by agent/refresh.mjs / the heartbeat workflow. Audit overrides stay usable for twice that;
+// rebalance calls must be at most one interval old.
+const llmRefreshSeconds = Number(process.env.AGENT_LLM_REFRESH_SECONDS || "21600");
+const reasoningMaxAgeSeconds = Number(
+  process.env.AGENT_REASONING_MAX_AGE_SECONDS || String(llmRefreshSeconds * 2),
+);
+const rebalanceMaxAgeSeconds = Number(process.env.AGENT_REBALANCE_MAX_AGE_SECONDS || String(llmRefreshSeconds));
 const rebalanceEnabled = process.env.AGENT_REBALANCE_ENABLED !== "0";
-const rebalanceMinEdgeBps = Number(process.env.AGENT_REBALANCE_MIN_EDGE_BPS || "0.2");
 const rebalanceMinUsd = Number(process.env.AGENT_REBALANCE_MIN_USD || "1");
 const rebalanceMaxUsd = Number(
   process.env.AGENT_REBALANCE_MAX_USD || process.env.AGENT_REBALANCE_MAX_USDC || "500",
 );
 const rebalanceSlippageBps = Number(process.env.AGENT_REBALANCE_SLIPPAGE_BPS || "50");
+const rebalanceDeadlineSeconds = Number(process.env.AGENT_REBALANCE_DEADLINE_SECONDS || "300");
+// Economic audit thresholds: env defaults, overridable by the fresh paid LLM within hard clamps
+// (see clampAuditOverrides in model.mjs and AGENT_MARKET.md).
+const auditMinNetEdgeBps = Number(process.env.AGENT_AUDIT_MIN_NET_EDGE_BPS || "0.2");
+const auditMinJuniorBufferBps = Number(process.env.AGENT_AUDIT_MIN_BUFFER_BPS || "500");
+const auditMaxDeployOfJuniorBps = Number(process.env.AGENT_AUDIT_MAX_DEPLOY_OF_JUNIOR_BPS || "5000");
+const auditMaxVar95Bps = Number(process.env.AGENT_AUDIT_MAX_VAR95_BPS || "500");
+const auditMaxPIlExceedsFees = Number(process.env.AGENT_AUDIT_MAX_PIL_EXCEEDS_FEES || "0.35");
 
 function loadMarket() {
   try {
@@ -104,16 +133,28 @@ function loadReasoning(market) {
   try {
     const raw = JSON.parse(fs.readFileSync(reasoningCachePath, "utf8"));
     const ageMs = Date.now() - Date.parse(raw.generatedAt);
-    if (!Number.isFinite(ageMs) || ageMs > marketTtlSeconds * 1000 * 4) return null;
+    if (!Number.isFinite(ageMs) || ageMs > reasoningMaxAgeSeconds * 1000) return null;
     let staleHash = false;
     if (raw.snapshotHash && market) {
       const hash = `0x${crypto.createHash("sha256").update(JSON.stringify(compactMarket(market))).digest("hex")}`;
       staleHash = raw.snapshotHash !== hash;
     }
-    return { ...raw, staleHash, ageSeconds: Math.round(ageMs / 1000) };
+    return {
+      ...raw,
+      staleHash,
+      ageSeconds: Math.round(ageMs / 1000),
+      rebalanceFresh: ageMs <= rebalanceMaxAgeSeconds * 1000,
+    };
   } catch {
     return null;
   }
+}
+
+// The LLM only influences policy while its verdict is fresh and bound to the market snapshot.
+function effectiveAi(state) {
+  const r = state.reasoning;
+  if (!r || r.staleHash) return null;
+  return r.reasoning ?? null;
 }
 
 const rpc = process.env.ARC_RPC_URL || arcTestnet.rpcUrls.default.http[0];
@@ -192,13 +233,14 @@ async function perceive() {
     deviationBps = 0n;
   }
 
-  let risk = { juniorClaim: 0n, escrowFunded: false };
+  let risk = { seniorClaim: 0n, juniorClaim: 0n, escrowFunded: false };
   if (accountant !== "0x0000000000000000000000000000000000000000") {
-    const [juniorClaim, escrowFunded] = await Promise.all([
+    const [seniorClaim, juniorClaim, escrowFunded] = await Promise.all([
+      publicClient.readContract({ address: accountant, abi: accountantAbi, functionName: "seniorClaim" }),
       publicClient.readContract({ address: accountant, abi: accountantAbi, functionName: "juniorClaim" }),
       publicClient.readContract({ address: accountant, abi: accountantAbi, functionName: "escrowFunded" }),
     ]);
-    risk = { juniorClaim, escrowFunded };
+    risk = { seniorClaim, juniorClaim, escrowFunded };
   }
 
   let composition = null;
@@ -224,6 +266,24 @@ async function perceive() {
     }
   }
 
+  let bounds = null;
+  try {
+    const controller = await publicClient.readContract({
+      address: config.agent,
+      abi: agentAbi,
+      functionName: "controller",
+    });
+    if (controller !== "0x0000000000000000000000000000000000000000") {
+      bounds = await publicClient.readContract({
+        address: controller,
+        abi: controllerAbi,
+        functionName: "bounds",
+      });
+    }
+  } catch {
+    bounds = null;
+  }
+
   const market = loadMarket();
 
   return {
@@ -238,6 +298,7 @@ async function perceive() {
     risk,
     composition,
     decimals,
+    bounds,
     market,
     reasoning: loadReasoning(market),
   };
@@ -260,28 +321,29 @@ function marketOverlay(decision, market) {
   return { regime: `${decision.regime}+${suffix}`, params };
 }
 
-// Full override within bounds: the Circle-paid AI verdict may adjust bucketTicks and size (never
-// above the controller bound of 100k), and can only be trusted when its snapshot hash matches.
-function aiOverlay(decision, reasoning) {
-  const ai = reasoning && !reasoning.staleHash ? reasoning.reasoning : null;
+// The paid LLM owns the slow policy: full param overrides (dynamic fees, deviation band, TTL,
+// JIT range/size, quoting switch) plus legacy schema-v1 fields, all clamped to the controller
+// bounds and only trusted while the snapshot hash matches.
+function aiOverlay(decision, state) {
+  const ai = effectiveAi(state);
   if (!ai || !ai.decision) return decision;
-  const params = { ...decision.params };
-  const deterministicUsdc = Number(params.maxDeployPerSwap) / 1_000_000;
+  const overrides = { ...(ai.paramOverrides ?? {}) };
 
-  const bucket = Number(ai.recommendedBucketTicks);
-  if (Number.isFinite(bucket) && bucket >= 1) {
-    params.bucketTicks = Math.max(1, Math.min(5_000, Math.round(bucket)));
+  const legacyBucket = Number(ai.recommendedBucketTicks);
+  if (overrides.bucketTicks == null && Number.isFinite(legacyBucket) && legacyBucket >= 1) {
+    overrides.bucketTicks = Math.round(legacyBucket);
   }
-
-  const aiUsdc = Number(ai.recommendedMaxDeployUsdc);
-  if (Number.isFinite(aiUsdc) && aiUsdc >= 0) {
-    let target = Math.min(100_000, aiUsdc);
+  const legacyUsdc = Number(ai.recommendedMaxDeployUsdc);
+  if (overrides.maxDeployPerSwap == null && Number.isFinite(legacyUsdc) && legacyUsdc >= 0) {
+    const deterministicUsdc = Number(decision.params.maxDeployPerSwap) / 1_000_000;
+    let target = Math.min(100_000, legacyUsdc);
     if (ai.decision === "reduce") target = Math.min(target, deterministicUsdc);
     if (ai.decision === "hold") target = deterministicUsdc;
-    params.maxDeployPerSwap = BigInt(Math.round(target)) * 1_000_000n;
+    overrides.maxDeployPerSwap = Math.round(target * 1_000_000);
   }
-  if (ai.decision === "disable") params.quotingEnabled = false;
 
+  const params = clampParamOverrides(decision.params, overrides, state.bounds);
+  if (ai.decision === "disable") params.quotingEnabled = false;
   return { regime: `${decision.regime}+ai-${ai.decision}`, params };
 }
 
@@ -301,7 +363,7 @@ function reason(state) {
       `[agent] market cache is stale (${state.market.ageSeconds}s) - using it with low confidence`,
     );
   }
-  return aiOverlay(marketOverlay(decision, state.market), state.reasoning);
+  return aiOverlay(marketOverlay(decision, state.market), state);
 }
 
 function sameParams(a, b) {
@@ -324,42 +386,115 @@ function sameParams(a, b) {
 function marketEdge(state) {
   const market = state.market;
   const aggregate = market?.aggregate;
-  if (!aggregate) return { worthLp: false, edgeBps: 0, ilBps: null, sigmaHourly: null, suggestedDeployUsd: 0 };
+  if (!aggregate) {
+    return {
+      worthLp: false,
+      edgeBps: 0,
+      ilBps: null,
+      sigmaHourly: null,
+      suggestedDeployUsd: 0,
+      pIlExceedsFees: 0,
+      var95Bps: 0,
+      cvar95Bps: 0,
+    };
+  }
   const pools = market.pools ?? [];
   const exec =
     pools.find((pool) => pool.id === aggregate.executedPool) ?? pools.find((pool) => pool.decision?.worthLp) ?? null;
+  const best = exec?.decision?.best ?? null;
+  const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
   return {
     worthLp: Boolean(aggregate.worthLp),
-    edgeBps: Number(exec?.decision?.best?.netEdgeBps ?? 0),
-    ilBps: Number.isFinite(exec?.decision?.best?.expectedIlBps) ? Number(exec.decision.best.expectedIlBps) : null,
-    sigmaHourly: Number.isFinite(aggregate.sigma14d) ? Number(aggregate.sigma14d) : null,
-    suggestedDeployUsd: Number(aggregate.suggestedMaxDeployUsdc) || 0,
+    edgeBps: num(exec?.decision?.best?.netEdgeBps, 0),
+    ilBps: num(exec?.decision?.best?.expectedIlBps, null),
+    sigmaHourly: num(aggregate.sigma14d, null),
+    suggestedDeployUsd: num(aggregate.suggestedMaxDeployUsdc, 0),
+    pIlExceedsFees: num(best?.pIlExceedsFees, 0),
+    var95Bps: num(best?.var95Bps, 0),
+    cvar95Bps: num(best?.cvar95Bps, 0),
   };
 }
 
-function planRebalance(state) {
-  if (!rebalanceEnabled) return null;
-  if (!state.composition || state.composition.error) return null;
+// Effective audit thresholds = env defaults overridden by the fresh LLM verdict, clamped per
+// field (bounded both ways, never below the protocol floors). Structural disables are not
+// overridable and are re-applied by economicAudit regardless of the thresholds.
+function effectiveThresholds(state) {
+  const ai = effectiveAi(state);
+  return clampAuditOverrides(
+    {
+      minNetEdgeBps: auditMinNetEdgeBps,
+      minJuniorBufferBps: auditMinJuniorBufferBps,
+      maxDeployOfJuniorBps: auditMaxDeployOfJuniorBps,
+      maxVar95Bps: auditMaxVar95Bps,
+      maxPIlExceedsFees: auditMaxPIlExceedsFees,
+    },
+    ai?.auditOverrides,
+  );
+}
+
+// Economic audit gate: decomposes yield, checks the junior buffer and IL risk, and returns a
+// verdict the daemon enforces (`disable` forces quoting off; `cappedDeployUsd` caps sizing).
+function runAudit(state) {
   const market = marketEdge(state);
-  const decision = rebalanceDecision({
-    equityBps: state.composition.equityBps,
-    hardCapBps: state.composition.hardCapBps,
-    escrowFunded: Boolean(state.risk.escrowFunded),
+  const comp = state.composition && !state.composition.error ? state.composition : null;
+  const navUsd = comp?.navUsd ?? 0;
+  const deployUsd = Math.min(market.suggestedDeployUsd || 0, navUsd);
+  const thresholds = effectiveThresholds(state);
+  const audit = economicAudit({
     oracleValid: Boolean(state.oracleValid),
-    worthLp: market.worthLp,
-    lpEdgeBps: market.edgeBps,
-    minEdgeBps: rebalanceMinEdgeBps,
-    navUsd: state.composition.navUsd,
-    suggestedDeployUsd: market.suggestedDeployUsd,
+    escrowFunded: Boolean(state.risk.escrowFunded),
+    seniorClaimUsd: Number(state.risk.seniorClaim ?? 0n) / 1e6,
+    juniorClaimUsd: Number(state.risk.juniorClaim ?? 0n) / 1e6,
+    expectedIlBps: market.ilBps ?? 0,
+    netEdgeBps: market.edgeBps,
+    pIlExceedsFees: market.pIlExceedsFees,
+    var95Bps: market.var95Bps,
+    cvar95Bps: market.cvar95Bps,
+    swapCostBps: rebalanceSlippageBps,
+    deployUsd,
+    minNetEdgeBps: thresholds.minNetEdgeBps,
+    minJuniorBufferBps: thresholds.minJuniorBufferBps,
+    maxDeployOfJuniorBps: thresholds.maxDeployOfJuniorBps,
+    maxVar95Bps: thresholds.maxVar95Bps,
+    maxPIlExceedsFees: thresholds.maxPIlExceedsFees,
+  });
+  return { ...audit, thresholds };
+}
+
+// Rebalancing is LLM-owned: the model proposes buy/sell/size; the deterministic intern only
+// validates the hard rails (validateRebalanceProposal). No fresh, hash-matched verdict -> no trade.
+function planRebalance(state) {
+  const ai = effectiveAi(state);
+  const proposal = ai?.rebalance ?? null;
+  if (!rebalanceEnabled) return { plan: null, ai: proposal, reason: "disabled" };
+  if (!proposal) return { plan: null, ai: null, reason: "no_proposal" };
+  if (!state.reasoning?.rebalanceFresh) return { plan: null, ai: proposal, reason: "stale_reasoning" };
+  const comp = state.composition && !state.composition.error ? state.composition : null;
+  const plan = validateRebalanceProposal(proposal, {
+    oracleValid: Boolean(state.oracleValid),
+    escrowFunded: Boolean(state.risk.escrowFunded),
+    equityBps: comp?.equityBps ?? 0,
+    hardCapBps: comp?.hardCapBps ?? 10_000,
+    navUsd: comp?.navUsd ?? 0,
+    compositionAvailable: Boolean(comp),
     minSwapUsd: rebalanceMinUsd,
     maxSwapUsd: rebalanceMaxUsd,
   });
-  const premiumBps = rebalancingPremiumBps({
-    weight: state.composition.equityBps / 10_000,
-    sigmaHourly: market.sigmaHourly ?? 0,
-    horizonHours: 1,
-  });
-  return { ...decision, ilBps: market.ilBps, premiumBps, market };
+  const market = marketEdge(state);
+  const premiumBps = comp
+    ? rebalancingPremiumBps({
+        weight: comp.equityBps / 10_000,
+        sigmaHourly: market.sigmaHourly ?? 0,
+        horizonHours: 1,
+      })
+    : 0;
+  return {
+    plan: { ...plan, rationale: proposal.rationale ?? null },
+    ai: proposal,
+    reason: plan.reason,
+    ilBps: market.ilBps,
+    premiumBps,
+  };
 }
 
 function rebalanceCalldata(plan, state) {
@@ -370,40 +505,113 @@ function rebalanceCalldata(plan, state) {
   const scale = 10n ** BigInt(8 + state.decimals.equity - state.decimals.usdc);
   const slip = BigInt(10_000 - Math.min(Math.max(rebalanceSlippageBps, 0), 9_000));
   const sizeMicro = BigInt(Math.round(plan.sizeUsd * 1e6));
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + Math.max(rebalanceDeadlineSeconds, 0));
   if (plan.action === "buy") {
     const amountIn = sizeMicro * 10n ** BigInt(Math.max(state.decimals.usdc - 6, 0));
     const oracleOut = (amountIn * scale) / mid8;
-    return { equityOut: false, amountIn, minOut: (oracleOut * slip) / 10_000n };
+    return { equityOut: false, amountIn, minOut: (oracleOut * slip) / 10_000n, deadline };
   }
   const amountIn = (sizeMicro * 10n ** BigInt(state.decimals.equity) * 100_000_000n) / (mid8 * 1_000_000n);
   const oracleOut = (amountIn * mid8) / scale;
-  return { equityOut: true, amountIn, minOut: (oracleOut * slip) / 10_000n };
+  return { equityOut: true, amountIn, minOut: (oracleOut * slip) / 10_000n, deadline };
+}
+
+// Snapshot of the deterministic state for the LLM manager: the next paid verdict sees the live
+// params, effective audit thresholds and book composition it is asked to oversee.
+function writePolicyCache(state, decision, audit) {
+  try {
+    const ai = effectiveAi(state);
+    const comp = state.composition && !state.composition.error ? state.composition : null;
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      regime: decision.regime,
+      quotingEnabled: Boolean(decision.params.quotingEnabled),
+      params: {
+        baseFee: Number(decision.params.baseFee),
+        maxSurgeFee: Number(decision.params.maxSurgeFee),
+        maxDeviationBps: Number(decision.params.maxDeviationBps),
+        toxicityMultiplierBps: Number(decision.params.toxicityMultiplierBps),
+        minEvBps: Number(decision.params.minEvBps),
+        cooldownSeconds: Number(decision.params.cooldownSeconds),
+        ttl: Number(decision.params.ttl),
+        gracePeriod: Number(decision.params.gracePeriod),
+        maxDeployPerSwap: decision.params.maxDeployPerSwap.toString(),
+        bucketTicks: Number(decision.params.bucketTicks),
+      },
+      audit: {
+        verdict: audit.verdict,
+        reason: audit.reason,
+        thresholds: audit.thresholds,
+        juniorBufferBps: audit.juniorBufferBps,
+        netAfterCostsBps: audit.netAfterCostsBps,
+        maxDeployUsd: audit.maxDeployUsd,
+      },
+      risk: {
+        oracleValid: Boolean(state.oracleValid),
+        quoteState: state.quoteState,
+        deviationBps: state.deviationBps,
+        escrowFunded: Boolean(state.risk.escrowFunded),
+        seniorClaimUsd: Number(state.risk.seniorClaim ?? 0n) / 1e6,
+        juniorClaimUsd: Number(state.risk.juniorClaim ?? 0n) / 1e6,
+      },
+      composition: comp
+        ? {
+            usdcValue: Number(comp.usdcValue) / 10 ** state.decimals.usdc,
+            equityValue: Number(comp.equityValue) / 10 ** state.decimals.usdc,
+            equityBps: comp.equityBps,
+            hardCapBps: comp.hardCapBps,
+            navUsd: comp.navUsd,
+          }
+        : null,
+      ai: ai ? { decision: ai.decision ?? null, ageSeconds: state.reasoning?.ageSeconds ?? null } : null,
+    };
+    fs.mkdirSync(path.dirname(policyCachePath), { recursive: true });
+    fs.writeFileSync(policyCachePath, JSON.stringify(payload, null, 2));
+  } catch (error) {
+    console.warn(`[agent] policy cache write skipped: ${error.message}`);
+  }
 }
 
 async function act(state) {
   const decision = reason(state);
+  const audit = runAudit(state);
+  if (audit.verdict === "disable") {
+    decision.params.quotingEnabled = false;
+  } else if (audit.cappedDeployUsd > 0 && audit.cappedDeployUsd < Number(decision.params.maxDeployPerSwap) / 1_000_000) {
+    decision.params.maxDeployPerSwap = BigInt(Math.round(audit.cappedDeployUsd)) * 1_000_000n;
+  }
   const upToDate = sameParams(state.params, decision.params);
   const market = state.market?.aggregate;
-  const ai = state.reasoning && !state.reasoning.staleHash ? state.reasoning.reasoning : null;
-  const plan = planRebalance(state);
+  const ai = effectiveAi(state);
+  const rebal = planRebalance(state);
+  const plan = rebal.plan;
   const exec = rebalanceCalldata(plan, state);
   const comp = state.composition;
   const compLabel = comp && !comp.error ? `${comp.equityBps}bps/${comp.hardCapBps}bps` : "n/a";
-  const rebalLabel = plan
-    ? `${plan.action}:${plan.reason}:` +
-      (exec
-        ? `${exec.equityOut ? "sell" : "buy"}:${formatUnits(exec.amountIn, exec.equityOut ? state.decimals.equity : state.decimals.usdc)}`
-        : `${plan.sizeUsd.toFixed(0)}$`)
-    : "off";
+  const aiAudit = ai?.auditOverrides
+    ? Object.entries(audit.thresholds)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(",")
+    : "-";
+  const rebalLabel = exec
+    ? `${exec.equityOut ? "sell" : "buy"}:${formatUnits(exec.amountIn, exec.equityOut ? state.decimals.equity : state.decimals.usdc)}`
+    : plan
+      ? `${plan.action}:${plan.reason}`
+      : `off:${rebal.reason}`;
 
   console.log(
     `[agent] regime=${decision.regime} devBps=${state.deviationBps} quoteState=${state.quoteState} ` +
       `oracle=${state.oracleMid} valid=${state.oracleValid} funded=${state.risk.escrowFunded} ` +
-      `juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} changed=${!upToDate} ` +
+      `seniorClaim=${state.risk.seniorClaim} juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} ` +
+      `changed=${!upToDate} ` +
       `market=${market ? `${market.worthLp ? "lp" : "no-lp"}:${market.bestBandBps ?? "-"}bps:edge=${market.suggestedMaxDeployUsdc}$` : "n/a"} ` +
       `ai=${ai ? `${ai.decision}:${ai.confidence}:${state.reasoning.model ?? "-"}` : state.reasoning?.staleHash ? "stale-hash" : "n/a"} ` +
-      `equity=${compLabel} il=${plan?.ilBps != null ? plan.ilBps.toFixed(1) : "-"} premium=${plan ? plan.premiumBps.toFixed(2) : "-"} rebal=${rebalLabel}`,
+      `ai-audit=${aiAudit} ` +
+      `audit=${audit.verdict}:${audit.reason}:buffer=${audit.juniorBufferBps}bps:net=${audit.netAfterCostsBps}bps ` +
+      `equity=${compLabel} il=${rebal.ilBps != null ? rebal.ilBps.toFixed(1) : "-"} premium=${rebal.premiumBps != null ? rebal.premiumBps.toFixed(2) : "-"} rebal=${rebalLabel}`,
   );
+
+  writePolicyCache(state, decision, audit);
 
   if (!submit) {
     console.log("[agent] dry-run; pass --submit to broadcast through StrategyAgent");
@@ -434,7 +642,7 @@ async function act(state) {
       address: config.agent,
       abi: agentAbi,
       functionName: "submitRebalance",
-      args: [exec.equityOut, exec.amountIn, exec.minOut],
+      args: [exec.equityOut, exec.amountIn, exec.minOut, exec.deadline],
     });
     await publicClient.waitForTransactionReceipt({ hash });
     console.log(`[agent] submitted ${exec.equityOut ? "sell" : "buy"} rebalance: ${hash}`);

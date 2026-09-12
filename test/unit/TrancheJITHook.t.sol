@@ -387,8 +387,13 @@ contract TrancheJITHookTest is Test {
         assertEq(hook.effectiveMaxDeploy(), 0);
     }
 
-    function test_unsetAccountant_blocksRiskBudget() public {
+    function test_setAccountant_zero_reverts() public {
+        vm.expectRevert(TrancheJITHook.ZeroAddress.selector);
         hook.setAccountant(address(0));
+    }
+
+    function test_unfundedAccountant_blocksRiskBudget() public {
+        risk.setEscrowFunded(false);
         assertEq(hook.riskBudget(), 0);
         assertEq(hook.effectiveMaxDeploy(), 0);
     }
@@ -758,7 +763,7 @@ contract TrancheJITHookTest is Test {
         usdc.mint(address(hook), 100e6);
         vm.prank(operator);
         vm.expectRevert(TranchePipeModule.RebalanceVenueUnset.selector);
-        agent.submitRebalance(false, 1e6, 0);
+        agent.submitRebalance(false, 1e6, 0, block.timestamp);
     }
 
     function test_rebalanceSwap_onlyController() public {
@@ -775,7 +780,7 @@ contract TrancheJITHookTest is Test {
         uint256 nvdaBefore = nvda.balanceOf(address(hook));
 
         vm.prank(operator);
-        agent.submitRebalance(false, amountIn, minOut);
+        agent.submitRebalance(false, amountIn, minOut, block.timestamp);
 
         uint256 gained = nvda.balanceOf(address(hook)) - nvdaBefore;
         assertGe(gained, minOut);
@@ -792,7 +797,7 @@ contract TrancheJITHookTest is Test {
         uint256 usdcBefore = usdc.balanceOf(address(hook)) + aUsdc.balanceOf(address(hook));
 
         vm.prank(operator);
-        agent.submitRebalance(true, amountIn, minOut);
+        agent.submitRebalance(true, amountIn, minOut, block.timestamp);
 
         uint256 gained = usdc.balanceOf(address(hook)) + aUsdc.balanceOf(address(hook)) - usdcBefore;
         assertGe(gained, minOut);
@@ -804,7 +809,7 @@ contract TrancheJITHookTest is Test {
         uint256 floor = _oracleFloor(_oracleNvdaOut(1e6));
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(TranchePipeModule.SlippageBoundUnmet.selector, 0, floor));
-        agent.submitRebalance(false, 1e6, 0);
+        agent.submitRebalance(false, 1e6, 0, block.timestamp);
     }
 
     function test_rebalanceSwap_cap_reverts() public {
@@ -814,7 +819,7 @@ contract TrancheJITHookTest is Test {
         uint256 minOut = _oracleFloor(_oracleNvdaOut(10e6));
         vm.prank(operator);
         vm.expectRevert();
-        agent.submitRebalance(false, 10e6, minOut);
+        agent.submitRebalance(false, 10e6, minOut, block.timestamp);
     }
 
     function test_rebalanceSwap_unfunded_reverts() public {
@@ -823,7 +828,7 @@ contract TrancheJITHookTest is Test {
         usdc.mint(address(hook), 1_000e6);
         vm.prank(operator);
         vm.expectRevert(TranchePipeModule.RebalanceNotFunded.selector);
-        agent.submitRebalance(false, 1e6, _oracleNvdaOut(1e6));
+        agent.submitRebalance(false, 1e6, _oracleNvdaOut(1e6), block.timestamp);
     }
 
     function test_rebalance_cooldown() public {
@@ -845,19 +850,19 @@ contract TrancheJITHookTest is Test {
 
         uint256 minOut = _oracleFloor(_oracleNvdaOut(1e6));
         vm.prank(operator);
-        agent.submitRebalance(false, 1e6, minOut);
+        agent.submitRebalance(false, 1e6, minOut, block.timestamp);
 
         uint256 readyAt = block.timestamp + 60;
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(StrategyController.RebalanceCooldownActive.selector, readyAt));
-        agent.submitRebalance(false, 1e6, minOut);
+        agent.submitRebalance(false, 1e6, minOut, block.timestamp);
     }
 
     function test_rebalance_amountTooLarge() public {
         _initVenuePool();
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(StrategyController.RebalanceTooLarge.selector, 20_000e6, 10_000e6));
-        agent.submitRebalance(false, 20_000e6, 0);
+        agent.submitRebalance(false, 20_000e6, 0, block.timestamp);
     }
 
     function test_setRebalanceVenue_mismatch() public {
@@ -866,5 +871,81 @@ contract TrancheJITHookTest is Test {
         bad.currency0 = Currency.wrap(address(0xdead));
         vm.expectRevert(TranchePipeModule.RebalanceKeyMismatch.selector);
         pipe.setRebalanceVenue(bad, address(router));
+    }
+
+    function test_submitRebalance_deadlineExpired_reverts() public {
+        vm.warp(100);
+        uint256 deadline = block.timestamp - 1;
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(StrategyController.DeadlineExpired.selector, deadline));
+        agent.submitRebalance(false, 1e6, 0, deadline);
+    }
+
+    function test_controller_pause_blocksParamsAndAllowsRiskReduction() public {
+        controller.setPaused(true);
+
+        vm.prank(operator);
+        vm.expectRevert(StrategyController.IsPaused.selector);
+        agent.submitParams(_defaultParams());
+
+        vm.prank(operator);
+        vm.expectRevert(StrategyController.IsPaused.selector);
+        agent.submitBaseFee(4000);
+
+        // Reducing risk (disabling quoting) stays available while paused.
+        vm.prank(operator);
+        agent.submitQuotingEnabled(false);
+        assertEq(uint8(hook.quoteState()), uint8(TrancheJITHook.QuoteState.Rest));
+
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(StrategyController.NotGuardianOrOwner.selector, operator));
+        controller.setPaused(false);
+    }
+
+    function test_controller_guardianCanPause() public {
+        controller.setGuardian(alice);
+        vm.prank(alice);
+        controller.setPaused(true);
+        assertTrue(controller.paused());
+
+        vm.prank(operator);
+        vm.expectRevert(StrategyController.IsPaused.selector);
+        agent.submitParams(_defaultParams());
+
+        vm.prank(alice);
+        controller.setPaused(false);
+        vm.prank(operator);
+        agent.submitParams(_defaultParams());
+    }
+
+    function test_setBounds_invalid_reverts() public {
+        StrategyController.Bounds memory b = StrategyController.Bounds({
+            maxBaseFee: 10_000,
+            maxSurgeFee: 100_000,
+            maxDeviationBps: 500,
+            maxToxicityMultiplierBps: 2_500,
+            maxTtl: 3_600,
+            maxGracePeriod: 3_600,
+            maxDeployPerSwap: 100_000e6,
+            maxRebalanceSwapUsdc: 10_000e6,
+            rebalanceCooldown: 0
+        });
+
+        b.maxSurgeFee = b.maxBaseFee - 1;
+        vm.expectRevert(StrategyController.InvalidBounds.selector);
+        controller.setBounds(b);
+
+        b.maxSurgeFee = 100_000;
+        b.maxTtl = 0;
+        vm.expectRevert(StrategyController.InvalidBounds.selector);
+        controller.setBounds(b);
+
+        b.maxTtl = 3_600;
+        b.maxDeployPerSwap = 0;
+        vm.expectRevert(StrategyController.InvalidBounds.selector);
+        controller.setBounds(b);
+
+        b.maxDeployPerSwap = 100_000e6;
+        controller.setBounds(b);
     }
 }

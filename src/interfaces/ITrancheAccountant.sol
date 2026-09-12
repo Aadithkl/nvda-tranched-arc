@@ -18,5 +18,7 @@ interface ITrancheAccountant {
 
     function onTrancheRedeem(bool senior, uint256 hookShares) external;
 
+    function onTrancheClaim(bool senior, uint256 hookShares) external;
+
     function rebalance() external returns (uint256 seniorShares, uint256 juniorShares);
 }

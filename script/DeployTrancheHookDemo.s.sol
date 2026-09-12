@@ -26,17 +26,17 @@ contract DeployTrancheHookDemo is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address usdc = vm.envAddress("USDC_ADDRESS");
-        address eurc = vm.envAddress("EURC_ADDRESS");
+        address nvda = vm.envAddress("EURC_ADDRESS");
         address lendingPool = vm.envAddress("LENDING_POOL");
         address operator = vm.envAddress("AGENT_OPERATOR_ADDRESS");
-        uint256 eurcPrice = vm.envOr("HOOK_DEMO_EURC_PRICE", uint256(116_170_000));
+        uint256 nvdaPrice = vm.envOr("HOOK_DEMO_EURC_PRICE", uint256(116_170_000));
 
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 
         NVDAPriceOracle priceOracle = new NVDAPriceOracle(8, deployer);
         priceOracle.setWriter(deployer, true);
         priceOracle.setMaxStaleness(300);
-        priceOracle.updatePrice(int192(int256(eurcPrice)), 2, uint32(block.timestamp), bytes32(0));
+        priceOracle.updatePrice(int192(int256(nvdaPrice)), 2, uint32(block.timestamp), bytes32(0));
 
         StrategyController controller = new StrategyController(deployer);
         StrategyAgent agent = new StrategyAgent(deployer, operator, address(controller));
@@ -47,7 +47,7 @@ contract DeployTrancheHookDemo is Script {
                 | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG
         );
         bytes memory constructorArgs = abi.encode(
-            IPoolManager(poolManager), IERC20(usdc), IERC20(eurc), address(priceOracle), deployer, address(controller)
+            IPoolManager(poolManager), IERC20(usdc), IERC20(nvda), address(priceOracle), deployer, address(controller)
         );
         bytes memory initcode = abi.encodePacked(type(TrancheJITHook).creationCode, constructorArgs);
         (address expectedHook, bytes32 salt) =
@@ -60,7 +60,7 @@ contract DeployTrancheHookDemo is Script {
 
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(usdc),
-            currency1: Currency.wrap(eurc),
+            currency1: Currency.wrap(nvda),
             fee: 0x800000,
             tickSpacing: 1,
             hooks: IHooks(hook)
@@ -77,7 +77,7 @@ contract DeployTrancheHookDemo is Script {
         console2.log("PoolId:");
         console2.logBytes32(PoolId.unwrap(key.toId()));
         console2.log("InitialTick:", INITIAL_TICK);
-        console2.log("EURC oracle mid (8d):", eurcPrice);
+        console2.log("EURC oracle mid (8d):", nvdaPrice);
         console2.log("LendingPool:", lendingPool);
         console2.log("aToken:", address(TrancheJITHook(hook).aToken()));
         console2.log("Operator:", operator);

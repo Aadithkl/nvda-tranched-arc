@@ -22,7 +22,7 @@ const arcTestnet = defineChain({
 
 const contracts = {
   usdc: process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000",
-  eurc: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  nvda: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
   poolManager: process.env.V4_POOL_MANAGER || "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
   demoRouter: process.env.DEMO_ROUTER || "0xC76fd7Ee062C5E498a0E2be6CcB7c2aD2dF0d062",
   positionManager: process.env.POSITION_MANAGER || "0x7Cdfa5f9369c3869c63B0fF0Ca89165Ae2B2b111",
@@ -94,7 +94,7 @@ function sortedKey(a, b, fee, tickSpacing, hooks) {
 }
 
 const mockPoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, zero);
-const eurcPoolKey = sortedKey(contracts.usdc, contracts.eurc, 100, 1, zero);
+const nvdaPoolKey = sortedKey(contracts.usdc, contracts.nvda, 100, 1, zero);
 const smokePoolKey = sortedKey(contracts.mockUsdc, contracts.mockNvda, 3000, 60, contracts.smokeHook);
 
 const oracleAbi = parseAbi([
@@ -221,13 +221,13 @@ const manifest = {
   stack,
   tokens: {
     USDC: { address: contracts.usdc, decimals: 6 },
-    EURC: { address: contracts.eurc, decimals: 6 },
+    EURC: { address: contracts.nvda, decimals: 6 },
     mockUSDC: { address: contracts.mockUsdc, decimals: 6 },
     mockNVDA: { address: contracts.mockNvda, decimals: 18 },
     mockWETH9: { address: contracts.mockWeth9, decimals: 18 },
   },
   pools: {
-    usdcEurc: { ...(await poolState(eurcPoolKey)), priceUsdPerEurc: 1.1617, note: "real USDC/EURC FX pool, fee 0.01%, tickSpacing 1" },
+    usdcEurc: { ...(await poolState(nvdaPoolKey)), priceUsdPerEurc: 1.1617, note: "real USDC/EURC FX pool, fee 0.01%, tickSpacing 1" },
     mockNvdaUsdc: { ...(await poolState(mockPoolKey)), note: "demo pool, no hook" },
     smokeHookPool: { ...(await poolState(smokePoolKey)), note: "hook callback proof pool (test-only hook)" },
   },
@@ -247,7 +247,7 @@ const manifest = {
     model: "Aave V2 semi-fork (independent implementation) — supply/withdraw, variable borrow/repay, no liquidations",
     markets: [
       { symbol: "USDC", underlying: contracts.usdc, decimals: 6, aToken: contracts.aUsdc, variableDebtToken: contracts.dUsdc, peggedPriceUsd8: 100000000 },
-      { symbol: "EURC", underlying: contracts.eurc, decimals: 6, aToken: contracts.aEurc, variableDebtToken: contracts.dEurc, peggedPriceUsd8: 116170000 },
+      { symbol: "EURC", underlying: contracts.nvda, decimals: 6, aToken: contracts.aEurc, variableDebtToken: contracts.dEurc, peggedPriceUsd8: 116170000 },
     ],
     note: "Rest state for the tranche hook; see docs/LENDING.md",
   },

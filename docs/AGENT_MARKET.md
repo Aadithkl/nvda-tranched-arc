@@ -99,19 +99,29 @@ Live-verified `2026-09-12`: 58 models across 10 tiers; no `gpt-5.5-luna` — the
 
 ```bash
 npm run market                 # refresh the snapshot the model reads
+npm run agent:refresh          # paid verdict only if older than AGENT_LLM_REFRESH_SECONDS (6h)
 npm run ai:reason              # default openai/gpt-4o-mini, cap $0.02
 npm run ai:reason -- --model anthropic/claude-haiku-4.5 --max-tokens 700
 npm run ai:reason -- --dry-run # prompt preview, no payment
 ```
 
-- Output: `agent/.cache/reasoning.json` — `{ model, usage, payment, content, reasoning }` where
-  `reasoning` is the parsed JSON verdict `{decision, confidence, recommendedBucketTicks,
-  recommendedMaxDeployUsdc, rationale, risks}`.
+- Output: `agent/.cache/reasoning.json` — `{ model, usage, payment, snapshotHash, content, reasoning }`
+  where `reasoning` is the parsed JSON verdict `{decision, confidence, paramOverrides, auditOverrides,
+  rebalance, rationale, risks}` and `snapshotHash = sha256(compactMarket(market))`. The daemon only
+  trusts it while the hash matches the market cache it is acting on.
+- **Manager cadence:** `agent/refresh.mjs` runs the paid call only when the verdict is older than
+  `AGENT_LLM_REFRESH_SECONDS` (6h). Audit overrides stay usable for `AGENT_REASONING_MAX_AGE_SECONDS`
+  (12h); rebalance calls for `AGENT_REBALANCE_MAX_AGE_SECONDS` (6h).
 - **Funding:** agent402 accepts USDC on Base, Polygon, Arbitrum, Monad, Avalanche, Sei, Optimism,
   Celo, Robinhood chain, Solana, Stellar, Algorand. Circle Gateway batching is **not** available for
   this seller (`--gateway-check` returns unsupported), so the payer wallet must hold USDC on one of
   those chains (Base costs $0.001/call).
-- The deterministic agent loop stays authoritative; the paid model output is advisory and logged.
+- **Authority:** `paramOverrides` may set any hook param (JIT range/size, dynamic fees, deviation band,
+  TTL, quoting on/off) within `PARAM_CLAMPS` ∩ controller bounds; `auditOverrides` may steer the
+  economic-audit thresholds within `AUDIT_CLAMPS` (bounded both ways); `rebalance` picks buy/sell/hold
+  and size within the hard rails (oracle, escrow, 75% equity cap, min/max USD). See `agent/README.md`.
+- The deterministic agent loop stays authoritative over the hard gates: per-swap onchain checks and the
+  per-tick `economicAudit` run unchanged while the model is stale, missing, or wrong.
 
 ## Latest live snapshot (2026-09-12)
 
@@ -133,3 +143,22 @@ Aggregate σ14d ≈ 34.0 bps/h (≈ 32% annualized), reference fee 30 bps. `pLos
   capital efficiency; this makes the sweep conservative.
 - Realized validation (backtest vs `JitDeployment.seed` → `JitRemoval.claim0/1`) lands once the
   JIT-enabled hook is live on Arc.
+
+## Economic audit gate
+
+`economicAudit` in `agent/model.mjs` turns the market model into a hard go/no-go checklist the daemon
+runs every tick before submitting params. It decomposes yield into exogenous (Aave base) and endogenous
+(JIT fees), applies IL + swap costs, and checks the first-loss structure:
+
+- disable quoting when the oracle is invalid, the senior escrow is unfunded, or the junior buffer is
+  below 5% of the senior claim;
+- hold when net edge after IL/swap costs is not positive, p(IL > fees) > 0.35, or VaR95 is worse than
+  −500 bps (1h);
+- cap `maxDeployPerSwap` at 50% of the junior claim.
+
+Thresholds are env-tunable (`AGENT_AUDIT_*`, see `agent/README.md`) and the fresh LLM verdict may
+override them within hard clamps (`AUDIT_CLAMPS` in `agent/model.mjs`): the model can tighten or loosen
+each field inside its bounds, but the structural checks (oracle validity, escrow funding) and the
+onchain per-swap gates are never overridable. The same checklist is embedded in the x402/LLM system
+prompt (`agent/ai-prompt.mjs`) together with the current effective thresholds from
+`agent/.cache/policy.json`.

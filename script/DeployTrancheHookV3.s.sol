@@ -35,7 +35,7 @@ contract DeployTrancheHookV3 is Script {
 
         int24 tickSpacing = int24(vm.envOr("V3_TICK_SPACING", int256(60)));
         int24 initialTick = int24(vm.envInt("V3_INITIAL_TICK"));
-        uint16 hardCapBps = uint16(vm.envOr("V3_HARD_CAP_BPS", uint256(8_000)));
+        uint16 hardCapBps = uint16(vm.envOr("V3_HARD_CAP_BPS", uint256(7_500)));
 
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
 

@@ -67,12 +67,12 @@ export function buildApproveAndSwapCalls(address: Address, amountUsdc = "1"): { 
   ];
 }
 
-export async function readBalances(wallet: Wallet): Promise<{ usdc: bigint; eurc: bigint }> {
-  const [usdc, eurc] = await Promise.all([
+export async function readBalances(wallet: Wallet): Promise<{ usdc: bigint; nvda: bigint }> {
+  const [usdc, nvda] = await Promise.all([
     wallet.client.readContract({ address: ADDRESSES.usdc, abi: erc20Abi, functionName: "balanceOf", args: [wallet.address] }),
-    wallet.client.readContract({ address: ADDRESSES.eurc, abi: erc20Abi, functionName: "balanceOf", args: [wallet.address] }),
+    wallet.client.readContract({ address: ADDRESSES.nvda, abi: erc20Abi, functionName: "balanceOf", args: [wallet.address] }),
   ]);
-  return { usdc: usdc as bigint, eurc: eurc as bigint };
+  return { usdc: usdc as bigint, nvda: nvda as bigint };
 }
 
 export function formatUsdc(amount: bigint): string {
