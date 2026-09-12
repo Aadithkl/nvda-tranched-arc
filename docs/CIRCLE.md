@@ -39,7 +39,11 @@ circle gateway balance --address 0x... --chain BASE --all
 Then set `AGENT_CIRCLE_WALLET` in `.env` to the Base agent wallet address and fund it
 (~$1–2 USDC) with `circle wallet fund --address 0x... --chain BASE --amount 2 --method crypto`.
 
-## Agent Marketplace reasoning (the paid AI step)
+## Agent Marketplace reasoning (the paid AI step) — working end-to-end
+
+Agent wallets (one EVM address per Circle account, same address across EVM chains):
+- Base mainnet: `0x974f9aa0fca4870baff480727ee0e684b3dbe4f2`
+- Arc testnet: `0xbba61cef4a53467929161c1c9eac8ee554b4a05d` (faucet-funded 20 USDC)
 
 ```bash
 npm run market            # refresh the Graph-derived snapshot
@@ -48,13 +52,25 @@ npm run circle:inspect    # show the 402 challenge of the chosen service
 npm run circle:reason     # pay per call with the agent wallet, store the verdict
 ```
 
-- Default service: **AIsa API** (`https://api.aisa.one/v2/chat/completions`), OpenAI-compatible,
-  ~90 models, token-metered from **$0.003/call**, `supportsCircleGateway: true` (Base/Ethereum/Arbitrum/
-  Optimism/Polygon/Avalanche/Unichain, all mainnet).
-- Default model: `claude-haiku-4-5-20251001` (configurable via `--model` / `AGENT_AI_MODEL`).
-- Output: `agent/.cache/reasoning.json` — verdict JSON + `snapshotHash`, payer, usage, service.
-- Fallback: Arc-native seller (`scripts/x402-seller.mjs` + `scripts/x402-ai.mjs --gateway-check`) or the
-  deterministic model — the onchain decision stays bounded either way.
+- Default service: **BlockRun.AI** (`https://nano.blockrun.ai/api/v1/chat/completions`), $0.003/call,
+  payable via **Circle Gateway on Polygon**; CLI `--chain MATIC`.
+- Funding path: Base USDC → Gateway via eco deposit (no gas):
+  `circle gateway deposit --amount 0.5 --address 0x974f... --chain BASE --method eco`
+  (destination is always Polygon; pay with `--chain MATIC`). Arc testnet uses
+  `--method direct` (onchain, gas in native USDC).
+- Verified run: `decision="reduce"`, `confidence=0.7`, `recommendedBucketTicks=488`,
+  `recommendedMaxDeployUsdc=9600`, saved with `snapshotHash` to `agent/.cache/reasoning.json`.
+- AIsa (`api.aisa.one`, 90 models) is listed but its server enforces exact requirement equality
+  (`maxTimeoutSeconds 604900`) while the Circle CLI signs `2592000` → `payment_requirements_mismatch`
+  (no funds moved). Workaround: pay via `@circle-fin/x402-batching` `GatewayClient` once a Gateway
+  balance is held by a local (non-custodial) key — needs mainnet gas for the deposit.
+- Arc-native nanopayment verified: the testnet agent wallet paid our own x402 seller $0.001 on Arc
+  (`circle services pay http://127.0.0.1:4021/api/nvda --address 0xbba6... --chain ARC-TESTNET`),
+  seller logged `[settled]`.
+
+Transfers from the agent wallet need the ERC-20 explicitly:
+`circle wallet transfer 0xTO --amount 0.05 --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --address 0x974f... --chain BASE`
+(omitting `--token` targets the native balance and fails with insufficient funds).
 
 ## App Kits vs our pool (quote comparison)
 
