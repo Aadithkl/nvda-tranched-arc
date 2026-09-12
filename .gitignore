@@ -11,6 +11,7 @@ broadcast/**/dry-run/
 # Node
 node_modules/
 agent/.cache/
+frontend/dist/
 
 # OS
 .DS_Store
