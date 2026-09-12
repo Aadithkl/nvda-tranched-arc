@@ -1,6 +1,8 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { createPublicClient, createWalletClient, defineChain, http, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { compactMarket } from "./ai-prompt.mjs";
 
 function loadEnv(file = ".env") {
   if (!fs.existsSync(file)) return;
@@ -69,6 +71,7 @@ const intervalSeconds = Number(value("--interval", process.env.AGENT_CADENCE_SEC
 const ttlTarget = Number(process.env.PARAMS_TTL_SECONDS || "3600");
 const marketCachePath = process.env.AGENT_MARKET_CACHE || "agent/.cache/market.json";
 const marketTtlSeconds = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
+const reasoningCachePath = "agent/.cache/reasoning.json";
 
 function loadMarket() {
   try {
@@ -76,6 +79,24 @@ function loadMarket() {
     const ageMs = Date.now() - Date.parse(cached.generatedAt);
     if (!Number.isFinite(ageMs)) return null;
     return { ...cached, ageSeconds: Math.round(ageMs / 1000), stale: ageMs > marketTtlSeconds * 1000 * 4 };
+  } catch {
+    return null;
+  }
+}
+
+// Circle Agent Marketplace verdict (BlockRun.AI paid via Gateway). Only trusted when the
+// snapshot hash matches the market cache the agent is acting on.
+function loadReasoning(market) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(reasoningCachePath, "utf8"));
+    const ageMs = Date.now() - Date.parse(raw.generatedAt);
+    if (!Number.isFinite(ageMs) || ageMs > marketTtlSeconds * 1000 * 4) return null;
+    let staleHash = false;
+    if (raw.snapshotHash && market) {
+      const hash = `0x${crypto.createHash("sha256").update(JSON.stringify(compactMarket(market))).digest("hex")}`;
+      staleHash = raw.snapshotHash !== hash;
+    }
+    return { ...raw, staleHash, ageSeconds: Math.round(ageMs / 1000) };
   } catch {
     return null;
   }
@@ -166,6 +187,8 @@ async function perceive() {
     risk = { juniorClaim, escrowFunded };
   }
 
+  const market = loadMarket();
+
   return {
     oracleMid: Number(oracle.mid) / 1e8,
     oracleValid: oracle.valid,
@@ -176,7 +199,8 @@ async function perceive() {
     maxDeploy,
     accountant,
     risk,
-    market: loadMarket(),
+    market,
+    reasoning: loadReasoning(market),
   };
 }
 
@@ -197,6 +221,31 @@ function marketOverlay(decision, market) {
   return { regime: `${decision.regime}+${suffix}`, params };
 }
 
+// Full override within bounds: the Circle-paid AI verdict may adjust bucketTicks and size (never
+// above the controller bound of 100k), and can only be trusted when its snapshot hash matches.
+function aiOverlay(decision, reasoning) {
+  const ai = reasoning && !reasoning.staleHash ? reasoning.reasoning : null;
+  if (!ai || !ai.decision) return decision;
+  const params = { ...decision.params };
+  const deterministicUsdc = Number(params.maxDeployPerSwap) / 1_000_000;
+
+  const bucket = Number(ai.recommendedBucketTicks);
+  if (Number.isFinite(bucket) && bucket >= 1) {
+    params.bucketTicks = Math.max(1, Math.min(5_000, Math.round(bucket)));
+  }
+
+  const aiUsdc = Number(ai.recommendedMaxDeployUsdc);
+  if (Number.isFinite(aiUsdc) && aiUsdc >= 0) {
+    let target = Math.min(100_000, aiUsdc);
+    if (ai.decision === "reduce") target = Math.min(target, deterministicUsdc);
+    if (ai.decision === "hold") target = deterministicUsdc;
+    params.maxDeployPerSwap = BigInt(Math.round(target)) * 1_000_000n;
+  }
+  if (ai.decision === "disable") params.quotingEnabled = false;
+
+  return { regime: `${decision.regime}+ai-${ai.decision}`, params };
+}
+
 function reason(state) {
   if (!state.oracleValid || state.marketStatus === 0 || state.marketStatus === 5) {
     return { regime: "closed", params: { ...REGIMES.turbulent, quotingEnabled: false } };
@@ -213,7 +262,7 @@ function reason(state) {
       `[agent] market cache is stale (${state.market.ageSeconds}s) - using it with low confidence`,
     );
   }
-  return marketOverlay(decision, state.market);
+  return aiOverlay(marketOverlay(decision, state.market), state.reasoning);
 }
 
 function sameParams(a, b) {
@@ -237,11 +286,13 @@ async function act(state) {
   const decision = reason(state);
   const upToDate = sameParams(state.params, decision.params);
   const market = state.market?.aggregate;
+  const ai = state.reasoning && !state.reasoning.staleHash ? state.reasoning.reasoning : null;
   console.log(
     `[agent] regime=${decision.regime} devBps=${state.deviationBps} quoteState=${state.quoteState} ` +
       `oracle=${state.oracleMid} valid=${state.oracleValid} funded=${state.risk.escrowFunded} ` +
       `juniorClaim=${state.risk.juniorClaim} deploy=${state.maxDeploy} changed=${!upToDate} ` +
-      `market=${market ? `${market.worthLp ? "lp" : "no-lp"}:${market.bestBandBps ?? "-"}bps:edge=${market.suggestedMaxDeployUsdc}$` : "n/a"}`,
+      `market=${market ? `${market.worthLp ? "lp" : "no-lp"}:${market.bestBandBps ?? "-"}bps:edge=${market.suggestedMaxDeployUsdc}$` : "n/a"} ` +
+      `ai=${ai ? `${ai.decision}:${ai.confidence}:${state.reasoning.model ?? "-"}` : state.reasoning?.staleHash ? "stale-hash" : "n/a"}`,
   );
 
   if (upToDate) {

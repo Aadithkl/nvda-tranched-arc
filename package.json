@@ -25,6 +25,7 @@
     "circle:discover": "node scripts/agent-market.mjs --search llm",
     "circle:inspect": "node scripts/agent-market.mjs --inspect",
     "circle:reason": "node scripts/agent-market.mjs",
+    "circle:stock": "node scripts/circle-stock.mjs",
     "test:agent": "node --test agent/test/model.test.mjs",
     "export:pack": "node scripts/export-frontend-pack.mjs",
     "graph:query": "node scripts/graph-query.mjs"

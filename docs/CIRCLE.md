@@ -2,6 +2,27 @@
 
 Everything below is used *because it does a job in the product*, not for coverage.
 
+**Payment rail policy:** every paid call in the product settles through **Circle Gateway batched
+settlement (nanopayments)**. Raw x402 paths are legacy (`x402-ai.mjs`, `x402-price.mjs --legacy-x402`)
+and are not used in production flows.
+
+## Tranche stack deployment (Arc testnet, 2026-09-12)
+
+| Contract | Address |
+|---|---|
+| TrancheJITHook (v2, JIT + security fixes) | `0xB229976cB5F64C6f747033c26217299AeCD42Ac0` |
+| HookShareToken (ERC-7575) | `0x917386b70E03cdC2026B612fd1388d9DfC349C96` |
+| TrancheAccountant | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
+| SeniorVault (ERC-7540) | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` |
+| JuniorVault (ERC-7540) | `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
+| PoolId (USDC/EURC, dynamic fee, JIT) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
+
+Deployed in two steps to avoid a solc pragma clash between v4-core (0.8.26) and ERC-7540 (^0.8.27):
+`forge script script/DeployTrancheHookV2.s.sol` then `script/DeployTrancheStack.s.sol` with
+`HOOK_ADDRESS` set. Wiring verified onchain (accountant/senior/junior/controller/share/JIT flag).
+Manifest: `deployments/arc-testnet.json` → `stack`.
+
+
 ## What is integrated
 
 | Circle product | Where | Status |

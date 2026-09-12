@@ -15,7 +15,7 @@ import {
   stringToHex,
 } from "viem";
 
-const DEFAULT_STOCK_URL = "https://agent402.tools/api/stock-quote?symbol=NVDA";
+const DEFAULT_STOCK_URL = "http://127.0.0.1:4021/api/nvda"; // our Circle Gateway seller (Arc testnet)
 const DEFAULT_MAX_PAYMENT_USDC = "0.01";
 
 const arcTestnet = defineChain({
@@ -208,7 +208,7 @@ async function main() {
   const url = process.env.X402_STOCK_URL ?? DEFAULT_STOCK_URL;
   const maxPaymentUsdc = process.env.X402_MAX_PAYMENT_USDC ?? DEFAULT_MAX_PAYMENT_USDC;
   const payerKey = process.env.X402_PAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
-  const useGateway = Boolean(arg("--gateway", false)) || process.env.X402_USE_GATEWAY === "1";
+  const useGateway = !(Boolean(arg("--legacy-x402", false)) || process.env.X402_USE_GATEWAY === "0");
   const save = Boolean(arg("--save", false));
   const push = Boolean(arg("--push", false));
 
@@ -286,10 +286,13 @@ async function main() {
         }
       }
     } catch (error) {
-      console.error(`gateway payment failed (${error.message}); falling back to standard x402`);
+      throw new Error(`Circle Gateway payment failed: ${error.message} (raw x402 is legacy; pass --legacy-x402)`);
     }
   }
 
+  if (useGateway) {
+    throw new Error("Circle Gateway response missing price; raw x402 is legacy (--legacy-x402)");
+  }
   response = await fetchWithStandardX402(url, payerKey, maxPaymentUsdc);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
