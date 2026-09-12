@@ -13,7 +13,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
-| M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
+| M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | in progress — base, dynamic fee, toxic-flow pricing, TTL state machine, Aave rest + share pipe (28 tests); JIT engine next |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vault structure (`src/vaults/`, 28 tests) landed; accountant + share token next |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
@@ -73,6 +73,8 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 - `Uniswap/v4-core` — `59d3ecf53afa9264a16bba0e38f4c5d2231f80bc` (BUSL-1.1, change date 2027-06-15; testnet/dev use — see `LICENSES.md`)
 - `Uniswap/v4-periphery` — commit `dce236d4e2057422d0791d9a973a58765eb46f65` (MIT)
+- `OpenZeppelin/uniswap-hooks` — `2ae32be4906d300fc49b4384842ef6bc3e902d73` (MIT; hook base + fee modules)
+- `OpenZeppelin/openzeppelin-community-contracts` — `92f252851c41449bd8417a6ebdcc8db95c8f66c9` (MIT; ERC-7540 base)
 - `OpenZeppelin/openzeppelin-contracts` — `v5.7.0` (MIT)
 - `foundry-rs/forge-std` (MIT)
 - Build note: `via_ir = true`, global `optimizer_runs = 200`, `bytecode_hash = "none"` so the periphery fits under EIP-170.
@@ -81,6 +83,8 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 - `LICENSES.md` — dependency license audit
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
+- `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
+- `docs/PRIOR_ART.md` — landscape (OZ/DualPool/EulerSwap), what we borrow vs what is ours
 - `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps
 - `docs/VAULT_HOOK_MASTER_PLAN.md` — locked master plan: tranche → rules → hook → agent (P1–P8)
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks

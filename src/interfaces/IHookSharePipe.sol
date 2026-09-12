@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.26;
 
 interface IHookSharePipe {
     function wrapUSDC(uint256 usdcAmount, address receiver) external returns (uint256 shares);
