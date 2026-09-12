@@ -9,7 +9,7 @@ import { Currency } from "v4-core/src/types/Currency.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { DemoRouter } from "../src/router/DemoRouter.sol";
-import { MockToken } from "../src/test-only/MockToken.sol";
+import { TestToken } from "../src/test-only/TestToken.sol";
 
 contract DeployV4Fork is Script {
     uint256 internal constant LIQUIDITY = 1e12;
@@ -17,8 +17,8 @@ contract DeployV4Fork is Script {
     struct Deployment {
         PoolManager manager;
         DemoRouter router;
-        MockToken mockUsdc;
-        MockToken mockNvda;
+        TestToken mUsdc;
+        TestToken mNvda;
     }
 
     function run() external {
@@ -32,30 +32,29 @@ contract DeployV4Fork is Script {
 
         console2.log("PoolManager:", address(deployment.manager));
         console2.log("DemoRouter:", address(deployment.router));
-        console2.log("MockUSDC:", address(deployment.mockUsdc));
-        console2.log("MockNVDA:", address(deployment.mockNvda));
+        console2.log("mUSDC:", address(deployment.mUsdc));
+        console2.log("mNVDA:", address(deployment.mNvda));
         console2.log("usdcIsToken0:", usdcIsToken0);
     }
 
     function _deploy(address deployer) internal returns (Deployment memory deployment) {
         deployment.manager = new PoolManager(deployer);
         deployment.router = new DemoRouter(IPoolManager(address(deployment.manager)));
-        deployment.mockUsdc = new MockToken("Mock USD Coin", "mUSDC", 6);
-        deployment.mockNvda = new MockToken("Mock NVIDIA", "mNVDA", 18);
+        deployment.mUsdc = new TestToken("USD Coin (test)", "mUSDC", 6);
+        deployment.mNvda = new TestToken("NVIDIA (test)", "mNVDA", 18);
 
-        deployment.mockUsdc.mint(deployer, 1_000_000e6);
-        deployment.mockNvda.mint(deployer, 10_000e18);
-        deployment.mockUsdc.approve(address(deployment.router), type(uint256).max);
-        deployment.mockNvda.approve(address(deployment.router), type(uint256).max);
+        deployment.mUsdc.mint(deployer, 1_000_000e6);
+        deployment.mNvda.mint(deployer, 10_000e18);
+        deployment.mUsdc.approve(address(deployment.router), type(uint256).max);
+        deployment.mNvda.approve(address(deployment.router), type(uint256).max);
     }
 
     function _seed(Deployment memory deployment, address deployer) internal returns (bool usdcIsToken0) {
-        address token0 = address(deployment.mockUsdc) < address(deployment.mockNvda)
-            ? address(deployment.mockUsdc)
-            : address(deployment.mockNvda);
-        address token1 =
-            token0 == address(deployment.mockUsdc) ? address(deployment.mockNvda) : address(deployment.mockUsdc);
-        usdcIsToken0 = token0 == address(deployment.mockUsdc);
+        address token0 = address(deployment.mUsdc) < address(deployment.mNvda)
+            ? address(deployment.mUsdc)
+            : address(deployment.mNvda);
+        address token1 = token0 == address(deployment.mUsdc) ? address(deployment.mNvda) : address(deployment.mUsdc);
+        usdcIsToken0 = token0 == address(deployment.mUsdc);
 
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(token0),

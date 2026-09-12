@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-contract MockWETH9 {
-    string public name = "Wrapped Native (mock)";
+contract TestWETH9 {
+    string public name = "Wrapped Native (test)";
     string public symbol = "WmNATIVE";
     uint8 public decimals = 18;
 

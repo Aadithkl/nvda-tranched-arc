@@ -14,6 +14,8 @@ interface ITrancheAccountant {
 
     function escrowFunded() external view returns (bool);
 
+    function seniorGuaranteeUsdc() external view returns (uint256);
+
     function onTrancheDeposit(bool senior, uint256 hookShares) external;
 
     function onTrancheRedeem(bool senior, uint256 hookShares) external;

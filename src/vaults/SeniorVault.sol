@@ -6,7 +6,15 @@ import { IHookSharePipe } from "../interfaces/IHookSharePipe.sol";
 import { TrancheVault } from "./TrancheVault.sol";
 
 contract SeniorVault is TrancheVault {
-    constructor(IERC20 asset_, IERC20 usdc_, IHookSharePipe pipe_, address owner_, address accountant_)
-        TrancheVault("Senior NVDA Tranche", "srNVDA", asset_, usdc_, pipe_, true, owner_, accountant_)
+    constructor(
+        IERC20 asset_,
+        IERC20 usdc_,
+        IERC20 equity_,
+        IHookSharePipe pipe_,
+        address owner_,
+        address accountant_,
+        uint64 expiry_
+    )
+        TrancheVault("Senior NVDA Tranche", "srNVDA", asset_, usdc_, equity_, pipe_, true, owner_, accountant_, expiry_)
     { }
 }

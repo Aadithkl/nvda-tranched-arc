@@ -11,7 +11,7 @@ import { Hooks } from "v4-core/src/libraries/Hooks.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { DemoRouter } from "../src/router/DemoRouter.sol";
-import { MockToken } from "../src/test-only/MockToken.sol";
+import { TestToken } from "../src/test-only/TestToken.sol";
 import { SmokeHook } from "../src/test-only/SmokeHook.sol";
 
 contract DeploySmokeHook is Script {
@@ -24,8 +24,10 @@ contract DeploySmokeHook is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
         address routerAddress = vm.envAddress("DEMO_ROUTER");
-        address usdcAddress = vm.envAddress("MOCK_USDC");
-        address nvdaAddress = vm.envAddress("MOCK_NVDA");
+        address usdcAddress = vm.envOr("TEST_USDC", address(0));
+        if (usdcAddress == address(0)) usdcAddress = vm.envAddress("MOCK_USDC");
+        address nvdaAddress = vm.envOr("TEST_NVDA", address(0));
+        if (nvdaAddress == address(0)) nvdaAddress = vm.envAddress("MOCK_NVDA");
 
         uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);
         bytes memory constructorArgs = abi.encode(IPoolManager(poolManager));
@@ -39,8 +41,8 @@ contract DeploySmokeHook is Script {
         require(hook == expectedHook, "hook address mismatch");
 
         DemoRouter router = DemoRouter(routerAddress);
-        MockToken usdc = MockToken(usdcAddress);
-        MockToken nvda = MockToken(nvdaAddress);
+        TestToken usdc = TestToken(usdcAddress);
+        TestToken nvda = TestToken(nvdaAddress);
         usdc.approve(address(router), type(uint256).max);
         nvda.approve(address(router), type(uint256).max);
 

@@ -19,6 +19,10 @@ import { IAToken } from "../lending/interfaces/IAToken.sol";
 import { TrancheJITHook } from "../hook/TrancheJITHook.sol";
 import { HookShareToken } from "../core/HookShareToken.sol";
 
+interface IMaturedVault {
+    function creditSettlement(uint256 usdcAmount, uint256 equityAmount) external;
+}
+
 interface IDemoRouter {
     function swapExactIn(
         PoolKey calldata key,
@@ -56,6 +60,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     uint16 public maxRebalanceSlippageBps = 100;
     address public rebalanceRouter;
     bool public rebalanceVenueSet;
+    bool public settled;
     PoolKey private _rebalanceKey;
 
     event ControllerUpdated(address indexed controller);
@@ -70,6 +75,14 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
         address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount, uint256 equityAmount
     );
     event Rebalanced(bool indexed equityOut, uint256 amountIn, uint256 amountOut, uint256 equityBpsAfter);
+    event SettlementSwapped(uint256 equityIn, uint256 usdcOut);
+    event SettlementFinalized(
+        uint256 seniorHookShares,
+        uint256 juniorHookShares,
+        uint256 usdcToSenior,
+        uint256 usdcToJunior,
+        uint256 equityToJunior
+    );
 
     error NotController(address caller);
     error ZeroAddress();
@@ -86,6 +99,12 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     error InvalidHardCap(uint16 hardMaxEquityBps);
     error InvalidSlippageBps(uint16 maxRebalanceSlippageBps);
     error EquityCapExceeded(uint256 equityBps, uint256 hardMaxEquityBps);
+    error TradingClosed();
+    error NotExpired();
+    error AlreadySettled();
+    error SettlementNotReady();
+    error AccountantUnset();
+    error VaultsUnset();
 
     modifier onlyController() {
         if (msg.sender != controller) revert NotController(msg.sender);
@@ -152,6 +171,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
     }
 
     function wrapUSDC(uint256 usdcAmount, address receiver) external nonReentrant returns (uint256 shares) {
+        if (hook.expired()) revert TradingClosed();
         if (usdcAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
@@ -227,6 +247,7 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
         onlyController
         nonReentrant
     {
+        if (hook.expired()) revert TradingClosed();
         if (block.timestamp > deadline) revert DeadlineExpired();
         if (!rebalanceVenueSet) revert RebalanceVenueUnset();
         if (amountIn == 0) revert ZeroAmount();
@@ -260,6 +281,91 @@ contract TranchePipeModule is IHookSharePipe, Ownable2Step, ReentrancyGuard {
             revert EquityCapExceeded(equityBpsAfter, hardMaxEquityBps);
         }
         emit Rebalanced(equityOut, amountIn, amountOut, equityBpsAfter);
+    }
+
+    /// @notice Post-expiry settlement swap: sells equity inventory for USDC so the senior
+    ///         guarantee can be paid. Permissionless; oracle-bounded like rebalancing, but only
+    ///         equity -> USDC (speculative buys stay blocked).
+    function settleSwap(uint256 equityIn, uint256 minUsdcOut, uint256 deadline) external nonReentrant {
+        if (!hook.expired()) revert NotExpired();
+        if (settled) revert AlreadySettled();
+        if (!rebalanceVenueSet) revert RebalanceVenueUnset();
+        if (block.timestamp > deadline) revert DeadlineExpired();
+        if (equityIn == 0) revert ZeroAmount();
+
+        uint256 mid = _requireOracle();
+        uint256 oracleOut = _equityUnitsToUsdc(equityIn, mid);
+        uint256 floor = Math.mulDiv(oracleOut, BPS - maxRebalanceSlippageBps, BPS);
+        if (minUsdcOut < floor) revert SlippageBoundUnmet(minUsdcOut, floor);
+
+        hook.modulePull(equity, address(this), equityIn);
+
+        uint256 before = usdc.balanceOf(address(this));
+        PoolKey memory venueKey = _rebalanceKey;
+        bool zeroForOne = Currency.unwrap(venueKey.currency0) == address(equity);
+        equity.forceApprove(rebalanceRouter, equityIn);
+        IDemoRouter(rebalanceRouter).swapExactIn(venueKey, zeroForOne, equityIn, minUsdcOut, address(this), deadline);
+        equity.forceApprove(rebalanceRouter, 0);
+        uint256 amountOut = usdc.balanceOf(address(this)) - before;
+        usdc.safeTransfer(address(hook), amountOut);
+        hook.moduleSupplyIdle();
+        emit SettlementSwapped(equityIn, amountOut);
+    }
+
+    /// @notice One-shot settlement. Burns both vaults' hook shares, hands senior its USDC
+    ///         guarantee first, then the remaining USDC plus all equity to junior, and freezes
+    ///         each vault's terminal redemption rates. Permissionless once the senior guarantee
+    ///         is funded or the book is fully in kind.
+    function finalizeSettlement() external {
+        _finalize(false);
+    }
+
+    /// @notice Owner escape hatch for a pathological book (no venue / no liquidity): settles with
+    ///         a senior haircut, distributing all available USDC to senior first.
+    function finalizeSettlementHaircut() external onlyOwner {
+        _finalize(true);
+    }
+
+    function _finalize(bool allowHaircut) internal nonReentrant {
+        if (!hook.expired()) revert NotExpired();
+        if (settled) revert AlreadySettled();
+        address acct = hook.accountant();
+        if (acct == address(0)) revert AccountantUnset();
+        ITrancheAccountant accountant = ITrancheAccountant(acct);
+        address seniorVault = accountant.seniorVault();
+        address juniorVault = accountant.juniorVault();
+        if (seniorVault == address(0) || juniorVault == address(0)) revert VaultsUnset();
+
+        hook.unwindClaims();
+
+        HookShareToken share = hook.shareToken();
+        uint256 hSenior = share.balanceOf(seniorVault);
+        uint256 hJunior = share.balanceOf(juniorVault);
+
+        uint256 usdcUnits = usdc.balanceOf(address(hook)) + hook.aToken().balanceOf(address(hook));
+        uint256 equityUnits = equity.balanceOf(address(hook));
+        IAToken aTokenEquity = hook.aTokenEquity();
+        if (address(aTokenEquity) != address(0)) equityUnits += aTokenEquity.balanceOf(address(hook));
+
+        uint256 seniorGuarantee = accountant.seniorGuaranteeUsdc();
+        if (!allowHaircut && usdcUnits < seniorGuarantee && equityUnits != 0) revert SettlementNotReady();
+
+        uint256 usdcToSenior = usdcUnits < seniorGuarantee ? usdcUnits : seniorGuarantee;
+        uint256 usdcToJunior = usdcUnits - usdcToSenior;
+
+        settled = true;
+
+        hook.moduleBurn(seniorVault, hSenior);
+        hook.moduleBurn(juniorVault, hJunior);
+
+        if (usdcToSenior != 0) hook.modulePull(usdc, seniorVault, usdcToSenior);
+        if (usdcToJunior != 0) hook.modulePull(usdc, juniorVault, usdcToJunior);
+        if (equityUnits != 0) hook.modulePull(equity, juniorVault, equityUnits);
+
+        IMaturedVault(seniorVault).creditSettlement(usdcToSenior, 0);
+        IMaturedVault(juniorVault).creditSettlement(usdcToJunior, equityUnits);
+
+        emit SettlementFinalized(hSenior, hJunior, usdcToSenior, usdcToJunior, equityUnits);
     }
 
     function _composition(uint256 mid)

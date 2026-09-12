@@ -11,6 +11,8 @@ import { IHookSharePipe } from "../src/interfaces/IHookSharePipe.sol";
 
 interface IHookConfig {
     function shareToken() external view returns (address);
+    function equity() external view returns (address);
+    function expiry() external view returns (uint64);
     function setAccountant(address newAccountant) external;
     function setJitEnabled(bool enabled) external;
     function setLiquidityGuard(bool enabled) external;
@@ -30,15 +32,19 @@ contract DeployTrancheStack is Script {
 
         IHookConfig h = IHookConfig(hook);
         address share = h.shareToken();
+        address equity = h.equity();
+        uint64 expiry_ = h.expiry();
         address pipe = vm.envOr("PIPE_ADDRESS", hook);
 
         TrancheAccountant accountant = new TrancheAccountant(deployer);
         accountant.setKeeper(operator);
 
-        SeniorVault senior =
-            new SeniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(pipe), deployer, address(accountant));
-        JuniorVault junior =
-            new JuniorVault(IERC20(share), IERC20(usdc), IHookSharePipe(pipe), deployer, address(accountant));
+        SeniorVault senior = new SeniorVault(
+            IERC20(share), IERC20(usdc), IERC20(equity), IHookSharePipe(pipe), deployer, address(accountant), expiry_
+        );
+        JuniorVault junior = new JuniorVault(
+            IERC20(share), IERC20(usdc), IERC20(equity), IHookSharePipe(pipe), deployer, address(accountant), expiry_
+        );
 
         accountant.setHook(hook);
         accountant.setVaults(address(senior), address(junior));
@@ -58,5 +64,6 @@ contract DeployTrancheStack is Script {
         console2.log("JuniorVault:", address(junior));
         console2.log("StrategyController:", controllerAddr);
         console2.log("Keeper:", operator);
+        console2.log("Expiry:", expiry_);
     }
 }

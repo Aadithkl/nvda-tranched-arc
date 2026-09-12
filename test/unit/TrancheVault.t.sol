@@ -15,11 +15,11 @@ import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { TrancheVault } from "../../src/vaults/TrancheVault.sol";
 import { MockHookShare } from "../../src/test-only/MockHookShare.sol";
 import { MockRiskAccountant } from "../../src/test-only/MockRiskAccountant.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract TrancheVaultTest is Test {
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
     MockHookShare internal hs;
     SeniorVault internal senior;
     JuniorVault internal junior;
@@ -33,14 +33,26 @@ contract TrancheVaultTest is Test {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
         hs = new MockHookShare(IERC20(address(usdc)), makeAddr("hook"));
         senior = new SeniorVault(
-            IERC20(address(hs)), IERC20(address(usdc)), IHookSharePipe(address(hs)), address(this), accountant
+            IERC20(address(hs)),
+            IERC20(address(usdc)),
+            IERC20(address(nvda)),
+            IHookSharePipe(address(hs)),
+            address(this),
+            accountant,
+            0
         );
         junior = new JuniorVault(
-            IERC20(address(hs)), IERC20(address(usdc)), IHookSharePipe(address(hs)), address(this), accountant
+            IERC20(address(hs)),
+            IERC20(address(usdc)),
+            IERC20(address(nvda)),
+            IHookSharePipe(address(hs)),
+            address(this),
+            accountant,
+            0
         );
 
         usdc.mint(address(hs), 1_000_000e6);

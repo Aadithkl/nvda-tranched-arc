@@ -24,6 +24,7 @@ Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`af
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
 Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and LLM-proposed, rail-validated rebalancing (75% equity hard cap).
 Hardening (v3.1): bucket-exact JIT sizing from v4 amount-delta math (replacing the spot approximation, under EIP-170); deadline-enforced, `SafeERC20` rebalancing router; controller guardian pause + bounds validation; two-step oracle ownership with oracle-decimal scaling; locked-redemption accounting fix; invariant suite (`test/invariant/`, 174 tests total); agent-side economic audit gate (`agent/model.mjs`) with LLM manager: paid verdict every 6h owns params/audit thresholds/rebalances, deterministic clamps and per-swap onchain gates enforce the rails.
+Maturity (v3.2): one `EXPIRY_TIMESTAMP` per book (hook + both vaults). At expiry quoting/JIT and rebalancing stop, deposits close; permissionless settlement (`TranchePipeModule.settleSwap` / `finalizeSettlement`) converts equity to USDC only as needed, pays the senior guarantee first, hands the remainder (USDC + all equity) to junior, and freezes terminal per-share redemption rates — holders then burn srNVDA/jrNVDA via `redeemAtExpiry`.
 
 ## Architecture (target)
 

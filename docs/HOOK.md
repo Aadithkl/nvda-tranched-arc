@@ -112,6 +112,15 @@ The offchain LLM manager proposes `buy`/`sell`/`hold` plus size every few hours;
 `StrategyAgent.submitRebalance`; the chain only enforces bounds. Portfolio IL, inventory drift and JIT
 edge are computed as manager context, not as a deterministic trading policy.
 
+## Expiry (v3.2)
+
+`setExpiry(uint64)` (owner, one-shot, future-only) sets the book's maturity timestamp. Once
+`block.timestamp >= expiry`, `expired()` is true and `quoteState()` returns `Rest`, so
+`_beforeSwap` reverts (`QuotingOff`) and `effectiveMaxDeploy()` is 0 — JIT and trading stop and
+only settlement remains. Rebalancing through `TranchePipeModule.rebalanceSwap` likewise reverts
+(`TradingClosed`). Vaults carry the same timestamp (the stack deploy asserts equality) and close
+deposits at expiry.
+
 ## Next
 
 - M3/M4: escrow-targeting fee floor, EV-tracking buckets; M6: onchain vol estimator

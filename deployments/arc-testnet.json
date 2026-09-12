@@ -24,9 +24,9 @@
     "stateView": "0xb60F573748341F202818B09730d59333392b8CcC",
     "v4Quoter": "0x8f9ba259d70aF45c26Ef56A713Fb6F0159C4526B",
     "reservesLens": "0x8D98aa45020c81F4751271B70cecc6399659bCef",
-    "mockWeth9": "0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90",
-    "mockUsdc": "0x071E67900B728370969eFF988085CF3D84195E31",
-    "mockNvda": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
+    "testWeth9": "0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90",
+    "mUsdc": "0x071E67900B728370969eFF988085CF3D84195E31",
+    "mNvda": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
     "nvdAPriceOracle": "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
     "smokeHook": "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
     "lendingAddressesProvider": "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
@@ -66,22 +66,22 @@
       "address": "0x3600000000000000000000000000000000000000",
       "decimals": 6
     },
-    "mockUSDC": {
+    "mUSDC": {
       "address": "0x071E67900B728370969eFF988085CF3D84195E31",
       "decimals": 6
     },
-    "mockNVDA": {
+    "mNVDA": {
       "address": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
       "decimals": 18
     },
-    "mockWETH9": {
+    "testWETH9": {
       "address": "0x08Ac921E786a5e19eC5D053E4c4eabe3BE042f90",
       "decimals": 18
     }
   },
   "pools": {
     "usdcNvda": null,
-    "mockNvdaUsdc": {
+    "demoNvdaUsdc": {
       "poolId": "0xc112eb0d0370c9be9e5bfa00f67e6f88fef91d157b5e371515343438ed756810",
       "key": {
         "currency0": "0x071E67900B728370969eFF988085CF3D84195E31",
@@ -95,7 +95,7 @@
       "protocolFee": 0,
       "lpFee": 3000,
       "liquidity": "1000000000000",
-      "note": "demo pool, no hook"
+      "note": "demo pool (test tokens, no hook)"
     },
     "smokeHookPool": {
       "poolId": "0x092c224a431c94b955394fcdd56fcccae4970b2223fcbd9796737e631a023677",
@@ -198,8 +198,8 @@
     "docs/abis/StateView.json",
     "docs/abis/V4Quoter.json",
     "docs/abis/ReservesLens.json",
-    "docs/abis/MockToken.json",
-    "docs/abis/MockWETH9.json",
+    "docs/abis/TestToken.json",
+    "docs/abis/TestWETH9.json",
     "docs/abis/SmokeHook.json",
     "docs/abis/LendingPool.json",
     "docs/abis/LendingPoolConfigurator.json",

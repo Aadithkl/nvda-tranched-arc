@@ -13,7 +13,7 @@ import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { SwapParams } from "v4-core/src/types/PoolOperation.sol";
 import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { DemoRouter } from "../../src/router/DemoRouter.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 import { SmokeHook } from "../../src/test-only/SmokeHook.sol";
 
 contract SmokeHookTest is Test {
@@ -22,8 +22,8 @@ contract SmokeHookTest is Test {
     PoolManager internal manager;
     DemoRouter internal router;
     SmokeHook internal hook;
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
 
     PoolKey internal key;
     PoolId internal poolId;
@@ -35,8 +35,8 @@ contract SmokeHookTest is Test {
     function setUp() public {
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
         address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);

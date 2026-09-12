@@ -42,6 +42,7 @@ const arcTestnet = defineChain({
 const abi = parseAbi([
   "function params() view returns ((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks))",
   "function quoteState() view returns (uint8)",
+  "function expired() view returns (bool)",
   "function previewQuote(bool zeroForOne) view returns (uint24 fee, bool toxic, uint16 deviationBps, uint8 state)",
   "function effectiveMaxDeploy() view returns (uint256)",
   "function accountant() view returns (address)",
@@ -210,12 +211,13 @@ const REGIMES = {
 };
 
 async function perceive() {
-  const [oracle, params, state, maxDeploy, accountant] = await Promise.all([
+  const [oracle, params, state, maxDeploy, accountant, expired] = await Promise.all([
     publicClient.readContract({ address: config.oracle, abi: oracleAbi, functionName: "getPrice" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "params" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "quoteState" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "effectiveMaxDeploy" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "accountant" }),
+    publicClient.readContract({ address: config.hook, abi, functionName: "expired" }).catch(() => false),
   ]);
 
   let deviationBps = 0n;
@@ -289,6 +291,7 @@ async function perceive() {
   return {
     oracleMid: Number(oracle.mid) / 1e8,
     oracleValid: oracle.valid,
+    expired: Boolean(expired),
     marketStatus: Number(oracle.marketStatus),
     deviationBps: Number(deviationBps),
     quoteState: Number(state),
@@ -573,6 +576,10 @@ function writePolicyCache(state, decision, audit) {
 }
 
 async function act(state) {
+  if (state.expired) {
+    console.log("[agent] book expired: trading/JIT stopped, settlement only; no actions submitted");
+    return;
+  }
   const decision = reason(state);
   const audit = runAudit(state);
   if (audit.verdict === "disable") {

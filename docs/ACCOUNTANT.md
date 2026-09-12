@@ -39,6 +39,15 @@ JuniorVault ─┤ ────────────────────�
 - The hook reads `escrowFunded()` + `juniorClaim()` for its `effectiveMaxDeploy` risk budget — JIT stops
   automatically when the senior claim is not covered.
 
+## Maturity settlement (v3.2)
+
+At expiry `fulfillRedeem` becomes permissionless (anyone can move a pending request to claimable).
+The pipe's `finalizeSettlement()` unwinds claims, pays senior `seniorGuaranteeUsdc()` (principal +
+escrow, oracle-free) in USDC first, then hands the remaining USDC plus all equity to junior, burns
+each vault's hook shares and freezes the terminal per-share rates. `seniorGuaranteeUsdc()` is the
+settlement target; a haircut finalization (`finalizeSettlementHaircut`, owner) covers books where
+the USDC leg cannot be completed.
+
 ## Access
 
 | Role | Rights |

@@ -27,7 +27,7 @@ import { LendingPoolConfigurator } from "../../src/lending/LendingPoolConfigurat
 import { PeggedPriceOracle } from "../../src/lending/PeggedPriceOracle.sol";
 import { DefaultReserveInterestRateStrategy } from "../../src/lending/DefaultReserveInterestRateStrategy.sol";
 import { MockRiskAccountant } from "../../src/test-only/MockRiskAccountant.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract TrancheJITTest is Test {
     using PoolIdLibrary for PoolKey;
@@ -43,8 +43,8 @@ contract TrancheJITTest is Test {
 
     PoolManager internal manager;
     DemoRouter internal router;
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
     bool internal usdcIsToken0;
 
     NVDAPriceOracle internal priceOracle;
@@ -73,8 +73,8 @@ contract TrancheJITTest is Test {
 
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
         usdcIsToken0 = address(usdc) < address(nvda);
 
         _deployLending();

@@ -28,8 +28,9 @@ import { LendingPoolConfigurator } from "../../src/lending/LendingPoolConfigurat
 import { PeggedPriceOracle } from "../../src/lending/PeggedPriceOracle.sol";
 import { DefaultReserveInterestRateStrategy } from "../../src/lending/DefaultReserveInterestRateStrategy.sol";
 import { AToken } from "../../src/lending/AToken.sol";
+import { ITrancheAccountant } from "../../src/interfaces/ITrancheAccountant.sol";
 import { MockRiskAccountant } from "../../src/test-only/MockRiskAccountant.sol";
-import { MockToken } from "../../src/test-only/MockToken.sol";
+import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract TrancheJITHookTest is Test {
     using PoolIdLibrary for PoolKey;
@@ -40,8 +41,8 @@ contract TrancheJITHookTest is Test {
 
     PoolManager internal manager;
     DemoRouter internal router;
-    MockToken internal usdc;
-    MockToken internal nvda;
+    TestToken internal usdc;
+    TestToken internal nvda;
 
     NVDAPriceOracle internal nvdaOracle;
     LendingPoolAddressesProvider internal provider;
@@ -74,8 +75,8 @@ contract TrancheJITHookTest is Test {
 
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
-        usdc = new MockToken("USD Coin", "mUSDC", 6);
-        nvda = new MockToken("NVIDIA", "mNVDA", 18);
+        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        nvda = new TestToken("NVIDIA", "mNVDA", 18);
         usdcIsToken0 = address(usdc) < address(nvda);
 
         _deployLending();
@@ -947,5 +948,192 @@ contract TrancheJITHookTest is Test {
 
         b.maxDeployPerSwap = 100_000e6;
         controller.setBounds(b);
+    }
+
+    // ---------------------------------------------------------------- expiry / settlement
+
+    function test_expiry_setExpiry_rules() public {
+        vm.expectRevert(TrancheJITHook.ExpiryInPast.selector);
+        hook.setExpiry(uint64(block.timestamp));
+
+        uint64 ts = uint64(block.timestamp + 1 days);
+        hook.setExpiry(ts);
+        assertEq(hook.expiry(), ts);
+        assertFalse(hook.expired());
+
+        vm.expectRevert(TrancheJITHook.ExpiryAlreadySet.selector);
+        hook.setExpiry(uint64(block.timestamp + 2 days));
+    }
+
+    function test_expiry_stopsTradingAndJit() public {
+        uint64 ts = uint64(block.timestamp + 1 days);
+        hook.setExpiry(ts);
+        vm.warp(ts + 1);
+
+        assertTrue(hook.expired());
+        assertEq(uint8(hook.quoteState()), uint8(TrancheJITHook.QuoteState.Rest));
+        assertEq(hook.effectiveMaxDeploy(), 0);
+        vm.expectRevert(TrancheJITHook.QuotingOff.selector);
+        hook.previewQuote(true);
+
+        vm.expectRevert();
+        router.swapExactIn(key, true, 1e6, 0, address(this), bytes(""));
+    }
+
+    function test_expiry_rebalanceBlocked() public {
+        _initVenuePool();
+        hook.setExpiry(uint64(block.timestamp + 1 days));
+        vm.warp(block.timestamp + 2 days);
+
+        vm.prank(address(controller));
+        vm.expectRevert(TranchePipeModule.TradingClosed.selector);
+        pipe.rebalanceSwap(true, 1e18, 0, block.timestamp);
+    }
+
+    function test_finalizeSettlement_notExpired_reverts() public {
+        vm.expectRevert(TranchePipeModule.NotExpired.selector);
+        pipe.finalizeSettlement();
+    }
+
+    function test_settlement_waterfall_pipe() public {
+        MockSettlementAccountant acct = new MockSettlementAccountant();
+        MockMaturedVault seniorMock = new MockMaturedVault();
+        MockMaturedVault juniorMock = new MockMaturedVault();
+        acct.setVaults(address(seniorMock), address(juniorMock));
+        acct.setGuarantee(105e6);
+        hook.setAccountant(address(acct));
+
+        usdc.mint(address(this), 150e6);
+        usdc.approve(address(pipe), type(uint256).max);
+        pipe.wrapUSDC(100e6, address(seniorMock));
+        pipe.wrapUSDC(50e6, address(juniorMock));
+        nvda.mint(address(hook), 10e18);
+
+        hook.setExpiry(uint64(block.timestamp + 1 days));
+        vm.warp(block.timestamp + 2 days);
+        pipe.finalizeSettlement();
+
+        assertEq(seniorMock.usdcReceived(), 105e6);
+        assertEq(juniorMock.usdcReceived(), 45e6);
+        assertEq(juniorMock.equityReceived(), 10e18);
+        assertEq(shareToken.balanceOf(address(seniorMock)), 0);
+        assertEq(shareToken.balanceOf(address(juniorMock)), 0);
+        assertEq(usdc.balanceOf(address(hook)), 0);
+        assertEq(nvda.balanceOf(address(hook)), 0);
+        assertEq(usdc.balanceOf(address(seniorMock)), 105e6);
+        assertEq(usdc.balanceOf(address(juniorMock)), 45e6);
+        assertEq(nvda.balanceOf(address(juniorMock)), 10e18);
+
+        vm.expectRevert(TranchePipeModule.AlreadySettled.selector);
+        pipe.finalizeSettlement();
+    }
+
+    function test_settlement_unfunded_requiresHaircut() public {
+        MockSettlementAccountant acct = new MockSettlementAccountant();
+        MockMaturedVault seniorMock = new MockMaturedVault();
+        MockMaturedVault juniorMock = new MockMaturedVault();
+        acct.setVaults(address(seniorMock), address(juniorMock));
+        acct.setGuarantee(105e6);
+        hook.setAccountant(address(acct));
+
+        usdc.mint(address(this), 100e6);
+        usdc.approve(address(pipe), type(uint256).max);
+        pipe.wrapUSDC(100e6, address(seniorMock));
+        nvda.mint(address(hook), 5e18);
+
+        hook.setExpiry(uint64(block.timestamp + 1 days));
+        vm.warp(block.timestamp + 2 days);
+
+        vm.expectRevert(TranchePipeModule.SettlementNotReady.selector);
+        pipe.finalizeSettlement();
+
+        pipe.finalizeSettlementHaircut();
+        assertEq(seniorMock.usdcReceived(), 100e6);
+        assertEq(juniorMock.usdcReceived(), 0);
+        assertEq(juniorMock.equityReceived(), 5e18);
+    }
+
+    function test_settleSwap_convertsEquityToUsdc() public {
+        _initVenuePool();
+        uint256 amountIn = 0.01e18;
+        nvda.mint(address(hook), amountIn);
+
+        vm.expectRevert(TranchePipeModule.NotExpired.selector);
+        pipe.settleSwap(amountIn, 0, block.timestamp);
+
+        hook.setExpiry(uint64(block.timestamp + 1 days));
+        vm.warp(block.timestamp + 2 days);
+        _setOraclePrice(ORACLE_PRICE);
+
+        uint256 minOut = _oracleFloor(_oracleUsdcOut(amountIn));
+        pipe.settleSwap(amountIn, minOut, block.timestamp);
+
+        assertEq(nvda.balanceOf(address(hook)), 0);
+        assertGe(hook.aToken().balanceOf(address(hook)), minOut);
+    }
+}
+
+/// @dev Minimal `ITrancheAccountant` for pipe settlement tests (no vault code needed here; the
+///      real vault maternity flows are covered in `TrancheExpiry.t.sol`).
+contract MockSettlementAccountant {
+    address internal _seniorVault;
+    address internal _juniorVault;
+    uint256 internal _guarantee;
+
+    function setVaults(address senior_, address junior_) external {
+        _seniorVault = senior_;
+        _juniorVault = junior_;
+    }
+
+    function setGuarantee(uint256 guarantee_) external {
+        _guarantee = guarantee_;
+    }
+
+    function seniorVault() external view returns (address) {
+        return _seniorVault;
+    }
+
+    function juniorVault() external view returns (address) {
+        return _juniorVault;
+    }
+
+    function seniorGuaranteeUsdc() external view returns (uint256) {
+        return _guarantee;
+    }
+
+    function seniorClaim() external pure returns (uint256) {
+        return 0;
+    }
+
+    function juniorClaim() external pure returns (uint256) {
+        return 0;
+    }
+
+    function poolValue() external pure returns (uint256) {
+        return 0;
+    }
+
+    function escrowFunded() external pure returns (bool) {
+        return false;
+    }
+
+    function onTrancheDeposit(bool, uint256) external { }
+
+    function onTrancheRedeem(bool, uint256) external { }
+
+    function onTrancheClaim(bool, uint256) external { }
+
+    function rebalance() external pure returns (uint256, uint256) {
+        return (0, 0);
+    }
+}
+
+contract MockMaturedVault {
+    uint256 public usdcReceived;
+    uint256 public equityReceived;
+
+    function creditSettlement(uint256 usdcAmount, uint256 equityAmount) external {
+        usdcReceived = usdcAmount;
+        equityReceived = equityAmount;
     }
 }
