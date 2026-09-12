@@ -15,7 +15,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
-| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | pending |
+| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vault structure (`src/vaults/`, 28 tests) landed; accountant + share token next |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
 
 Indexing: The Graph subgraph (`subgraph/`, `arc-testnet`) indexes the x402 oracle and the v4 pool; deploy pending a Graph Studio key.
@@ -23,6 +23,7 @@ x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
 Vault/hook build plan (P1–P8): `docs/VAULT_HOOK_MASTER_PLAN.md` — tranches (7540), rules, JIT hook (7575), agent control plane.
+Tranche vaults: `src/vaults/` — ERC-7540 (sync deposit, keeper/admin redeem rate fixed at fulfillment), asset = hook share, `depositUSDC` wrap pipe + `claimAndUnwrapUSDC`; rules module (`TrancheAccountant`) and hook share token next.
 
 ## Architecture (target)
 

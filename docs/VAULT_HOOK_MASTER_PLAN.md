@@ -2,7 +2,7 @@
 
 **Standards:** ERC-7540 (Senior/Junior tranches) · ERC-7575 (pool strategy share)
 **Scope:** tranche layer → rules → hook (rehypothecation JIT) → agent control plane
-**Status:** planning locked; implementation not started (live infra listed below)
+**Status:** in progress — tranche vault structure landed (`src/vaults/`); rules module, hook share token, JIT hook, agent next
 
 ---
 
