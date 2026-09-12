@@ -1,0 +1,65 @@
+{
+  "network": "base",
+  "subgraphs": {
+    "uniswap-v3-base": "43Hwfi3dJSoGpyas9VwNoDAv55yjgGrPpNSmbQZArzMG",
+    "aerodrome-slipstream-base": "GENunSHWLBXm59mBSgPzQ8metBEp9YDfdqwFr91Av1UM",
+    "uniswap-v4-base": "HNCFA9TyBqpo5qpe6QreQABAA1kV8g46mhkCcicu6v2R"
+  },
+  "pools": [
+    {
+      "id": "uni-v3-usdc-nvdac",
+      "venue": "uniswap-v3",
+      "subgraph": "uniswap-v3-base",
+      "schema": "v3",
+      "pool": "0x60661b315553eb81872deea9a66d567cf0ccd33b",
+      "quote": "USDC",
+      "feeBps": 30,
+      "priority": "primary",
+      "status": "live"
+    },
+    {
+      "id": "uni-v3-weth-nvdac",
+      "venue": "uniswap-v3",
+      "subgraph": "uniswap-v3-base",
+      "schema": "v3",
+      "pool": "0x8e740d5fa742b763cd82159894b9919ed57e4f70",
+      "quote": "WETH",
+      "feeBps": 30,
+      "priority": "secondary",
+      "status": "live"
+    },
+    {
+      "id": "aero-usdc-nvdac",
+      "venue": "aerodrome-slipstream",
+      "subgraph": "aerodrome-slipstream-base",
+      "schema": "v3",
+      "pool": "0x853f5f1b92b16714fe6cda67caad0856b83c7ab9",
+      "quote": "USDC",
+      "feeBps": 10.5,
+      "priority": "primary",
+      "status": "tracked"
+    },
+    {
+      "id": "aero-weth-nvdac",
+      "venue": "aerodrome-slipstream",
+      "subgraph": "aerodrome-slipstream-base",
+      "schema": "v3",
+      "pool": "0x20e5fad2661ee9eb0c04824524030af31943b62d",
+      "quote": "WETH",
+      "feeBps": 1.6,
+      "priority": "secondary",
+      "status": "tracked"
+    },
+    {
+      "id": "uni-v4-usdc-nvdac",
+      "venue": "uniswap-v4",
+      "subgraph": "uniswap-v4-base",
+      "schema": "v4",
+      "pool": "0xb21769526e3a0814752628ec6c6e08efc883a025a18c64ee3ad376aa67728a18",
+      "quote": "USDC",
+      "feeBps": 99,
+      "priority": "primary",
+      "status": "tracked"
+    }
+  ]
+}

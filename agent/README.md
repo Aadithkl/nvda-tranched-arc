@@ -59,3 +59,22 @@ bounded params submitted via `StrategyAgent`.
 `.github/workflows/agent-heartbeat.yml` runs every 10 minutes and on manual dispatch; configure the
 secrets above in the repository settings. The protocol is safe if the agent stops: params expire and the
 hook moves `ACTIVE → DEGRADED → REST`, with capital resting in Aave.
+
+## Market model (Graph-only)
+
+`agent/market.mjs` + `agent/model.mjs` compute, from The Graph gateway only:
+
+- **volatility** per pool (3h trigger, 14d calibration, EWMA, annualized),
+- **fees** (`effectiveFeeBps`, `feeApr`, `fee per hour per $`),
+- **TVL** and **active/rewarded TVL** (in-range liquidity value and share),
+- **range sweep**: fees vs impermanent loss per band, with the fee share diluted by rewarded TVL,
+- a verdict with suggested `bucketTicks` / `maxDeployPerSwap` inside controller bounds.
+
+```bash
+npm run market        # live table
+npm run market:json   # cache snapshot (read by the agent tick)
+npm run test:agent    # offline math tests
+```
+
+Full definitions: `docs/AGENT_MARKET.md`. The agent tick reads `agent/.cache/market.json` and overlays
+the verdict on the regime decision (`worthLp=false` disables quoting).
