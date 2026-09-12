@@ -6,10 +6,41 @@ read access to:
 - latest NVDA stock price pushed over x402, with market session and status
 - every price update with its onchain payment reference (payment audit trail)
 - v4 pool state (`sqrtPriceX96`, `tick`, `liquidity`) and every swap
+- hook quote + JIT activity (`SwapQuoted`, `JitDeployed/Removed`, claims, share flows)
+- agent actions (`ParamsSubmitted`, `BaseFeeSubmitted`, `QuotingSubmitted`)
+- tranche flows and accountant reports (deposits, redemptions, rebalances)
 
 **Philosophy:** the subgraph is a *speed layer* for the frontend/agent. Security-sensitive
 reads (swaps, redemptions, hook gates) use direct RPC through the contracts; the
 subgraph is never the trust layer.
+
+## Deployment credential
+
+| Purpose | Credential | Notes |
+|---|---|---|
+| Deploy | **Subgraph Studio deploy key** | `thegraph.com/studio` → connect wallet → create `nvda-tranched-arc` → Settings → deploy key. `graph auth <key>` then `npm run deploy:studio` from `subgraph/` |
+| Query (dev) | none (keyless Studio URL, rate-limited) | `https://api.studio.thegraph.com/query/<id>/nvda-tranched-arc/<version>` |
+| Query (prod) | **Graph API key** (Studio → API Keys) | `https://gateway.thegraph.com/api/<key>/subgraphs/id/<deployment-id>` |
+| Query (keyless, paid) | none — per-query USDC via x402 gateway | matches this project's payment rail |
+
+**Arc network ids:** `arc-testnet` (chain 5042002) and `arc` (chain 5042) are in The
+Graph networks registry with the `subgraphs` service.
+
+**Not a deploy credential:** Substreams/StreamingFast API tokens (dfuse-issued JWTs) do
+not deploy or query subgraphs, and Arc has no public Substreams/Firehose endpoint today.
+Use them only for chains with a StreamingFast/Pinax endpoint.
+
+## Data sources
+
+| Source | Address | Status |
+|---|---|---|
+| `NVDAPriceOracle` | `0x2D58…738A` | live |
+| `PoolManager` | `0xFc41…Ae67` | live |
+| `TrancheJITHook` | `0xceb3…ac0` (demo) | update on JIT redeploy |
+| `StrategyController` | `0x6ea1…edD` | update on redeploy |
+| `StrategyAgent` | `0x636b…E8c` | update on redeploy |
+| `SeniorVault` / `JuniorVault` | placeholder `0x0` | set at vault deploy |
+| `TrancheAccountant` | placeholder `0x0` | set at accountant deploy |
 
 ## Entities
 
@@ -19,6 +50,17 @@ subgraph is never the trust layer.
 | `PriceUpdate` | one row per x402 push: values, session, writer, paymentRef, tx |
 | `Pool` | pool key, current `sqrtPriceX96` / `tick` / `liquidity`, volume, swap count |
 | `PoolSwap` | per-swap amounts, price after swap, fee, sender, tx |
+| `HookState` (one per hook) | params snapshot (base/surge fee, deviation band, TTL, bucket ticks), flags (`quotingEnabled`, `jitEnabled`, `liquidityGuard`, `paused`), wiring, totals (`totalQuotes`, `totalJitDeployments`, wraps/unwraps, Aave flows) |
+| `Quote` | per-quote `deviationBps`, `fee`, `toxic`, TTL state, tx |
+| `JitDeployment` / `JitRemoval` | JIT range (`tickLower`/`tickUpper`), `liquidity`, seed, claim deltas, tx |
+| `ClaimRedemption` | ERC-6909 claim redemption per asset |
+| `ShareFlow` | wrap/unwrap/supply/withdraw/seed rows with USDC + share amounts |
+| `ParamChange` | hook-level params/base-fee/quoting changes |
+| `AgentAction` | controller/agent submissions with full params snapshot |
+| `VaultState` / `VaultFlow` | per-vault deposit/unwrap/move aggregates + rows |
+| `AccountantReport` | `DepositReported` / `RedeemReported` rows |
+| `Rebalance` | escrow rebalancing moves |
+| `RedemptionFulfilment` | senior/junior keeper redemptions |
 
 ## Example queries
 
@@ -75,6 +117,91 @@ Pool state + recent swaps:
     amount1
     tick
     sqrtPriceX96
+    timestamp
+  }
+}
+```
+
+Hook state + fee/toxicity history (agent perception input):
+
+```graphql
+{
+  hookStates {
+    baseFee
+    maxSurgeFee
+    maxDeviationBps
+    quotingEnabled
+    jitEnabled
+    activePoolId
+    totalQuotes
+    totalJitDeployments
+    totalWraps
+    totalUnwraps
+  }
+  quotes(first: 20, orderBy: timestamp, orderDirection: desc) {
+    fee
+    deviationBps
+    toxic
+    state
+    zeroForOne
+    timestamp
+  }
+}
+```
+
+JIT fee yield + agent actions:
+
+```graphql
+{
+  jitDeployments(first: 20, orderBy: timestamp, orderDirection: desc) {
+    liquidity
+    seed
+    zeroForOne
+    tickLower
+    tickUpper
+    timestamp
+  }
+  jitRemovals(first: 20, orderBy: timestamp, orderDirection: desc) {
+    liquidity
+    claim0
+    claim1
+    timestamp
+  }
+  agentActions(first: 20, orderBy: timestamp, orderDirection: desc) {
+    agent
+    source
+    kind
+    baseFee
+    maxDeviationBps
+    timestamp
+  }
+}
+```
+
+Tranche activity:
+
+```graphql
+{
+  vaultStates {
+    id
+    isSenior
+    totalDepositUsdc
+    totalUnwrapUsdc
+    depositCount
+    unwrapCount
+  }
+  accountantReports(first: 20, orderBy: timestamp, orderDirection: desc) {
+    kind
+    senior
+    hookShares
+    usdcValue
+    timestamp
+  }
+  redemptionFulfilments(first: 10, orderBy: timestamp, orderDirection: desc) {
+    senior
+    user
+    shares
+    assets
     timestamp
   }
 }

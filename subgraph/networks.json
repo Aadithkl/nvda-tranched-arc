@@ -7,6 +7,30 @@
     "PoolManager": {
       "address": "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
       "startBlock": 61459445
+    },
+    "TrancheJITHook": {
+      "address": "0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0",
+      "startBlock": 61492159
+    },
+    "StrategyController": {
+      "address": "0x6ea148829E32BA3051869F73092c015D34661edD",
+      "startBlock": 61492159
+    },
+    "StrategyAgent": {
+      "address": "0x636bfd9e072C9ba93453a2d798Cb7D09b8Fe1E8c",
+      "startBlock": 61492159
+    },
+    "SeniorVault": {
+      "address": "0x0000000000000000000000000000000000000000",
+      "startBlock": 61492159
+    },
+    "JuniorVault": {
+      "address": "0x0000000000000000000000000000000000000000",
+      "startBlock": 61492159
+    },
+    "TrancheAccountant": {
+      "address": "0x0000000000000000000000000000000000000000",
+      "startBlock": 61492159
     }
   }
 }

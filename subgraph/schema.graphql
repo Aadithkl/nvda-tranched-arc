@@ -65,3 +65,208 @@ type PoolSwap @entity(immutable: true) {
   timestamp: BigInt!
   blockNumber: BigInt!
 }
+
+enum QuoteState {
+  Rest
+  Degraded
+  Active
+}
+
+type HookState @entity(immutable: false) {
+  id: ID!
+  owner: Bytes
+  pendingOwner: Bytes
+  guardian: Bytes
+  controller: Bytes
+  priceOracle: Bytes
+  accountant: Bytes
+  lendingPool: Bytes
+  aToken: Bytes
+  aTokenEquity: Bytes
+  activePoolId: Bytes
+  quotingEnabled: Boolean!
+  jitEnabled: Boolean!
+  liquidityGuard: Boolean!
+  paused: Boolean!
+  maxPriceAge: BigInt!
+  baseFee: BigInt!
+  maxSurgeFee: BigInt!
+  maxDeviationBps: Int!
+  toxicityMultiplierBps: Int!
+  minEvBps: Int!
+  cooldownSeconds: Int!
+  ttl: Int!
+  gracePeriod: Int!
+  maxDeployPerSwap: BigInt!
+  bucketTicks: Int!
+  paramsUpdatedAt: BigInt
+  totalQuotes: BigInt!
+  totalJitDeployments: BigInt!
+  totalJitRemovals: BigInt!
+  totalWraps: BigInt!
+  totalUnwraps: BigInt!
+  totalSeedUsdc: BigInt!
+  totalSuppliedToAave: BigInt!
+  totalWithdrawnFromAave: BigInt!
+  updatedAtTimestamp: BigInt!
+  updatedAtBlock: BigInt!
+}
+
+type Quote @entity(immutable: true) {
+  id: ID!
+  poolId: Bytes!
+  sender: Bytes!
+  zeroForOne: Boolean!
+  deviationBps: Int!
+  fee: BigInt!
+  toxic: Boolean!
+  state: QuoteState!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type JitDeployment @entity(immutable: true) {
+  id: ID!
+  poolId: Bytes!
+  zeroForOne: Boolean!
+  tickLower: Int!
+  tickUpper: Int!
+  liquidity: BigInt!
+  seed: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type JitRemoval @entity(immutable: true) {
+  id: ID!
+  poolId: Bytes!
+  liquidity: BigInt!
+  claim0: BigInt!
+  claim1: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type ClaimRedemption @entity(immutable: true) {
+  id: ID!
+  asset: Bytes!
+  amount: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type ShareFlow @entity(immutable: true) {
+  id: ID!
+  kind: String!
+  caller: Bytes!
+  receiver: Bytes
+  usdcAmount: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type ParamChange @entity(immutable: true) {
+  id: ID!
+  kind: String!
+  agent: Bytes
+  quotingEnabled: Boolean
+  baseFee: BigInt
+  maxSurgeFee: BigInt
+  maxDeviationBps: Int
+  toxicityMultiplierBps: Int
+  minEvBps: Int
+  cooldownSeconds: Int
+  ttl: Int
+  gracePeriod: Int
+  maxDeployPerSwap: BigInt
+  bucketTicks: Int
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type VaultState @entity(immutable: false) {
+  id: ID!
+  isSenior: Boolean!
+  totalDepositUsdc: BigInt!
+  totalUnwrapUsdc: BigInt!
+  totalSharesMoved: BigInt!
+  depositCount: BigInt!
+  unwrapCount: BigInt!
+  depositsPaused: Boolean!
+  maxTotalAssets: BigInt!
+  updatedAtTimestamp: BigInt!
+  updatedAtBlock: BigInt!
+}
+
+type VaultFlow @entity(immutable: true) {
+  id: ID!
+  vault: Bytes!
+  isSenior: Boolean!
+  kind: String!
+  caller: Bytes!
+  receiver: Bytes
+  usdcAmount: BigInt!
+  shares: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type AccountantReport @entity(immutable: true) {
+  id: ID!
+  kind: String!
+  senior: Boolean!
+  hookShares: BigInt!
+  usdcValue: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type Rebalance @entity(immutable: true) {
+  id: ID!
+  movedToSenior: BigInt!
+  movedToJunior: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type RedemptionFulfilment @entity(immutable: true) {
+  id: ID!
+  senior: Boolean!
+  user: Bytes!
+  shares: BigInt!
+  assets: BigInt!
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
+
+type AgentAction @entity(immutable: true) {
+  id: ID!
+  agent: Bytes!
+  source: String!
+  kind: String!
+  quotingEnabled: Boolean
+  baseFee: BigInt
+  maxSurgeFee: BigInt
+  maxDeviationBps: Int
+  toxicityMultiplierBps: Int
+  minEvBps: Int
+  cooldownSeconds: Int
+  ttl: Int
+  gracePeriod: Int
+  maxDeployPerSwap: BigInt
+  bucketTicks: Int
+  transactionHash: Bytes!
+  timestamp: BigInt!
+  blockNumber: BigInt!
+}
