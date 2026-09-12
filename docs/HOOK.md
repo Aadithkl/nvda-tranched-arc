@@ -37,6 +37,26 @@ The hook is the only bridge between the tranche stack and the two markets:
 `effectiveMaxDeploy = min(agent maxDeployPerSwap, riskBudget)`, `riskBudget = juniorClaim` only when
 `accountant.escrowFunded()`, else 0 (no accountant → 0).
 
+## JIT engine (P5)
+
+- **Rest state**: inventory sits in Aave (`aUSDC` + optional `aTokenEquity`); the pool carries zero standing liquidity.
+- **Per swap**: `beforeSwap` sizes and seeds a **one-sided transient position** at the tick range the swap
+  trades into:
+  - `zeroForOne` (price down) → range `[tick - bucketTicks, tick]`, seeded with **token1**
+  - `oneForZero` (price up) → range `[tick + spacing, tick + spacing + bucketTicks]`, seeded with **token0**
+  - size = expected swap output × 1.01, capped by `effectiveMaxDeploy()`; oversized swaps revert
+    `JitCapacityExceeded`
+  - inventory is withdrawn from Aave and settled to the PoolManager (`sync` + `settle`)
+- **After swap**: the exact liquidity is removed; positive deltas are converted to **ERC-6909 claims**
+  (`PoolManager.mint`) because the swapper's input is settled after `afterSwap`; negative deltas are paid
+  from Aave. `JitRangeExceeded` reverts the whole swap if price left the range (safety valve).
+- **Claim redemption**: `_redeemClaims` (`burn` + `take` → Aave) runs at the start of every JIT and is
+  exposed as `unwindClaims()` for keepers. Fees accrue to the hook as claims and are redeemable to Aave.
+- **Enable/bootstrap**: `setJitEnabled(bool)` + `seedInventory(asset, amount)` (owner) to fund the Aave
+  rest state before the first swap. `setLiquidityGuard(true)` blocks external LPs once live.
+- **Invariant**: pool liquidity returns to zero after every swap; value grows by the quoted fee minus
+  half-tick price impact.
+
 ## Roles
 
 - `owner` (deployer/multisig): pool mgmt, roles, oracle/lending/accountant wiring
@@ -47,12 +67,15 @@ The hook is the only bridge between the tranche stack and the two markets:
 
 ## Tests
 
-`test/unit/TrancheJITHook.t.sol` — 28 tests: permissions, pool init gating, oracle/toxic pricing,
-surge cap, hard band, TTL states, risk budget, controller bounds, agent whitelist, cooldown,
-dynamic fee update on the pool, Aave rest + yield share pricing, wrap/unwrap, liquidity guard.
+- `test/unit/TrancheJITHook.t.sol` — 28 tests: permissions, pool init gating, oracle/toxic pricing,
+  surge cap, hard band, TTL states, risk budget, controller bounds, agent whitelist, cooldown,
+  dynamic fee update on the pool, Aave rest + yield share pricing, wrap/unwrap, liquidity guard.
+- `test/unit/TrancheJIT.t.sol` — 10 tests: zero standing liquidity, both directions, Aave round trip,
+  fee accrual, capacity/budget guards, claims unwind, sequential swaps with no residue, range bounds,
+  JIT-disabled fallback.
 
 ## Next
 
-- P5: JIT engine (`beforeSwap` deploy → `afterSwap` remove/re-supply), ERC-6909 claims, bucket math
 - M3/M4: escrow-targeting fee floor, EV-tracking buckets; M6: onchain vol estimator
 - Offchain agent (`agent/`, GitHub Actions loop) writes params through `StrategyAgent`
+- Live exercise: deploy + swap with JIT enabled on Arc (after the current demo deployment)

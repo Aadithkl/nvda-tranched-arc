@@ -1,0 +1,925 @@
+'forge clean' running (wd: C:\Users\klaad\nvda-tranched-arc)
+'forge config --json' running
+'forge build --build-info --deny never --skip ./test/** ./script/** --force' running (wd: C:\Users\klaad\nvda-tranched-arc)
+
+Detector: arbitrary-send-erc20
+DemoRouter._settle(Currency,address,uint256) (src/router/DemoRouter.sol#232-236) uses arbitrary from in transferFrom: IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer,address(poolManager),amount) (src/router/DemoRouter.sol#234)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#arbitrary-from-in-transferfrom
+
+Detector: incorrect-exp
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) has bitwise-xor operator ^ instead of the exponentiation operator **: 
+	 - inverse = (3 * denominator) ^ 2 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#256)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) has bitwise-xor operator ^ instead of the exponentiation operator **: 
+	 - inv = (3 * denominator) ^ 2 (lib/v4-core/src/libraries/FullMath.sol#81)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-exponentiation
+
+Detector: reentrancy-balance
+Reentrancy in TrancheVault.depositUSDC(uint256,address) (src/vaults/TrancheVault.sol#115-130):
+	External call allowing reentrancy:
+	- assets = pipe.wrapUSDC(usdcAmount,address(this)) (src/vaults/TrancheVault.sol#122)
+	Balance read before the call:
+	- maxAssets = maxDeposit(receiver) (src/vaults/TrancheVault.sol#119)
+	Possible stale balance used after the call in a condition:
+	- assets > maxAssets (src/vaults/TrancheVault.sol#123)
+		- stale variable `maxAssets`
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities
+
+Detector: incorrect-shift
+BitMath.mostSignificantBit(uint256) (lib/v4-core/src/libraries/BitMath.sol#11-23) contains an incorrect shift operation: r = r | byte(uint256,uint256)(0x1f & 0x8421084210842108cc6318c6db6d54be >> x >> r,0x0706060506020500060203020504000106050205030304010505030400000000) (lib/v4-core/src/libraries/BitMath.sol#21-23)
+BitMath.leastSignificantBit(uint256) (lib/v4-core/src/libraries/BitMath.sol#30-46) contains an incorrect shift operation: r = 0x8040405543005266443200005020610674053026020000107506200176117077 << x * 0xb6db6db6ddddddddd34d34d349249249210842108c6318c639ce739cffffffff >> 250 << 2 >> 252 << 5 (lib/v4-core/src/libraries/BitMath.sol#39-42)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-shift-in-assembly
+
+Detector: unchecked-transfer
+DemoRouter._settle(Currency,address,uint256) (src/router/DemoRouter.sol#232-236) ignores return value by IERC20Minimal(Currency.unwrap(currency)).transferFrom(payer,address(poolManager),amount) (src/router/DemoRouter.sol#234)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unchecked-transfer
+
+Detector: divide-before-multiply
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse = (3 * denominator) ^ 2 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#256)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#259)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#261)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#261-262)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#262)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#263-264)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#239)
+	- inverse *= 2 - denominator * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#264-265)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) performs a multiplication on the result of a division:
+	- low = low / twos (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#241)
+	- result = low * inverse (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#271)
+Math.invMod(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#310-354) performs a multiplication on the result of a division:
+	- quotient = gcd / remainder (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#328-329)
+	- (gcd,remainder) = (remainder,gcd - remainder * quotient) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#329-342)
+CustomRevert.bubbleUpAndRevertWith(address,bytes4,bytes4) (lib/v4-core/src/libraries/CustomRevert.sol#81-115) performs a multiplication on the result of a division:
+	- encodedDataSize_bubbleUpAndRevertWith_asm_0 = returndatasize()() + 31 / 32 * 32 (lib/v4-core/src/libraries/CustomRevert.sol#89-90)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv = (3 * denominator) ^ 2 (lib/v4-core/src/libraries/FullMath.sol#81)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#84-85)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#85-86)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#86-87)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#87-88)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#88-89)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- denominator = denominator / twos (lib/v4-core/src/libraries/FullMath.sol#60-61)
+	- inv *= 2 - denominator * inv (lib/v4-core/src/libraries/FullMath.sol#89-90)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) performs a multiplication on the result of a division:
+	- prod0 = prod0 / twos (lib/v4-core/src/libraries/FullMath.sol#65-66)
+	- result = prod0 * inv (lib/v4-core/src/libraries/FullMath.sol#97)
+TickMath.maxUsableTick(int24) (lib/v4-core/src/libraries/TickMath.sol#38-41) performs a multiplication on the result of a division:
+	- (MAX_TICK / tickSpacing) * tickSpacing (lib/v4-core/src/libraries/TickMath.sol#39-41)
+TickMath.minUsableTick(int24) (lib/v4-core/src/libraries/TickMath.sol#45-48) performs a multiplication on the result of a division:
+	- (MIN_TICK / tickSpacing) * tickSpacing (lib/v4-core/src/libraries/TickMath.sol#46-48)
+TickMath.getSqrtPriceAtTick(int24) (lib/v4-core/src/libraries/TickMath.sol#55-110) performs a multiplication on the result of a division:
+	- price = (price * 0x48a170391f7dc42444e8fa2) >> 128 (lib/v4-core/src/libraries/TickMath.sol#99)
+	- price = ~ 0 / price (lib/v4-core/src/libraries/TickMath.sol#103)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) performs a multiplication on the result of a division:
+	- healthFactor = ((totalCollateralBase * currentLiquidationThreshold) / BPS) * 1e18 / totalDebtBase (src/lending/LendingPool.sol#343-345)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) performs a multiplication on the result of a division:
+	- value = (userBalance * price) / assetUnit (src/lending/LendingPool.sol#323)
+	- weightedLtv += value * config.getLtv() (src/lending/LendingPool.sol#325)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) performs a multiplication on the result of a division:
+	- value = (userBalance * price) / assetUnit (src/lending/LendingPool.sol#323)
+	- weightedLiquidationThreshold += value * config.getLiquidationThreshold() (src/lending/LendingPool.sol#326)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#divide-before-multiply
+
+Detector: incorrect-equality
+TrancheJITHook._supplyIdleToAave() (src/hook/TrancheJITHook.sol#331-339) uses a dangerous strict equality:
+	- idle == 0 (src/hook/TrancheJITHook.sol#335)
+TrancheJITHook._withdrawFromAave(uint256) (src/hook/TrancheJITHook.sol#341-349) uses a dangerous strict equality:
+	- amount == 0 || pool == address(0) (src/hook/TrancheJITHook.sol#343)
+TrancheJITHook.convertToShares(uint256) (src/hook/TrancheJITHook.sol#277-282) uses a dangerous strict equality:
+	- supply == 0 || total == 0 (src/hook/TrancheJITHook.sol#280)
+TrancheJITHook.wrapUSDC(uint256,address) (src/hook/TrancheJITHook.sol#290-302) uses a dangerous strict equality:
+	- (supply == 0 || totalBefore == 0) (src/hook/TrancheJITHook.sol#297-298)
+LendingPool._updateState(address) (src/lending/LendingPool.sol#348-383) uses a dangerous strict equality:
+	- elapsed == 0 (src/lending/LendingPool.sol#353)
+LendingPool.repay(address,uint256,uint256,address) (src/lending/LendingPool.sol#278-295) uses a dangerous strict equality:
+	- repayAmount == 0 (src/lending/LendingPool.sol#288)
+LendingPool.withdraw(address,uint256,address) (src/lending/LendingPool.sol#222-240) uses a dangerous strict equality:
+	- amountToWithdraw == 0 || amountToWithdraw > userBalance (src/lending/LendingPool.sol#230)
+NVDAPriceOracle.latestRoundData() (src/oracle/NVDAPriceOracle.sol#135-142) uses a dangerous strict equality:
+	- _updatedAt == 0 (src/oracle/NVDAPriceOracle.sol#140)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+
+Detector: incorrect-equality
+ERC7540AdminRedeem._consumeClaimableRedeem(uint256,address) (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol#107-118) uses a dangerous strict equality:
+	- shares == maxShares (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol#112-114)
+ERC7540AdminRedeem._consumeClaimableWithdraw(uint256,address) (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol#91-102) uses a dangerous strict equality:
+	- assets == maxAssets (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol#96-99)
+TrancheVault.maxMint(address) (src/vaults/TrancheVault.sol#150-154) uses a dangerous strict equality:
+	- maxAssets == type()(uint256).max (src/vaults/TrancheVault.sol#152)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+
+Detector: uninitialized-local
+LendingPool.getUserAccountData(address).weightedLtv (src/lending/LendingPool.sol#310) is a local variable never initialized
+LendingPool._updateState(address).config (src/lending/LendingPool.sol#355) is a local variable never initialized
+Hooks.afterSwap(IHooks,PoolKey,SwapParams,BalanceDelta,bytes,BeforeSwapDelta).hookDelta (lib/v4-core/src/libraries/Hooks.sol#298) is a local variable never initialized
+LendingPool.borrow(address,uint256,uint256,uint16,address).config (src/lending/LendingPool.sol#254) is a local variable never initialized
+LendingPool.getUserAccountData(address).config (src/lending/LendingPool.sol#316) is a local variable never initialized
+LendingPool.setReserveBorrowing(address,bool).config (src/lending/LendingPool.sol#161) is a local variable never initialized
+LendingPool.getUserAccountData(address).weightedLiquidationThreshold (src/lending/LendingPool.sol#311) is a local variable never initialized
+LendingPool.setReserveFreeze(address,bool).config (src/lending/LendingPool.sol#191) is a local variable never initialized
+LendingPool.setReserveFactor(address,uint256).config (src/lending/LendingPool.sol#171) is a local variable never initialized
+LendingPool.initReserve(address,address,address,address,uint8).config (src/lending/LendingPool.sol#128) is a local variable never initialized
+LendingPool.setReserveConfiguration(address,uint256,uint256,uint256).config (src/lending/LendingPool.sol#149) is a local variable never initialized
+LendingPool.setReserveActive(address,bool).config (src/lending/LendingPool.sol#181) is a local variable never initialized
+LendingPool._requireActive(DataTypes.ReserveData,address,bool).config (src/lending/LendingPool.sol#390) is a local variable never initialized
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#uninitialized-local-variables
+
+Detector: unused-return
+Hooks.beforeInitialize(IHooks,PoolKey,uint160) (lib/v4-core/src/libraries/Hooks.sol#171-178) ignores return value by self.callHook(abi.encodeCall(IHooks.beforeInitialize,(msg.sender,key,sqrtPriceX96))) (lib/v4-core/src/libraries/Hooks.sol#178)
+Hooks.afterInitialize(IHooks,PoolKey,uint160,int24) (lib/v4-core/src/libraries/Hooks.sol#180-187) ignores return value by self.callHook(abi.encodeCall(IHooks.afterInitialize,(msg.sender,key,sqrtPriceX96,tick))) (lib/v4-core/src/libraries/Hooks.sol#185-187)
+Hooks.beforeModifyLiquidity(IHooks,PoolKey,ModifyLiquidityParams,bytes) (lib/v4-core/src/libraries/Hooks.sol#190-203) ignores return value by self.callHook(abi.encodeCall(IHooks.beforeAddLiquidity,(msg.sender,key,params,hookData))) (lib/v4-core/src/libraries/Hooks.sol#198-200)
+Hooks.beforeModifyLiquidity(IHooks,PoolKey,ModifyLiquidityParams,bytes) (lib/v4-core/src/libraries/Hooks.sol#190-203) ignores return value by self.callHook(abi.encodeCall(IHooks.beforeRemoveLiquidity,(msg.sender,key,params,hookData))) (lib/v4-core/src/libraries/Hooks.sol#202-203)
+Hooks.beforeDonate(IHooks,PoolKey,uint256,uint256,bytes) (lib/v4-core/src/libraries/Hooks.sol#309-318) ignores return value by self.callHook(abi.encodeCall(IHooks.beforeDonate,(msg.sender,key,amount0,amount1,hookData))) (lib/v4-core/src/libraries/Hooks.sol#316-318)
+Hooks.afterDonate(IHooks,PoolKey,uint256,uint256,bytes) (lib/v4-core/src/libraries/Hooks.sol#318-328) ignores return value by self.callHook(abi.encodeCall(IHooks.afterDonate,(msg.sender,key,amount0,amount1,hookData))) (lib/v4-core/src/libraries/Hooks.sol#324-327)
+TrancheJITHook._prices() (src/hook/TrancheJITHook.sol#376-384) ignores return value by (sqrtPriceX96,None,None,None) = poolManager.getSlot0(PoolId.wrap(activePoolId)) (src/hook/TrancheJITHook.sol#381)
+LendingPool.deposit(address,uint256,address,uint16) (src/lending/LendingPool.sol#210-220) ignores return value by IAToken(reserve.aTokenAddress).mint(onBehalfOf,amount) (src/lending/LendingPool.sol#217)
+LendingPool.withdraw(address,uint256,address) (src/lending/LendingPool.sol#222-240) ignores return value by aToken.burn(msg.sender,amountToWithdraw) (src/lending/LendingPool.sol#235)
+LendingPool.borrow(address,uint256,uint256,uint16,address) (src/lending/LendingPool.sol#242-276) ignores return value by IVariableDebtToken(reserve.variableDebtTokenAddress).mint(onBehalfOf,amount) (src/lending/LendingPool.sol#267)
+LendingPool.repay(address,uint256,uint256,address) (src/lending/LendingPool.sol#278-295) ignores return value by debtToken.burn(onBehalfOf,repayAmount) (src/lending/LendingPool.sol#291)
+LendingPool._updateState(address) (src/lending/LendingPool.sol#348-383) ignores return value by (liquidityRate,None,variableBorrowRate) = IReserveInterestRateStrategy(reserve.interestRateStrategyAddress).calculateInterestRates(asset,availableLiquidity,totalVariableDebt,config.getReserveFactor(),config.getDecimals()) (src/lending/LendingPool.sol#361-366)
+DemoRouter._modifyLiquidityCallback(bytes) (src/router/DemoRouter.sol#197-230) ignores return value by (delta,None) = poolManager.modifyLiquidity(data.key,ModifyLiquidityParams({tickLower:data.tickLower,tickUpper:data.tickUpper,liquidityDelta:data.liquidityDelta,salt:bytes32(0)}),data.hookData) (src/router/DemoRouter.sol#199-208)
+DemoRouter._settle(Currency,address,uint256) (src/router/DemoRouter.sol#232-236) ignores return value by poolManager.settle() (src/router/DemoRouter.sol#235)
+SmokeHook.afterSwap(address,PoolKey,SwapParams,BalanceDelta,bytes) (src/test-only/SmokeHook.sol#73-83) ignores return value by (sqrtPriceX96,None,None,None) = poolManager.getSlot0(poolId) (src/test-only/SmokeHook.sol#79)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+
+Detector: shadowing-local
+IERC7575Share.vault(address).vault (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7575.sol#17) shadows:
+	- IERC7575Share.vault(address) (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7575.sol#16-17) (function)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#local-variable-shadowing
+
+Detector: events-maths
+VariableDebtToken.mint(address,uint256) (src/lending/VariableDebtToken.sol#46-51) should emit an event for: 
+	- _scaledTotalSupply += scaled (src/lending/VariableDebtToken.sol#49) 
+VariableDebtToken.burn(address,uint256) (src/lending/VariableDebtToken.sol#53-60) should emit an event for: 
+	- _scaledTotalSupply -= scaled (src/lending/VariableDebtToken.sol#58) 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-events-arithmetic
+
+Detector: missing-zero-check
+TrancheJITHook.setAccountant(address).newAccountant (src/hook/TrancheJITHook.sol#188) lacks a zero-check on :
+		- accountant = newAccountant (src/hook/TrancheJITHook.sol#189)
+NVDAPriceOracle.transferOwnership(address).newOwner (src/oracle/NVDAPriceOracle.sol#89) lacks a zero-check on :
+		- owner = newOwner (src/oracle/NVDAPriceOracle.sol#90)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-zero-address-validation
+
+Detector: missing-zero-check
+StrategyAgent.constructor(address,address,address).operator_ (src/strategy/StrategyAgent.sol#33) lacks a zero-check on :
+		- operator = operator_ (src/strategy/StrategyAgent.sol#36)
+MockAccountant.constructor(address,address).seniorVault_ (src/test-only/MockAccountant.sol#15) lacks a zero-check on :
+		- seniorVault = seniorVault_ (src/test-only/MockAccountant.sol#16)
+MockAccountant.constructor(address,address).juniorVault_ (src/test-only/MockAccountant.sol#15) lacks a zero-check on :
+		- juniorVault = juniorVault_ (src/test-only/MockAccountant.sol#17)
+MockHookShare.constructor(IERC20,address).authority_ (src/test-only/MockHookShare.sol#20) lacks a zero-check on :
+		- authority = authority_ (src/test-only/MockHookShare.sol#22)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-zero-address-validation
+
+Detector: incorrect-modifier
+Modifier Hooks.noSelfCall(IHooks) (lib/v4-core/src/libraries/Hooks.sol#166-170) does not always execute _; or revert
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-modifier
+
+Detector: calls-loop
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: price = IPriceOracleGetter(priceOracle).getAssetPrice(reserves[i]) (src/lending/LendingPool.sol#318)
+	Calls stack containing the loop:
+		LendingPool.borrow(address,uint256,uint256,uint16,address)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: userBalance = IAToken(reserve.aTokenAddress).balanceOf(user) (src/lending/LendingPool.sol#321)
+	Calls stack containing the loop:
+		LendingPool.borrow(address,uint256,uint256,uint16,address)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: debt = IVariableDebtToken(reserve.variableDebtTokenAddress).balanceOf(user) (src/lending/LendingPool.sol#329)
+	Calls stack containing the loop:
+		LendingPool.borrow(address,uint256,uint256,uint16,address)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: price = IPriceOracleGetter(priceOracle).getAssetPrice(reserves[i]) (src/lending/LendingPool.sol#318)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: userBalance = IAToken(reserve.aTokenAddress).balanceOf(user) (src/lending/LendingPool.sol#321)
+LendingPool.getUserAccountData(address) (src/lending/LendingPool.sol#297-346) has external calls inside a loop: debt = IVariableDebtToken(reserve.variableDebtTokenAddress).balanceOf(user) (src/lending/LendingPool.sol#329)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+
+Detector: reentrancy-benign
+Reentrancy in TrancheJITHook.initializePool(PoolKey,uint160) (src/hook/TrancheJITHook.sol#204-209):
+	External calls:
+	- tick = poolManager.initialize(key,sqrtPriceX96) (src/hook/TrancheJITHook.sol#207)
+	State variables written after the call(s):
+	- _activatePool(key) (src/hook/TrancheJITHook.sol#208)
+		- _activeKey = key (src/hook/TrancheJITHook.sol#352)
+	- _activatePool(key) (src/hook/TrancheJITHook.sol#208)
+		- activePoolId = PoolId.unwrap(key.toId()) (src/hook/TrancheJITHook.sol#353)
+	- _activatePool(key) (src/hook/TrancheJITHook.sol#208)
+		- poolInitialized = true (src/hook/TrancheJITHook.sol#354)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+
+Detector: reentrancy-benign
+Reentrancy in TrancheVault.depositUSDC(uint256,address) (src/vaults/TrancheVault.sol#115-130):
+	External calls:
+	- assets = pipe.wrapUSDC(usdcAmount,address(this)) (src/vaults/TrancheVault.sol#122)
+	State variables written after the call(s):
+	- _mint(receiver,shares) (src/vaults/TrancheVault.sol#127)
+		- _balances[from] = fromBalance - value (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#183)
+		- _balances[to] += value (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#194-196)
+	- _mint(receiver,shares) (src/vaults/TrancheVault.sol#127)
+		- _totalSupply += value (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#176)
+		- _totalSupply -= value (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#188-191)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-3
+
+Detector: reentrancy-events
+Reentrancy in TrancheJITHook._supplyIdleToAave() (src/hook/TrancheJITHook.sol#331-339):
+	External calls:
+	- IAaveV2Pool(pool).deposit(address(usdc),idle,address(this),0) (src/hook/TrancheJITHook.sol#337)
+	Event emitted after the call(s):
+	- SuppliedToAave(idle) (src/hook/TrancheJITHook.sol#338)
+Reentrancy in TrancheJITHook._withdrawFromAave(uint256) (src/hook/TrancheJITHook.sol#341-349):
+	External calls:
+	- withdrawn = IAaveV2Pool(pool).withdraw(address(usdc),amount - idle,address(this)) (src/hook/TrancheJITHook.sol#346)
+	Event emitted after the call(s):
+	- WithdrawnFromAave(withdrawn) (src/hook/TrancheJITHook.sol#347)
+Reentrancy in LendingPool.borrow(address,uint256,uint256,uint16,address) (src/lending/LendingPool.sol#242-276):
+	External calls:
+	- IVariableDebtToken(reserve.variableDebtTokenAddress).mint(onBehalfOf,amount) (src/lending/LendingPool.sol#267)
+	- IAToken(reserve.aTokenAddress).transferUnderlyingTo(msg.sender,amount) (src/lending/LendingPool.sol#268)
+	Event emitted after the call(s):
+	- Borrow(asset,msg.sender,onBehalfOf,amount,interestRateMode,reserve.currentVariableBorrowRate,referralCode) (src/lending/LendingPool.sol#273-275)
+Reentrancy in LendingPoolConfigurator.configureReserveAsCollateral(address,uint256,uint256,uint256) (src/lending/LendingPoolConfigurator.sol#57-68):
+	External calls:
+	- _pool().setReserveConfiguration(asset,ltv,liquidationThreshold,liquidationBonus) (src/lending/LendingPoolConfigurator.sol#66)
+	Event emitted after the call(s):
+	- CollateralConfigurationChanged(asset,ltv,liquidationThreshold,liquidationBonus) (src/lending/LendingPoolConfigurator.sol#67)
+Reentrancy in LendingPool.deposit(address,uint256,address,uint16) (src/lending/LendingPool.sol#210-220):
+	External calls:
+	- IAToken(reserve.aTokenAddress).mint(onBehalfOf,amount) (src/lending/LendingPool.sol#217)
+	Event emitted after the call(s):
+	- Deposit(asset,msg.sender,onBehalfOf,amount,referralCode) (src/lending/LendingPool.sol#219)
+Reentrancy in LendingPoolConfigurator.enableBorrowingOnReserve(address,bool) (src/lending/LendingPoolConfigurator.sol#70-73):
+	External calls:
+	- _pool().setReserveBorrowing(asset,enabled) (src/lending/LendingPoolConfigurator.sol#71)
+	Event emitted after the call(s):
+	- BorrowingEnabledSet(asset,enabled) (src/lending/LendingPoolConfigurator.sol#72)
+Reentrancy in LendingPoolConfigurator.initReserve(address,uint8,string,string,address) (src/lending/LendingPoolConfigurator.sol#43-55):
+	External calls:
+	- _pool().initReserve(asset,aToken,variableDebtToken,interestRateStrategy,decimals) (src/lending/LendingPoolConfigurator.sol#53)
+	Event emitted after the call(s):
+	- ReserveInitialized(asset,aToken,variableDebtToken,interestRateStrategy,decimals) (src/lending/LendingPoolConfigurator.sol#54)
+Reentrancy in TrancheJITHook.initializePool(PoolKey,uint160) (src/hook/TrancheJITHook.sol#204-209):
+	External calls:
+	- tick = poolManager.initialize(key,sqrtPriceX96) (src/hook/TrancheJITHook.sol#207)
+	Event emitted after the call(s):
+	- ActivePoolSet(activePoolId) (src/hook/TrancheJITHook.sol#355)
+		- _activatePool(key) (src/hook/TrancheJITHook.sol#208)
+Reentrancy in LendingPool.repay(address,uint256,uint256,address) (src/lending/LendingPool.sol#278-295):
+	External calls:
+	- debtToken.burn(onBehalfOf,repayAmount) (src/lending/LendingPool.sol#291)
+	Event emitted after the call(s):
+	- Repay(asset,onBehalfOf,msg.sender,repayAmount) (src/lending/LendingPool.sol#293)
+Reentrancy in TrancheJITHook.setBaseFee(uint24) (src/hook/TrancheJITHook.sol#228-234):
+	External calls:
+	- poolManager.updateDynamicLPFee(_activeKey,baseFee) (src/hook/TrancheJITHook.sol#232)
+	Event emitted after the call(s):
+	- BaseFeeUpdated(baseFee,block.timestamp) (src/hook/TrancheJITHook.sol#233)
+Reentrancy in TrancheJITHook.setParams(HookParams.Params) (src/hook/TrancheJITHook.sol#220-226):
+	External calls:
+	- poolManager.updateDynamicLPFee(_activeKey,newParams.baseFee) (src/hook/TrancheJITHook.sol#224)
+	Event emitted after the call(s):
+	- ParamsUpdated(newParams,block.timestamp) (src/hook/TrancheJITHook.sol#225)
+Reentrancy in LendingPoolConfigurator.setReserveFactor(address,uint256) (src/lending/LendingPoolConfigurator.sol#75-79):
+	External calls:
+	- _pool().setReserveFactor(asset,reserveFactor) (src/lending/LendingPoolConfigurator.sol#77)
+	Event emitted after the call(s):
+	- ReserveFactorChanged(asset,reserveFactor) (src/lending/LendingPoolConfigurator.sol#78)
+Reentrancy in TrancheJITHook.unwrapUSDC(uint256,address) (src/hook/TrancheJITHook.sol#304-313):
+	External calls:
+	- shareToken.burn(msg.sender,shares) (src/hook/TrancheJITHook.sol#309)
+	- _withdrawFromAave(usdcAmount) (src/hook/TrancheJITHook.sol#310)
+		- withdrawn = IAaveV2Pool(pool).withdraw(address(usdc),amount - idle,address(this)) (src/hook/TrancheJITHook.sol#346)
+	Event emitted after the call(s):
+	- SharesUnwrapped(msg.sender,receiver,shares,usdcAmount) (src/hook/TrancheJITHook.sol#312)
+	- WithdrawnFromAave(withdrawn) (src/hook/TrancheJITHook.sol#347)
+		- _withdrawFromAave(usdcAmount) (src/hook/TrancheJITHook.sol#310)
+Reentrancy in LendingPool.withdraw(address,uint256,address) (src/lending/LendingPool.sol#222-240):
+	External calls:
+	- aToken.burn(msg.sender,amountToWithdraw) (src/lending/LendingPool.sol#235)
+	- aToken.transferUnderlyingTo(to,amountToWithdraw) (src/lending/LendingPool.sol#236)
+	Event emitted after the call(s):
+	- Withdraw(asset,msg.sender,to,amountToWithdraw) (src/lending/LendingPool.sol#238)
+Reentrancy in MockWETH9.withdraw(uint256) (src/test-only/MockWETH9.sol#26-32):
+	External calls:
+	- (ok,None) = msg.sender.call{value: wad}() (src/test-only/MockWETH9.sol#29)
+	Event emitted after the call(s):
+	- Withdrawal(msg.sender,wad) (src/test-only/MockWETH9.sol#31)
+Reentrancy in TrancheJITHook.wrapUSDC(uint256,address) (src/hook/TrancheJITHook.sol#290-302):
+	External calls:
+	- shareToken.mint(receiver,shares) (src/hook/TrancheJITHook.sol#299)
+	- _supplyIdleToAave() (src/hook/TrancheJITHook.sol#300)
+		- IAaveV2Pool(pool).deposit(address(usdc),idle,address(this),0) (src/hook/TrancheJITHook.sol#337)
+	Event emitted after the call(s):
+	- SharesWrapped(msg.sender,receiver,usdcAmount,shares) (src/hook/TrancheJITHook.sol#301)
+	- SuppliedToAave(idle) (src/hook/TrancheJITHook.sol#338)
+		- _supplyIdleToAave() (src/hook/TrancheJITHook.sol#300)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+
+Detector: reentrancy-events
+Reentrancy in TrancheVault.claimAndUnwrapUSDC(uint256,address,address) (src/vaults/TrancheVault.sol#132-140):
+	External calls:
+	- usdcAmount = pipe.unwrapUSDC(assets,receiver) (src/vaults/TrancheVault.sol#138)
+	Event emitted after the call(s):
+	- UsdcUnwrapped(msg.sender,receiver,assets,usdcAmount) (src/vaults/TrancheVault.sol#139)
+Reentrancy in TrancheVault.depositUSDC(uint256,address) (src/vaults/TrancheVault.sol#115-130):
+	External calls:
+	- assets = pipe.wrapUSDC(usdcAmount,address(this)) (src/vaults/TrancheVault.sol#122)
+	Event emitted after the call(s):
+	- Deposit(msg.sender,receiver,assets,shares) (src/vaults/TrancheVault.sol#128)
+	- Transfer(from,to,value) (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#197-198)
+		- _mint(receiver,shares) (src/vaults/TrancheVault.sol#127)
+	- UsdcDeposited(msg.sender,receiver,usdcAmount,shares) (src/vaults/TrancheVault.sol#129)
+Reentrancy in StrategyController.setBaseFee(uint24) (src/strategy/StrategyController.sol#97-101):
+	External calls:
+	- _hook().setBaseFee(baseFee) (src/strategy/StrategyController.sol#99)
+	Event emitted after the call(s):
+	- BaseFeeSubmitted(msg.sender,baseFee) (src/strategy/StrategyController.sol#100)
+Reentrancy in StrategyController.setHookParams(HookParams.Params) (src/strategy/StrategyController.sol#91-95):
+	External calls:
+	- _hook().setParams(newParams) (src/strategy/StrategyController.sol#93)
+	Event emitted after the call(s):
+	- ParamsSubmitted(msg.sender,newParams) (src/strategy/StrategyController.sol#94)
+Reentrancy in StrategyController.setQuotingEnabled(bool) (src/strategy/StrategyController.sol#103-106):
+	External calls:
+	- _hook().setQuotingEnabled(enabled) (src/strategy/StrategyController.sol#104)
+	Event emitted after the call(s):
+	- QuotingSubmitted(msg.sender,enabled) (src/strategy/StrategyController.sol#105)
+Reentrancy in StrategyAgent.submitBaseFee(uint24) (src/strategy/StrategyAgent.sol#66-69):
+	External calls:
+	- controller.setBaseFee(baseFee) (src/strategy/StrategyAgent.sol#67)
+	Event emitted after the call(s):
+	- BaseFeeSubmitted(baseFee) (src/strategy/StrategyAgent.sol#68)
+Reentrancy in StrategyAgent.submitParams(HookParams.Params) (src/strategy/StrategyAgent.sol#61-64):
+	External calls:
+	- controller.setHookParams(params) (src/strategy/StrategyAgent.sol#62)
+	Event emitted after the call(s):
+	- ParamsSubmitted(params) (src/strategy/StrategyAgent.sol#63)
+Reentrancy in StrategyAgent.submitQuotingEnabled(bool) (src/strategy/StrategyAgent.sol#71-74):
+	External calls:
+	- controller.setQuotingEnabled(enabled) (src/strategy/StrategyAgent.sol#72)
+	Event emitted after the call(s):
+	- QuotingSubmitted(enabled) (src/strategy/StrategyAgent.sol#73)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-4
+
+Detector: timestamp
+TrancheJITHook.quoteState() (src/hook/TrancheJITHook.sol#246-253) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp <= expiresAt (src/hook/TrancheJITHook.sol#250)
+	- block.timestamp <= expiresAt + p.gracePeriod (src/hook/TrancheJITHook.sol#251)
+TrancheJITHook._quoteWithGates(bool) (src/hook/TrancheJITHook.sol#324-329) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < lastQuotedAt + _params.cooldownSeconds (src/hook/TrancheJITHook.sol#326)
+LendingPool._updateState(address) (src/lending/LendingPool.sol#348-383) uses timestamp for comparisons
+	Dangerous comparisons:
+	- elapsed == 0 (src/lending/LendingPool.sol#353)
+NVDAPriceOracle.getPrice() (src/oracle/NVDAPriceOracle.sol#119-133) uses timestamp for comparisons
+	Dangerous comparisons:
+	- data.valid = _mid > 0 && session != Session.None && _updatedAt != 0 && block.timestamp - _updatedAt <= maxStaleness (src/oracle/NVDAPriceOracle.sol#131-132)
+NVDAPriceOracle.latestRoundData() (src/oracle/NVDAPriceOracle.sol#135-142) uses timestamp for comparisons
+	Dangerous comparisons:
+	- _updatedAt == 0 (src/oracle/NVDAPriceOracle.sol#140)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+
+Detector: assembly
+SafeERC20.tryGetDecimals(IERC20) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#164-173) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#168-173)
+SafeERC20._safeTransfer(IERC20,address,uint256,bool) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#184-206) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#186-206)
+SafeERC20._safeTransferFrom(IERC20,address,address,uint256,bool) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#220-249) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#224-249)
+SafeERC20._safeApprove(IERC20,address,uint256,bool) (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#262-284) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#265-284)
+Panic.panic(uint256) (lib/openzeppelin-contracts/contracts/utils/Panic.sol#49-53) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Panic.sol#50-53)
+Math.add512(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#23-28) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#25-28)
+Math.mul512(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#35-44) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#40-44)
+Math.tryMul(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#71-81) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#73-78)
+Math.tryDiv(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#87-93) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#89-93)
+Math.tryMod(uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#100-106) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#102-106)
+Math.mulDiv(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#201-271) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#223-231)
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#238-246)
+Math.tryModExp(uint256,uint256,uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#406-424) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#407-424)
+Math.tryModExp(bytes,bytes,bytes) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#438-464) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#449-464)
+Math._zeroBytes(bytes) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#465-478) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#469-471)
+Math.log2(uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#599-647) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#645-647)
+SafeCast.toUint(bool) (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#1120-1124) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#1122-1123)
+BitMath.mostSignificantBit(uint256) (lib/v4-core/src/libraries/BitMath.sol#11-23) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/BitMath.sol#13-23)
+BitMath.leastSignificantBit(uint256) (lib/v4-core/src/libraries/BitMath.sol#30-46) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/BitMath.sol#32-46)
+CustomRevert.revertWith(bytes4) (lib/v4-core/src/libraries/CustomRevert.sol#13-17) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#14-17)
+CustomRevert.revertWith(bytes4,address) (lib/v4-core/src/libraries/CustomRevert.sol#21-26) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#22-26)
+CustomRevert.revertWith(bytes4,int24) (lib/v4-core/src/libraries/CustomRevert.sol#30-35) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#31-35)
+CustomRevert.revertWith(bytes4,uint160) (lib/v4-core/src/libraries/CustomRevert.sol#39-44) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#40-43)
+CustomRevert.revertWith(bytes4,int24,int24) (lib/v4-core/src/libraries/CustomRevert.sol#48-54) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#49-54)
+CustomRevert.revertWith(bytes4,uint160,uint160) (lib/v4-core/src/libraries/CustomRevert.sol#59-65) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#60-65)
+CustomRevert.revertWith(bytes4,address,address) (lib/v4-core/src/libraries/CustomRevert.sol#70-76) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#71-76)
+CustomRevert.bubbleUpAndRevertWith(address,bytes4,bytes4) (lib/v4-core/src/libraries/CustomRevert.sol#81-115) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/CustomRevert.sol#87-115)
+FullMath.mulDiv(uint256,uint256,uint256) (lib/v4-core/src/libraries/FullMath.sol#13-98) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#22-25)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#33-35)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#45-48)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#50-53)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#60-62)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#65-66)
+	- INLINE ASM (lib/v4-core/src/libraries/FullMath.sol#70-72)
+Hooks.callHook(IHooks,bytes) (lib/v4-core/src/libraries/Hooks.sol#129-152) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/Hooks.sol#130-132)
+	- INLINE ASM (lib/v4-core/src/libraries/Hooks.sol#137-146)
+LiquidityMath.addDelta(uint128,int128) (lib/v4-core/src/libraries/LiquidityMath.sol#9-17) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/LiquidityMath.sol#10-17)
+ParseBytes.parseSelector(bytes) (lib/v4-core/src/libraries/ParseBytes.sol#8-13) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/ParseBytes.sol#10-12)
+ParseBytes.parseFee(bytes) (lib/v4-core/src/libraries/ParseBytes.sol#13-19) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/ParseBytes.sol#17-19)
+ParseBytes.parseReturnDelta(bytes) (lib/v4-core/src/libraries/ParseBytes.sol#20-26) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/ParseBytes.sol#24-26)
+Position.calculatePositionKey(address,int24,int24,bytes32) (lib/v4-core/src/libraries/Position.sol#47-64) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/Position.sol#53-64)
+StateLibrary.getSlot0(IPoolManager,PoolId) (lib/v4-core/src/libraries/StateLibrary.sol#38-61) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#52-61)
+StateLibrary.getTickInfo(IPoolManager,PoolId,int24) (lib/v4-core/src/libraries/StateLibrary.sol#74-94) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#88-94)
+StateLibrary.getTickLiquidity(IPoolManager,PoolId,int24) (lib/v4-core/src/libraries/StateLibrary.sol#106-117) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#113-117)
+StateLibrary.getTickFeeGrowthOutside(IPoolManager,PoolId,int24) (lib/v4-core/src/libraries/StateLibrary.sol#129-140) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#138-140)
+StateLibrary.getFeeGrowthGlobals(IPoolManager,PoolId) (lib/v4-core/src/libraries/StateLibrary.sol#154-169) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#166-169)
+StateLibrary.getPositionInfo(IPoolManager,PoolId,bytes32) (lib/v4-core/src/libraries/StateLibrary.sol#249-262) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/StateLibrary.sol#257-262)
+TickMath.getSqrtPriceAtTick(int24) (lib/v4-core/src/libraries/TickMath.sol#55-110) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#58-67)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#77-80)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#100-110)
+TickMath.getTickAtSqrtPrice(uint160) (lib/v4-core/src/libraries/TickMath.sol#120-232) uses assembly
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#136-142)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#142-148)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#148-154)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#154-160)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#160-166)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#166-171)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#172-177)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#178-183)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#183-189)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#189-195)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#195-201)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#201-207)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#207-212)
+	- INLINE ASM (lib/v4-core/src/libraries/TickMath.sol#213-217)
+BalanceDeltaLibrary.amount0(BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#59-63) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/BalanceDelta.sol#61-62)
+BalanceDeltaLibrary.amount1(BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#63-69) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/BalanceDelta.sol#67-68)
+BeforeSwapDeltaLibrary.getSpecifiedDelta(BeforeSwapDelta) (lib/v4-core/src/types/BeforeSwapDelta.sol#24-27) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/BeforeSwapDelta.sol#25-27)
+BeforeSwapDeltaLibrary.getUnspecifiedDelta(BeforeSwapDelta) (lib/v4-core/src/types/BeforeSwapDelta.sol#32-35) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/BeforeSwapDelta.sol#33-35)
+CurrencyLibrary.transfer(Currency,address,uint256) (lib/v4-core/src/types/Currency.sol#38-84) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/Currency.sol#45-48)
+	- INLINE ASM (lib/v4-core/src/types/Currency.sol#52-79)
+PoolIdLibrary.toId(PoolKey) (lib/v4-core/src/types/PoolId.sol#10-15) uses assembly
+	- INLINE ASM (lib/v4-core/src/types/PoolId.sol#11-14)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+
+Detector: assembly
+LowLevelCall.callNoReturn(address,uint256,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#18-21) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#19-21)
+LowLevelCall.callReturn64Bytes(address,uint256,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#37-46) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#42-45)
+LowLevelCall.staticcallNoReturn(address,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#50-53) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#51-53)
+LowLevelCall.staticcallReturn64Bytes(address,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#60-68) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#65-68)
+LowLevelCall.delegatecallNoReturn(address,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#73-76) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#74-76)
+LowLevelCall.delegatecallReturn64Bytes(address,bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#83-90) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#87-90)
+LowLevelCall.returnDataSize() (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#92-97) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#96-97)
+LowLevelCall.returnData() (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#99-108) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#103-108)
+LowLevelCall.bubbleRevert() (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#109-116) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#113-116)
+LowLevelCall.bubbleRevert(bytes) (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#117-122) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#118-122)
+Memory.getFreeMemoryPointer() (lib/openzeppelin-contracts/contracts/utils/Memory.sol#23-26) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#24-26)
+Memory.unsafeSetFreeMemoryPointer(Memory.Pointer) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#37-41) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#39-40)
+Memory.asSlice(bytes) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#57-60) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#58-60)
+Memory.length(Memory.Slice) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#64-66) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#65-66)
+Memory.load(Memory.Slice,uint256) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#86-93) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#89-93)
+Memory.toBytes(Memory.Slice) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#94-104) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#98-104)
+Memory.equal(Memory.Slice,Memory.Slice) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#105-116) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#112-115)
+Memory.isReserved(Memory.Slice) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#120-125) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#124-125)
+Memory._asSlice(uint256,Memory.Pointer) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#136-139) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#136-139)
+Memory._pointer(Memory.Slice) (lib/openzeppelin-contracts/contracts/utils/Memory.sol#141-146) uses assembly
+	- INLINE ASM (lib/openzeppelin-contracts/contracts/utils/Memory.sol#145-146)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#assembly-usage
+
+Detector: pragma
+8 different versions of Solidity are used:
+	- Version constraint ^0.8.20 is used by:
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/access/Ownable.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Panic.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#3-5)
+	- Version constraint >=0.6.2 is used by:
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC20Metadata.sol#2-4)
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol#2-4)
+	- Version constraint >=0.4.16 is used by:
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+	- Version constraint >=0.8.4 is used by:
+		->=0.8.4 (lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol#2-4)
+	- Version constraint ^0.8.26 is used by:
+		-^0.8.26 (lib/uniswap-hooks/src/base/BaseHook.sol#2-4)
+		-^0.8.26 (src/core/HookShareToken.sol#2)
+		-^0.8.26 (src/hook/TrancheJITHook.sol#2)
+		-^0.8.26 (src/hook/libraries/HookParams.sol#2)
+		-^0.8.26 (src/interfaces/IHookSharePipe.sol#2)
+		-^0.8.26 (src/interfaces/IHookShareToken.sol#2)
+		-^0.8.26 (src/interfaces/INVDAPriceOracle.sol#2)
+		-^0.8.26 (src/interfaces/ITrancheAccountant.sol#2)
+	- Version constraint ^0.8.0 is used by:
+		-^0.8.0 (lib/v4-core/src/interfaces/IExtsload.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/interfaces/IHooks.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/interfaces/IProtocolFees.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/interfaces/callback/IUnlockCallback.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/interfaces/external/IERC20Minimal.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/interfaces/external/IERC6909Claims.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/BitMath.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/CustomRevert.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/FixedPoint128.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/FullMath.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/Hooks.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/LPFeeLibrary.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/LiquidityMath.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/ParseBytes.sol#2-3)
+		-^0.8.0 (lib/v4-core/src/libraries/Position.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/SafeCast.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/StateLibrary.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/libraries/TickMath.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/types/BalanceDelta.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/types/BeforeSwapDelta.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/types/Currency.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/types/PoolId.sol#1-2)
+		-^0.8.0 (lib/v4-core/src/types/PoolKey.sol#1-2)
+	- Version constraint ^0.8.24 is used by:
+		-^0.8.24 (lib/v4-core/src/interfaces/IExttload.sol#1-2)
+		-^0.8.24 (lib/v4-core/src/interfaces/IPoolManager.sol#1-2)
+		-^0.8.24 (lib/v4-core/src/types/PoolOperation.sol#1-2)
+	- Version constraint 0.8.26 is used by:
+		-0.8.26 (src/lending/AToken.sol#2)
+		-0.8.26 (src/lending/DefaultReserveInterestRateStrategy.sol#2)
+		-0.8.26 (src/lending/LendingPool.sol#2)
+		-0.8.26 (src/lending/LendingPoolAddressesProvider.sol#2)
+		-0.8.26 (src/lending/LendingPoolConfigurator.sol#2)
+		-0.8.26 (src/lending/PeggedPriceOracle.sol#2)
+		-0.8.26 (src/lending/VariableDebtToken.sol#2)
+		-0.8.26 (src/lending/interfaces/IAToken.sol#2)
+		-0.8.26 (src/lending/interfaces/IAaveV2Pool.sol#2)
+		-0.8.26 (src/lending/interfaces/ILendingPoolAddressesProvider.sol#2)
+		-0.8.26 (src/lending/interfaces/IPriceOracleGetter.sol#2)
+		-0.8.26 (src/lending/interfaces/IReserveInterestRateStrategy.sol#2)
+		-0.8.26 (src/lending/interfaces/IVariableDebtToken.sol#2)
+		-0.8.26 (src/lending/libraries/DataTypes.sol#2)
+		-0.8.26 (src/lending/libraries/ReserveConfiguration.sol#2)
+		-0.8.26 (src/lending/libraries/WadRayMath.sol#2)
+		-0.8.26 (src/oracle/NVDAPriceOracle.sol#2)
+		-0.8.26 (src/router/DemoRouter.sol#2)
+		-0.8.26 (src/test-only/MockWETH9.sol#2)
+		-0.8.26 (src/test-only/SmokeHook.sol#2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#different-pragma-directives-are-used
+
+Detector: pragma
+7 different versions of Solidity are used:
+	- Version constraint >=0.8.4 is used by:
+		->=0.8.4 (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7540.sol#2-3)
+		->=0.8.4 (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7575.sol#2-3)
+		->=0.8.4 (lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol#2-4)
+	- Version constraint ^0.8.27 is used by:
+		-^0.8.27 (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540.sol#2-3)
+		-^0.8.27 (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540AdminRedeem.sol#2-3)
+		-^0.8.27 (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540SyncDeposit.sol#2-3)
+		-^0.8.27 (src/test-only/MockAccountant.sol#2)
+		-^0.8.27 (src/test-only/MockHookShare.sol#2)
+		-^0.8.27 (src/vaults/JuniorVault.sol#2)
+		-^0.8.27 (src/vaults/SeniorVault.sol#2)
+		-^0.8.27 (src/vaults/TrancheVault.sol#2)
+	- Version constraint >=0.6.2 is used by:
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC20Metadata.sol#2-4)
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol#2-4)
+		->=0.6.2 (lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol#2-4)
+	- Version constraint >=0.4.16 is used by:
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol#2-4)
+		->=0.4.16 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+	- Version constraint ^0.8.20 is used by:
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Panic.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#2-4)
+		-^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#3-5)
+		-^0.8.20 (src/test-only/MockToken.sol#2)
+	- Version constraint ^0.8.24 is used by:
+		-^0.8.24 (lib/openzeppelin-contracts/contracts/utils/Memory.sol#2-4)
+	- Version constraint ^0.8.26 is used by:
+		-^0.8.26 (src/core/HookShareToken.sol#2)
+		-^0.8.26 (src/hook/libraries/HookParams.sol#2)
+		-^0.8.26 (src/interfaces/IHookSharePipe.sol#2)
+		-^0.8.26 (src/interfaces/IHookShareToken.sol#2)
+		-^0.8.26 (src/interfaces/INVDAPriceOracle.sol#2)
+		-^0.8.26 (src/interfaces/ITrancheAccountant.sol#2)
+		-^0.8.26 (src/strategy/IStrategyController.sol#2)
+		-^0.8.26 (src/strategy/ITrancheHookParams.sol#2)
+		-^0.8.26 (src/strategy/StrategyAgent.sol#2)
+		-^0.8.26 (src/strategy/StrategyController.sol#2)
+		-^0.8.26 (src/test-only/MockRiskAccountant.sol#2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#different-pragma-directives-are-used
+
+Detector: cyclomatic-complexity
+TickMath.getSqrtPriceAtTick(int24) (lib/v4-core/src/libraries/TickMath.sol#55-110) has a high cyclomatic complexity (22).
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#cyclomatic-complexity
+
+Detector: dead-code
+add(BalanceDelta,BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#16-31) is never used and should be removed
+eq(BalanceDelta,BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#45-49) is never used and should be removed
+equals(Currency,Currency) (lib/v4-core/src/types/Currency.sol#10-13) is never used and should be removed
+greaterThan(Currency,Currency) (lib/v4-core/src/types/Currency.sol#13-17) is never used and should be removed
+greaterThanOrEqualTo(Currency,Currency) (lib/v4-core/src/types/Currency.sol#21-25) is never used and should be removed
+lessThan(Currency,Currency) (lib/v4-core/src/types/Currency.sol#17-21) is never used and should be removed
+neq(BalanceDelta,BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#49-53) is never used and should be removed
+sub(BalanceDelta,BalanceDelta) (lib/v4-core/src/types/BalanceDelta.sol#31-45) is never used and should be removed
+toBalanceDelta(int128,int128) (lib/v4-core/src/types/BalanceDelta.sol#12-16) is never used and should be removed
+toBeforeSwapDelta(int128,int128) (lib/v4-core/src/types/BeforeSwapDelta.sol#8-14) is never used and should be removed
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dead-code
+
+Detector: solc-version
+Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/Ownable.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Panic.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#3-5)
+Version constraint >=0.6.2 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- ABIDecodeTwoDimensionalArrayMemory
+	- KeccakCaching
+	- EmptyByteArrayCopy
+	- DynamicArrayCleanup
+	- MissingEscapingInFormatting
+	- ArraySliceDynamicallyEncodedBaseType
+	- ImplicitConstructorCallvalueCheck
+	- TupleAssignmentMultiStackSlotComponents
+	- MemoryArrayCreationOverflow.
+It is used by:
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC20Metadata.sol#2-4)
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol#2-4)
+Version constraint >=0.4.16 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- DirtyBytesArrayToStorage
+	- ABIDecodeTwoDimensionalArrayMemory
+	- KeccakCaching
+	- EmptyByteArrayCopy
+	- DynamicArrayCleanup
+	- ImplicitConstructorCallvalueCheck
+	- TupleAssignmentMultiStackSlotComponents
+	- MemoryArrayCreationOverflow
+	- privateCanBeOverridden
+	- SignedArrayStorageCopy
+	- ABIEncoderV2StorageArrayWithMultiSlotElement
+	- DynamicConstructorArgumentsClippedABIV2
+	- UninitializedFunctionPointerInConstructor_0.4.x
+	- IncorrectEventSignatureInLibraries_0.4.x
+	- ExpExponentCleanup
+	- NestedArrayFunctionCallDecoder
+	- ZeroFunctionSelector.
+It is used by:
+	- >=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol#2-4)
+	- >=0.4.16 (lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol#2-4)
+	- >=0.4.16 (lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol#2-4)
+	- >=0.4.16 (lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol#2-4)
+Version constraint >=0.8.4 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- DataLocationChangeInInternalOverride
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- SignedImmutables.
+It is used by:
+	- >=0.8.4 (lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol#2-4)
+Version constraint ^0.8.0 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- DataLocationChangeInInternalOverride
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- SignedImmutables
+	- ABIDecodeTwoDimensionalArrayMemory
+	- KeccakCaching.
+It is used by:
+	- ^0.8.0 (lib/v4-core/src/interfaces/IExtsload.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/interfaces/IHooks.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/interfaces/IProtocolFees.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/interfaces/callback/IUnlockCallback.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/interfaces/external/IERC20Minimal.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/interfaces/external/IERC6909Claims.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/BitMath.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/CustomRevert.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/FixedPoint128.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/FullMath.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/Hooks.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/LPFeeLibrary.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/LiquidityMath.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/ParseBytes.sol#2-3)
+	- ^0.8.0 (lib/v4-core/src/libraries/Position.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/SafeCast.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/StateLibrary.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/libraries/TickMath.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/types/BalanceDelta.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/types/BeforeSwapDelta.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/types/Currency.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/types/PoolId.sol#1-2)
+	- ^0.8.0 (lib/v4-core/src/types/PoolKey.sol#1-2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
+
+Detector: solc-version
+Version constraint >=0.8.4 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- DataLocationChangeInInternalOverride
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- SignedImmutables.
+It is used by:
+	- >=0.8.4 (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7540.sol#2-3)
+	- >=0.8.4 (lib/openzeppelin-community-contracts/contracts/interfaces/IERC7575.sol#2-3)
+	- >=0.8.4 (lib/openzeppelin-contracts/contracts/interfaces/draft-IERC6093.sol#2-4)
+Version constraint >=0.6.2 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- MissingSideEffectsOnSelectorAccess
+	- AbiReencodingHeadOverflowWithStaticArrayCleanup
+	- DirtyBytesArrayToStorage
+	- NestedCalldataArrayAbiReencodingSizeValidation
+	- ABIDecodeTwoDimensionalArrayMemory
+	- KeccakCaching
+	- EmptyByteArrayCopy
+	- DynamicArrayCleanup
+	- MissingEscapingInFormatting
+	- ArraySliceDynamicallyEncodedBaseType
+	- ImplicitConstructorCallvalueCheck
+	- TupleAssignmentMultiStackSlotComponents
+	- MemoryArrayCreationOverflow.
+It is used by:
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol#2-4)
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC20Metadata.sol#2-4)
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol#2-4)
+	- >=0.6.2 (lib/openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol#2-4)
+Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Panic.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#2-4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol#3-5)
+	- ^0.8.20 (src/test-only/MockToken.sol#2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
+
+Detector: low-level-calls
+Low level call in MockWETH9.withdraw(uint256) (src/test-only/MockWETH9.sol#26-32):
+	- (ok,None) = msg.sender.call{value: wad}() (src/test-only/MockWETH9.sol#29)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+
+Detector: missing-inheritance
+StrategyController (src/strategy/StrategyController.sol#7-126) should inherit from IStrategyController (src/strategy/IStrategyController.sol#6-12)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#missing-inheritance
+
+Detector: naming-convention
+Variable AToken.POOL (src/lending/AToken.sol#17) is not in mixedCase
+Variable AToken.UNDERLYING_ASSET_ADDRESS (src/lending/AToken.sol#18) is not in mixedCase
+Variable LendingPool.ADDRESSES_PROVIDER (src/lending/LendingPool.sol#24) is not in mixedCase
+Variable VariableDebtToken.POOL (src/lending/VariableDebtToken.sol#9) is not in mixedCase
+Variable VariableDebtToken.UNDERLYING_ASSET_ADDRESS (src/lending/VariableDebtToken.sol#10) is not in mixedCase
+Function IAToken.POOL() (src/lending/interfaces/IAToken.sol#8) is not in mixedCase
+Function IAToken.UNDERLYING_ASSET_ADDRESS() (src/lending/interfaces/IAToken.sol#10) is not in mixedCase
+Function IVariableDebtToken.POOL() (src/lending/interfaces/IVariableDebtToken.sol#5) is not in mixedCase
+Function IVariableDebtToken.UNDERLYING_ASSET_ADDRESS() (src/lending/interfaces/IVariableDebtToken.sol#7) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+
+Detector: too-many-digits
+Math.log2(uint256) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#599-647) uses literals with too many digits:
+	- r = r | byte(uint256,uint256)(x >> r,0x0000010102020202030303030303030300000000000000000000000000000000) (lib/openzeppelin-contracts/contracts/utils/math/Math.sol#646-647)
+BitMath.mostSignificantBit(uint256) (lib/v4-core/src/libraries/BitMath.sol#11-23) uses literals with too many digits:
+	- r = r | byte(uint256,uint256)(0x1f & 0x8421084210842108cc6318c6db6d54be >> x >> r,0x0706060506020500060203020504000106050205030304010505030400000000) (lib/v4-core/src/libraries/BitMath.sol#21-23)
+CustomRevert.bubbleUpAndRevertWith(address,bytes4,bytes4) (lib/v4-core/src/libraries/CustomRevert.sol#81-115) uses literals with too many digits:
+	- mstore(uint256,uint256)(fmp_bubbleUpAndRevertWith_asm_0 + 0x24,revertingFunctionSelector & 0xffffffff00000000000000000000000000000000000000000000000000000000) (lib/v4-core/src/libraries/CustomRevert.sol#97-100)
+CustomRevert.bubbleUpAndRevertWith(address,bytes4,bytes4) (lib/v4-core/src/libraries/CustomRevert.sol#81-115) uses literals with too many digits:
+	- mstore(uint256,uint256)(fmp_bubbleUpAndRevertWith_asm_0 + 0xc4 + encodedDataSize_bubbleUpAndRevertWith_asm_0,additionalContext & 0xffffffff00000000000000000000000000000000000000000000000000000000) (lib/v4-core/src/libraries/CustomRevert.sol#110-115)
+FixedPoint128.slitherConstructorConstantVariables() (lib/v4-core/src/libraries/FixedPoint128.sol#5-7) uses literals with too many digits:
+	- Q128 = 0x100000000000000000000000000000000 (lib/v4-core/src/libraries/FixedPoint128.sol#6-7)
+LPFeeLibrary.slitherConstructorConstantVariables() (lib/v4-core/src/libraries/LPFeeLibrary.sol#6-75) uses literals with too many digits:
+	- DYNAMIC_FEE_FLAG = 0x800000 (lib/v4-core/src/libraries/LPFeeLibrary.sol#14-15)
+LPFeeLibrary.slitherConstructorConstantVariables() (lib/v4-core/src/libraries/LPFeeLibrary.sol#6-75) uses literals with too many digits:
+	- OVERRIDE_FEE_FLAG = 0x400000 (lib/v4-core/src/libraries/LPFeeLibrary.sol#18-19)
+LPFeeLibrary.slitherConstructorConstantVariables() (lib/v4-core/src/libraries/LPFeeLibrary.sol#6-75) uses literals with too many digits:
+	- MAX_LP_FEE = 1000000 (lib/v4-core/src/libraries/LPFeeLibrary.sol#24-25)
+CurrencyLibrary.transfer(Currency,address,uint256) (lib/v4-core/src/types/Currency.sol#38-84) uses literals with too many digits:
+	- mstore(uint256,uint256)(fmp_transfer_asm_1,0xa9059cbb00000000000000000000000000000000000000000000000000000000) (lib/v4-core/src/types/Currency.sol#59-60)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#too-many-digits
+
+Detector: unimplemented-functions
+TrancheJITHook (src/hook/TrancheJITHook.sol#28-456) does not implement functions:
+	- BaseHook.getHookPermissions() (lib/uniswap-hooks/src/base/BaseHook.sol#81-85)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unimplemented-functions
+
+Detector: unimplemented-functions
+JuniorVault (src/vaults/JuniorVault.sol#8-12) does not implement functions:
+	- ERC7540._isDepositAsync() (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540.sol#833-834)
+	- ERC7540._isRedeemAsync() (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540.sol#841-842)
+SeniorVault (src/vaults/SeniorVault.sol#8-12) does not implement functions:
+	- ERC7540._isDepositAsync() (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540.sol#833-834)
+	- ERC7540._isRedeemAsync() (lib/openzeppelin-community-contracts/contracts/token/ERC20/extensions/ERC7540.sol#841-842)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unimplemented-functions
+
+Detector: constable-states
+MockWETH9.decimals (src/test-only/MockWETH9.sol#7) should be constant 
+MockWETH9.name (src/test-only/MockWETH9.sol#5) should be constant 
+MockWETH9.symbol (src/test-only/MockWETH9.sol#6) should be constant 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#state-variables-that-could-be-declared-constant
+. analyzed (109 contracts with 102 detectors), 231 result(s) found
