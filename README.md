@@ -13,7 +13,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
-| M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | in progress — base, dynamic fee, toxic-flow pricing, TTL state machine, Aave rest + share pipe (28 tests); JIT engine next |
+| M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | in progress — base, dynamic fee, toxic-flow pricing, TTL state machine, Aave rest + share pipe + **JIT engine** (one-sided transient ranges, ERC-6909 claims, 38 tests); multi-bucket next |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vault structure (`src/vaults/`, 28 tests) landed; accountant + share token next |
 | M6 | E2E on Arc Testnet, security pass, docs/ABIs | pending |
