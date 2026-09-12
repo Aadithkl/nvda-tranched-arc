@@ -88,6 +88,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
 - `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
 - `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, senior-priority keeper
+- `docs/SECURITY_REVIEW.md` — external audit triage: findings, verdicts, fixes, accepted risks
 - `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
 - `docs/PRIOR_ART.md` — landscape (OZ/DualPool/EulerSwap), what we borrow vs what is ours
 - `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps

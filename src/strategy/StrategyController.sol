@@ -16,11 +16,13 @@ contract StrategyController {
     }
 
     address public owner;
+    address public pendingOwner;
     address public hook;
     mapping(address => bool) public agents;
     Bounds public bounds;
 
     event OwnerUpdated(address indexed owner);
+    event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event HookUpdated(address indexed hook);
     event AgentUpdated(address indexed agent, bool allowed);
     event BoundsUpdated(Bounds bounds);
@@ -29,6 +31,7 @@ contract StrategyController {
     event QuotingSubmitted(address indexed agent, bool enabled);
 
     error NotOwner(address caller);
+    error NotPendingOwner(address caller);
     error NotAgent(address caller);
     error HookNotSet();
     error ZeroAddress();
@@ -67,8 +70,15 @@ contract StrategyController {
 
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
-        owner = newOwner;
-        emit OwnerUpdated(newOwner);
+        pendingOwner = newOwner;
+        emit OwnershipTransferStarted(owner, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner(msg.sender);
+        pendingOwner = address(0);
+        owner = msg.sender;
+        emit OwnerUpdated(msg.sender);
     }
 
     function setHook(address hook_) external onlyOwner {

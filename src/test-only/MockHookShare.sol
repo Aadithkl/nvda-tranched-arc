@@ -17,6 +17,8 @@ contract MockHookShare is ERC20, IHookShareToken, IHookSharePipe {
     address public immutable authority;
     uint256 public immutable scale;
 
+    error SlippageExceeded(uint256 received, uint256 minOut);
+
     constructor(IERC20 usdc_, address authority_) ERC20("Mock Hook Share", "mHS") {
         usdc = usdc_;
         authority = authority_;
@@ -33,8 +35,13 @@ contract MockHookShare is ERC20, IHookShareToken, IHookSharePipe {
         _mint(receiver, shares);
     }
 
-    function unwrapUSDC(uint256 shares, address receiver) external returns (uint256 usdcAmount) {
+    function unwrapUSDC(uint256 shares, address receiver) external returns (uint256) {
+        return unwrapUSDC(shares, receiver, 0);
+    }
+
+    function unwrapUSDC(uint256 shares, address receiver, uint256 minUsdcOut) public returns (uint256 usdcAmount) {
         usdcAmount = shares / scale;
+        if (usdcAmount < minUsdcOut) revert SlippageExceeded(usdcAmount, minUsdcOut);
         _burn(msg.sender, shares);
         usdc.safeTransfer(receiver, usdcAmount);
     }
