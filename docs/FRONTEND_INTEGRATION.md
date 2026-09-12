@@ -66,13 +66,13 @@ const [sqrtPriceX96, tick, protocolFee, lpFee] = await client.readContract({
   address: manifest.contracts.stateView,
   abi: stateViewAbi,
   functionName: "getSlot0",
-  args: [manifest.pools.usdcEurc.poolId],
+  args: [(manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).poolId],
 });
 const liquidity = await client.readContract({
   address: manifest.contracts.stateView,
   abi: stateViewAbi,
   functionName: "getLiquidity",
-  args: [manifest.pools.usdcEurc.poolId],
+  args: [(manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).poolId],
 });
 ```
 
@@ -102,8 +102,8 @@ await wallet.writeContract({
   abi: routerAbi,
   functionName: "swapExactIn",
   args: [
-    manifest.pools.usdcEurc.key,
-    true,                      // zeroForOne: USDC -> EURC
+    (manifest.pools.usdcNvda ?? manifest.pools.mockNvdaUsdc).key,
+    true,                      // zeroForOne: USDC -> NVDA when USDC sorts first
     parseUnits("1", 6),        // exact input
     0n,                        // minAmountOut (use a quote in production)
     account.address,           // recipient
@@ -241,8 +241,8 @@ Subgraph (indexed values/history): live at `manifest.subgraph.url` (Graph Studio
 3. **Oracle tuple:** viem returns a named object for `getPrice()` (not an array).
 4. **Native vs ERC-20 USDC:** 18 vs 6 decimals — only use the ERC-20 interface.
 5. **Permit2:** required for `PositionManager` flows.
-6. **Hook pools:** the live mNVDA/mUSDC and USDC/EURC pools have `hooks: 0x0`; a hook-bound
-   pool is a different poolId (see `pools.smokeHookPool`).
+6. **Hook pools:** the live mNVDA/mUSDC demo pool and the v3 USDC/NVDA venue pool have
+   `hooks: 0x0`; a hook-bound pool is a different poolId (see `pools.smokeHookPool`).
 
 ## Env template
 

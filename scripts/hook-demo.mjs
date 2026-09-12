@@ -97,15 +97,15 @@ const value = (flag, fallback) => {
 const rpc = process.env.ARC_RPC_URL || arcTestnet.rpcUrls.default.http[0];
 const config = {
   usdc: process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000",
-  nvda: process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a",
+  nvda: process.env.NVDA_ADDRESS,
   router: process.env.DEMO_ROUTER,
   hook: process.env.HOOK_DEMO_HOOK,
   oracle: process.env.HOOK_DEMO_ORACLE,
   agent: process.env.HOOK_DEMO_AGENT,
   poolManager: process.env.V4_POOL_MANAGER || "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
 };
-if (!config.hook || !config.oracle || !config.agent || !config.router) {
-  throw new Error("HOOK_DEMO_HOOK, HOOK_DEMO_ORACLE, HOOK_DEMO_AGENT, DEMO_ROUTER must be in .env");
+if (!config.hook || !config.oracle || !config.agent || !config.router || !config.nvda) {
+  throw new Error("HOOK_DEMO_HOOK, HOOK_DEMO_ORACLE, HOOK_DEMO_AGENT, DEMO_ROUTER, NVDA_ADDRESS must be in .env");
 }
 
 const deployerKey = process.env.DEPLOYER_PRIVATE_KEY;
@@ -120,7 +120,18 @@ const operatorClient = operator ? createWalletClient({ account: operator, chain:
 
 const [currency0, currency1] =
   config.usdc.toLowerCase() < config.nvda.toLowerCase() ? [config.usdc, config.nvda] : [config.nvda, config.usdc];
-const key = { currency0, currency1, fee: 0x800000, tickSpacing: 1, hooks: config.hook };
+const usdcIsToken0 = config.usdc.toLowerCase() < config.nvda.toLowerCase();
+const tickSpacing = Number(process.env.NVDA_POOL_TICK_SPACING || 60);
+const nvdaPriceUsd = Number(process.env.NVDA_POOL_PRICE || 200);
+const key = { currency0, currency1, fee: 0x800000, tickSpacing, hooks: config.hook };
+
+function derivedTick() {
+  if (process.env.NVDA_POOL_TICK) return Number(process.env.NVDA_POOL_TICK);
+  const raw = usdcIsToken0 ? (1 / nvdaPriceUsd) * 1e12 : nvdaPriceUsd * 1e-12;
+  return Math.round(Math.log(raw) / Math.log(1.0001));
+}
+
+const alignTick = (value) => Math.floor(value / tickSpacing) * tickSpacing;
 const poolId = keccak256(
   encodeAbiParameters(
     [{ type: "address" }, { type: "address" }, { type: "uint24" }, { type: "int24" }, { type: "address" }],
@@ -207,15 +218,15 @@ async function status() {
 
   console.log("=== hook demo status ===");
   console.log(`hook: ${config.hook} poolId: ${poolId}`);
-  console.log(`oracle EURC/USD mid: ${Number(oracle.mid) / 1e8} (valid: ${oracle.valid}, session: ${oracle.session})`);
+  console.log(`oracle NVDA/USD mid: ${Number(oracle.mid) / 1e8} (valid: ${oracle.valid}, session: ${oracle.session})`);
   console.log(`pool tick: ${s0.tick} | stored lpFee: ${s0.lpFee} | sqrtPriceX96: ${s0.sqrtPriceX96}`);
   console.log(`params.baseFee: ${params.baseFee} | maxSurgeFee: ${params.maxSurgeFee} | maxDeviationBps: ${params.maxDeviationBps} | ttl: ${params.ttl}`);
   console.log(`quoteState: ${["Rest", "Degraded", "Active"][Number(state)]} | lastQuotedAt: ${lastQuotedAt}`);
   console.log(`effectiveMaxDeploy: ${maxDeploy} (risk budget)`);
   console.log(`hook Aave rest: aToken ${aTokenAddress} balance ${formatUnits(aTokenBal, 6)} USDC | totalManaged ${formatUnits(totalManaged, 6)} USDC | deployer shares ${formatUnits(shareSupply, 18)}`);
-  console.log(`deployer wallet: ${formatUnits(usdcBal, 6)} USDC / ${formatUnits(nvdaBal, 6)} EURC`);
-  console.log(`previewQuote USDC→EURC:`, await tryPreview(true));
-  console.log(`previewQuote EURC→USDC:`, await tryPreview(false));
+  console.log(`deployer wallet: ${formatUnits(usdcBal, 6)} USDC / ${formatUnits(nvdaBal, 18)} NVDA`);
+  console.log(`previewQuote USDC→NVDA:`, await tryPreview(usdcIsToken0));
+  console.log(`previewQuote NVDA→USDC:`, await tryPreview(!usdcIsToken0));
 }
 
 async function setParams() {
@@ -236,7 +247,7 @@ async function setFee() {
 }
 
 async function setOracle() {
-  const price = Number(value("--set-oracle", "116170000"));
+  const price = Number(value("--set-oracle", "20000000000"));
   await send(
     deployerClient.writeContract({
       address: config.oracle,
@@ -249,13 +260,15 @@ async function setOracle() {
 }
 
 async function addLiquidity() {
-  const liquidity = BigInt(value("--liquidity", "42000000"));
-  const tickLower = Number(value("--tick-lower", "-1987"));
-  const tickUpper = Number(value("--tick-upper", "-1062"));
-  const max0 = BigInt(value("--max0", "1100000"));
-  const max1 = BigInt(value("--max1", "1000000"));
-  await approveIfNeeded(config.usdc, config.router, max0);
-  await approveIfNeeded(config.nvda, config.router, max1);
+  const liquidity = BigInt(value("--liquidity", process.env.NVDA_POOL_LIQUIDITY || "1000000000"));
+  const tick = derivedTick();
+  const tickLower = Number(value("--tick-lower", String(alignTick(tick - 6000))));
+  const tickUpper = Number(value("--tick-upper", String(alignTick(tick + 6000))));
+  const maxUsdc = BigInt(value("--max-usdc", process.env.NVDA_POOL_MAX_USDC || "5050000"));
+  const maxNvda = BigInt(value("--max-nvda", process.env.NVDA_POOL_MAX_NVDA || "50000000000000000"));
+  const [max0, max1] = usdcIsToken0 ? [maxUsdc, maxNvda] : [maxNvda, maxUsdc];
+  await approveIfNeeded(config.usdc, config.router, maxUsdc);
+  await approveIfNeeded(config.nvda, config.router, maxNvda);
   await send(
     deployerClient.writeContract({
       address: config.router,
@@ -270,6 +283,8 @@ async function addLiquidity() {
 async function swap() {
   const amountIn = BigInt(value("--swap", "10000"));
   const zeroForOne = value("--direction", "usdc-to-nvda") !== "nvda-to-usdc";
+  const inDecimals = zeroForOne === usdcIsToken0 ? 6 : 18;
+  const label = zeroForOne === usdcIsToken0 ? "USDC→NVDA" : "NVDA→USDC";
   await approveIfNeeded(config.usdc, config.router, amountIn);
   await approveIfNeeded(config.nvda, config.router, amountIn);
   const preview = await tryPreview(zeroForOne);
@@ -281,7 +296,7 @@ async function swap() {
       functionName: "swapExactIn",
       args: [key, zeroForOne, amountIn, 0n, deployer.address, "0x"],
     }),
-    `swapExactIn(${zeroForOne ? "USDC→EURC" : "EURC→USDC"}, ${formatUnits(amountIn, 6)})`,
+    `swapExactIn(${label}, ${formatUnits(amountIn, inDecimals)})`,
   );
   const hookAbiFull = JSON.parse(fs.readFileSync("out/TrancheJITHook.sol/TrancheJITHook.json", "utf8")).abi;
   const [quoted] = parseEventLogs({ abi: hookAbiFull, logs: receipt.logs, eventName: "SwapQuoted" });

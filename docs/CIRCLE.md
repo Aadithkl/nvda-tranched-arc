@@ -15,7 +15,7 @@ and are not used in production flows.
 | TrancheAccountant | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
 | SeniorVault (ERC-7540) | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` |
 | JuniorVault (ERC-7540) | `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
-| PoolId (USDC/EURC, dynamic fee, JIT) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
+| PoolId (dynamic fee, JIT) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
 
 Deployed in two steps to avoid a solc pragma clash between v4-core (0.8.26) and ERC-7540 (^0.8.27):
 `forge script script/DeployTrancheHookV2.s.sol` then `script/DeployTrancheStack.s.sol` with
@@ -27,15 +27,14 @@ Manifest: `deployments/arc-testnet.json` → `stack`.
 
 | Circle product | Where | Status |
 |---|---|---|
-| **Arc + USDC** | Contracts, gas, accounting (tranches, lending fork, JIT hook, FX pool) | live on Arc testnet |
+| **Arc + USDC** | Contracts, gas, accounting (tranches, lending fork, JIT hook, NVDA pool) | live on Arc testnet |
 | **Gateway / Nanopayments** | x402 price rail (`scripts/x402-price.mjs`, `scripts/x402-seller.mjs`) | live, settled |
 | **Agent Marketplace (Discovery API)** | `scripts/agent-market.mjs --search` picks the LLM service by network/price/rails | working (no auth) |
 | **Nanopayment for AI reasoning** | `scripts/agent-market.mjs` pays AIsa per call from the agent wallet (Gateway) with the Graph snapshot | ready; needs agent-wallet login + ~$1–2 on Base |
-| **App Kits (Swap)** | `scripts/quote-compare.mjs` — App Kits `estimateSwap` vs our v4 pool quote (USDC→EURC) | working live |
 | **Circle Wallets (modular/passkey)** | `frontend/` scaffold (deferred to last): passkey wallet on Arc testnet | scaffolded |
 | **Paymaster / Gas Station** | frontend gasless user op (`paymaster: true`), testnet policy preconfigured | scaffolded (frontend phase) |
 | **CCTP / Bridge Kit** | optional funding flow (Base→Arc) | not started (optional) |
-| StableFX | permissioned institutional product — documented as unavailable; our USDC/EURC pool covers FX | n/a |
+| StableFX | permissioned institutional product — documented as unavailable | n/a |
 | Circle Contracts (SCP) | optional (Arc testnet only); not needed for the DeFi flows | n/a |
 
 ## Circle CLI setup (agent wallet + nanopayments)
@@ -94,26 +93,12 @@ Transfers from the agent wallet need the ERC-20 explicitly:
 `circle wallet transfer 0xTO --amount 0.05 --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --address 0x974f... --chain BASE`
 (omitting `--token` targets the native balance and fails with insufficient funds).
 
-## App Kits vs our pool (quote comparison)
-
-```bash
-npm run quote:compare -- --amount 5
-# pair:            USDC -> EURC (Arc testnet)
-# App Kits out:    4.056198 EURC
-# our pool out:    4.212875 EURC (fee 1 bps)
-# difference:      -371 bps (our-pool)
-```
-
-- App Kits Swap on Arc testnet supports **USDC, EURC, cirBTC only** — the NVDA leg cannot be routed
-  through it, so the NVDA↔USDC venue is our own v4 pool (`V4Quoter` quote vs x402 oracle mid).
-- `--execute --via app-kit` performs the real App Kits swap when a funded wallet is available.
-
 ## Paymaster (Arc testnet) — frontend phase
 
 - Client key stored in `.env` (`CIRCLE_CLIENT_KEY`, `NEXT_PUBLIC_CIRCLE_CLIENT_KEY`).
 - Preconditions: in Circle Console configure **Wallets → Modular Wallets → Passkey domain** to the
   frontend domain (localhost for dev).
-- The scaffolded `frontend/` page creates a passkey modular wallet, reads USDC/EURC balances, and
+- The scaffolded `frontend/` page creates a passkey modular wallet, reads USDC/NVDA balances, and
   submits an `approve + swap` batch with `paymaster: true` (gasless, testnet policy preconfigured).
 
 ## Notes / risks

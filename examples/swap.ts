@@ -4,12 +4,19 @@ import { contracts, erc20Abi, pools, routerAbi } from "./contracts";
 
 // NOTE: real-USDC flows must run against an RPC node (Arc's compliance precompile
 // is not emulated by local EVM simulators).
-export async function swapUsdcToEurc(privateKey: `0x${string}`, amountUsdc = "1") {
+export async function swapUsdcToNvda(privateKey: `0x${string}`, amountUsdc = "1") {
   const { account, wallet } = walletFromKey(privateKey);
   const amountIn = parseUnits(amountUsdc, 6);
+  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const tokenIn = [pool.key.currency0, pool.key.currency1].some(
+    (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
+  )
+    ? contracts.usdc
+    : contracts.mockUsdc;
+  const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
 
   await wallet.writeContract({
-    address: contracts.usdc as `0x${string}`,
+    address: tokenIn as `0x${string}`,
     abi: erc20Abi,
     functionName: "approve",
     args: [contracts.demoRouter as `0x${string}`, maxUint256],
@@ -20,8 +27,8 @@ export async function swapUsdcToEurc(privateKey: `0x${string}`, amountUsdc = "1"
     abi: routerAbi,
     functionName: "swapExactIn",
     args: [
-      pools.usdcEurc.key,
-      true, // zeroForOne: USDC -> EURC
+      pool.key,
+      zeroForOne, // USDC in, NVDA out (direction follows the sorted pool key)
       amountIn,
       0n, // set minAmountOut from a quote in production
       account.address,

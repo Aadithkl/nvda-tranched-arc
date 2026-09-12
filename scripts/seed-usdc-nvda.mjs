@@ -32,6 +32,7 @@ const erc20Abi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
   "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address owner) view returns (uint256)",
+  "function decimals() view returns (uint8)",
 ]);
 
 const stateViewAbi = parseAbi([
@@ -58,19 +59,21 @@ const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc
 const walletClient = createWalletClient({ account, chain: arcTestnet, transport: http(rpc) });
 
 const usdc = process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
-const nvda = process.env.EURC_ADDRESS || "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a";
+const nvda = process.env.NVDA_ADDRESS;
+if (!nvda) throw new Error("NVDA_ADDRESS must be set in .env");
 const stateView = process.env.STATE_VIEW;
 const router = process.env.DEMO_ROUTER;
 if (!stateView || !router) throw new Error("STATE_VIEW and DEMO_ROUTER must be set in .env");
 
-const fee = Number(process.env.EURC_POOL_FEE || 100);
-const tickSpacing = Number(process.env.EURC_POOL_TICK_SPACING || 1);
-const tick = Number(process.env.EURC_POOL_TICK || -1499);
-const tickLower = Number(process.env.EURC_POOL_TICK_LOWER || -1987);
-const tickUpper = Number(process.env.EURC_POOL_TICK_UPPER || -1062);
-const liquidity = BigInt(process.env.EURC_POOL_LIQUIDITY || "214639290");
+const fee = Number(process.env.NVDA_POOL_FEE || 3000);
+const tickSpacing = Number(process.env.NVDA_POOL_TICK_SPACING || 60);
+const priceUsdPerNvda = Number(process.env.NVDA_POOL_PRICE || 200);
+const liquidity = BigInt(process.env.NVDA_POOL_LIQUIDITY || "1000000000");
+const maxUsdc = BigInt(process.env.NVDA_POOL_MAX_USDC || "5050000");
+const maxNvda = BigInt(process.env.NVDA_POOL_MAX_NVDA || "50000000000000000");
 
-const [currency0, currency1] = usdc.toLowerCase() < nvda.toLowerCase() ? [usdc, nvda] : [nvda, usdc];
+const usdcIsToken0 = usdc.toLowerCase() < nvda.toLowerCase();
+const [currency0, currency1] = usdcIsToken0 ? [usdc, nvda] : [nvda, usdc];
 const key = { currency0, currency1, fee, tickSpacing, hooks: "0x0000000000000000000000000000000000000000" };
 const poolId = keccak256(
   encodeAbiParameters(
@@ -78,6 +81,39 @@ const poolId = keccak256(
     [currency0, currency1, fee, tickSpacing, key.hooks]
   )
 );
+
+const [usdcDecimals, nvdaDecimals] = await Promise.all([
+  publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "decimals" }),
+  publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "decimals" }),
+]);
+
+// human price = raw price * 10^(dec0 - dec1); raw price = token1 per token0 at the given USD/NVDA price
+function rawPriceFromUsd() {
+  const dec0 = usdcIsToken0 ? Number(usdcDecimals) : Number(nvdaDecimals);
+  const dec1 = usdcIsToken0 ? Number(nvdaDecimals) : Number(usdcDecimals);
+  const human = usdcIsToken0 ? 1 / priceUsdPerNvda : priceUsdPerNvda;
+  return human * 10 ** (dec1 - dec0);
+}
+
+const tickAt = (price) => Math.round(Math.log(price) / Math.log(1.0001));
+const align = (value) => Math.floor(value / tickSpacing) * tickSpacing;
+
+const rawPrice = rawPriceFromUsd();
+const tick = process.env.NVDA_POOL_TICK ? Number(process.env.NVDA_POOL_TICK) : tickAt(rawPrice);
+const tickLower = process.env.NVDA_POOL_TICK_LOWER
+  ? Number(process.env.NVDA_POOL_TICK_LOWER)
+  : align(tick - 6000);
+const tickUpper = process.env.NVDA_POOL_TICK_UPPER
+  ? Number(process.env.NVDA_POOL_TICK_UPPER)
+  : align(tick + 6000);
+
+function usdPerNvdaFromTick(poolTick) {
+  const raw = Math.exp(Number(poolTick) * Math.log(1.0001));
+  const dec0 = usdcIsToken0 ? Number(usdcDecimals) : Number(nvdaDecimals);
+  const dec1 = usdcIsToken0 ? Number(nvdaDecimals) : Number(usdcDecimals);
+  const human = raw * 10 ** (dec0 - dec1);
+  return usdcIsToken0 ? 1 / human : human;
+}
 
 async function readPool() {
   try {
@@ -107,17 +143,18 @@ async function status() {
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
     publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
   ]);
-  const price = Math.exp(Number(pool.tick) * Math.log(1.0001));
   console.log(
     JSON.stringify(
       {
+        pair: "USDC/NVDA",
         poolId,
         initialized: pool.initialized,
         tick: Number(pool.tick),
         lpFee: Number(pool.lpFee),
         liquidity: pool.liquidity.toString(),
-        nvdaPerUsdc: Number(price.toFixed(6)),
-        usdPerEurc: Number((1 / price).toFixed(4)),
+        usdPerNvda: pool.initialized ? Number(usdPerNvdaFromTick(pool.tick).toFixed(2)) : priceUsdPerNvda,
+        targetTick: tick,
+        range: [tickLower, tickUpper],
         wallet: {
           usdc: usdcBalance.toString(),
           nvda: nvdaBalance.toString(),
@@ -150,7 +187,7 @@ async function execute() {
     await publicClient.waitForTransactionReceipt({ hash });
     console.log("approved USDC:", hash);
   }
-  if (needsApprove(nvdaAllowance)) {
+  if (nvdaAllowance < maxNvda) {
     const hash = await walletClient.writeContract({
       address: nvda,
       abi: erc20Abi,
@@ -158,11 +195,11 @@ async function execute() {
       args: [router, maxUint256],
     });
     await publicClient.waitForTransactionReceipt({ hash });
-    console.log("approved EURC:", hash);
+    console.log("approved NVDA:", hash);
   }
 
   if (!pool.initialized) {
-    const sqrtPriceX96 = BigInt(Math.floor(Math.pow(1.0001, tick / 2) * 2 ** 96));
+    const sqrtPriceX96 = BigInt(Math.floor(Math.sqrt(rawPrice) * 2 ** 96));
     const hash = await walletClient.writeContract({
       address: router,
       abi: routerAbi,
@@ -176,11 +213,12 @@ async function execute() {
   }
 
   if (pool.liquidity === 0n) {
+    const [amount0Max, amount1Max] = usdcIsToken0 ? [maxUsdc, maxNvda] : [maxNvda, maxUsdc];
     const hash = await walletClient.writeContract({
       address: router,
       abi: routerAbi,
       functionName: "addLiquidity",
-      args: [key, tickLower, tickUpper, liquidity, 5_050_000n, 4_850_000n, account.address, "0x757364632d65757263"],
+      args: [key, tickLower, tickUpper, liquidity, amount0Max, amount1Max, account.address, "0x757364632d6e766461"],
     });
     await publicClient.waitForTransactionReceipt({ hash });
     console.log("added liquidity:", hash);
@@ -193,10 +231,10 @@ async function execute() {
       address: router,
       abi: routerAbi,
       functionName: "swapExactIn",
-      args: [key, currency0.toLowerCase() === usdc.toLowerCase(), 500_000n, 0n, account.address, "0x01"],
+      args: [key, usdcIsToken0, 500_000n, 0n, account.address, "0x01"],
     });
     await publicClient.waitForTransactionReceipt({ hash });
-    console.log("swap 0.5 USDC -> EURC:", hash);
+    console.log("swap 0.5 USDC -> NVDA:", hash);
   }
 
   await status();

@@ -20,8 +20,8 @@ This is a **semi-fork**: the pool / addresses-provider / configurator architectu
 | `DefaultReserveInterestRateStrategy` | Utilization-based rates: base + slope1 (to 80%) + slope2 above optimal |
 | `libraries/WadRayMath`, `libraries/ReserveConfiguration`, `libraries/DataTypes` | Ray/Wad math, Aave-style config bitfield, reserve structs |
 
-Markets configured by the deploy script: **USDC + EURC only** (6 decimals each), no WETH.
-Pegs: USDC `1e8`, EURC `1.1617e8` (matches the USDC/EURC v4 pool tick `-1499`).
+Markets configured by the deploy script: **USDC + NVDA only** (6 and 18 decimals), no WETH.
+Pegs: USDC `1e8`, NVDA `200e8` (reference mid; owner-settable via `NVDA_PEGGED_PRICE`).
 
 ## Model
 
@@ -52,9 +52,9 @@ eMode/isolation, treasury accrual, protocol data provider.
 
 Reserve prices are **owner-set pegs**, not hardcoded in the pool:
 
-- USDC `1e8`, EURC `1.1617e8` (USD, 8 decimals) — matches the USDC/EURC v4 pool at tick `-1499`.
-- Update any time (owner = deployer): `npm run lending:set-price -- --eurc-price 116300000`
-  (or set `USDC_PEGGED_PRICE` / `EURC_PEGGED_PRICE` in `.env`).
+- USDC `1e8`, NVDA `200e8` (USD, 8 decimals) — reference mid; keep close to the x402 oracle.
+- Update any time (owner = deployer): `npm run lending:set-price -- --nvda-price 20000000000`
+  (or set `USDC_PEGGED_PRICE` / `NVDA_PEGGED_PRICE` in `.env`).
 - Swap the source later without touching the pool: deploy an oracle implementing
   `getAssetPrice(address)` and call `provider.setAddress(keccak256("PRICE_ORACLE"), newOracle)`.
   A v4-pool-derived oracle is possible, but v4 core has no TWAP and the FX pool is thin —
@@ -64,16 +64,17 @@ Reserve prices are **owner-set pegs**, not hardcoded in the pool:
 
 ```shell
 npm run lending:status                 # prices, wallet/aToken balances, liquidity index
-npm run lending:set-price              # re-set USDC/EURC pegs (owner tx)
-npm run lending:seed                   # approve + deposit 10 USDC + 10 EURC (override with --usdc-amount/--eurc-amount)
+npm run lending:set-price              # re-set USDC/NVDA pegs (owner tx)
+npm run lending:seed                   # approve + deposit 10 USDC + 1 NVDA (override with --usdc-amount/--nvda-amount)
 ```
 
-Seeded on Arc: 10 USDC + 10 EURC (aTokens held by the deployer); txs in `docs/DEPLOYMENTS.md`.
+Seeded on Arc: 10 USDC (the NVDA market seeds after the v3 lending redeploy); txs in `docs/DEPLOYMENTS.md`.
 
 ## Deploy
 
 ```shell
-# .env: DEPLOYER_PRIVATE_KEY, USDC_ADDRESS, EURC_ADDRESS (optional LENDING_* overrides)
+# .env: DEPLOYER_PRIVATE_KEY, USDC_ADDRESS, NVDA_ADDRESS (optional LENDING_* overrides)
+# then: npm run lending:seed  (deposits 10 USDC + 1 NVDA)
 forge script script/DeployLending.s.sol --rpc-url $ARC_RPC_URL --broadcast
 ```
 

@@ -50,19 +50,15 @@
 - Verified wiring: `PositionManager.poolManager()/permit2()/tokenDescriptor()`, `StateView.poolManager()`, `V4Quoter.poolManager()`, `PositionDescriptor.wrappedNative()` → MockWETH9.
 - Deploy txs: `broadcast/DeployV4Stack.s.sol/5042002/run-latest.json`
 
-### USDC/EURC FX pool (real tokens)
+### USDC/NVDA venue pool (plain pool, no hook)
 
 | Item | Value |
 |---|---|
-| Pair | USDC `0x3600…0000` / EURC `0x89B5…D72a` (both 6d) |
-| PoolId | `0xa88885c010d00afae2cc9db9e7f6c56e6c5a8fbaa22a1141fedbbdda6993ebd4` |
-| Params | fee `100` (0.01%), tickSpacing `1`, no hook |
-| Liquidity | `214,639,290` in range `[-1987, -1062]` |
-| Seeded | 4.9998 USDC + 4.8 EURC |
-| Initial price | tick `-1499` = 1.1617 USD/EUR (live EURUSD at seed time) |
-| Current price | tick `-1499` = **1.1617 USD/EUR** (re-anchored after demo swaps) |
-| Txs | init `0x155fe13d…`, add `0xdbbdc3a7…`, swap `0xd9059d74…`, re-anchor swap `0xbba663b0…` |
-| Tool | `node scripts/seed-usdc-eurc.mjs [--execute] [--swap]` |
+| Pair | USDC `0x3600…0000` (6d) / NVDA (`NVDA_ADDRESS`, 18d) |
+| Params | `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` (default `3000` / `60`), no hook |
+| Initial price | tick derived from `NVDA_POOL_PRICE` (default 200 USD/NVDA) and token decimals |
+| Liquidity | `NVDA_POOL_LIQUIDITY` over a ±6000-tick band around the derived tick |
+| Tool | `node scripts/seed-usdc-nvda.mjs [--execute] [--swap]` |
 
 **Important (Arc quirk):** Arc's USDC `transferFrom` calls a compliance precompile
 (`0x1800…0001 isBlocklisted`) that Foundry's local EVM does not emulate, so
@@ -80,36 +76,37 @@
 | `LendingPoolConfigurator` | `0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe` |
 | `DefaultReserveInterestRateStrategy` | `0xdd4DdB9a2f33de6eb6b53B064CC09c60F82381Dc` |
 | `aUSDC` / `dUSDC` | `0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1` / `0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6` |
-| `aEURC` / `dEURC` | `0x24f73520cB400a8d978C5AB0c358755536cA99fa` / `0xAfcEB101607Ff5f190E3E7F534a927078AF70053` |
 
-- Markets: USDC + EURC only (both 6d); no WETH, no Chainlink. Pegs: USDC `1e8`, EURC `1.1617e8` (USD, 8d).
+- Markets: USDC + NVDA (both initialized by `DeployLending.s.sol`); the current live pool predates the
+  NVDA reserve — the v3 redeploy re-inits with USDC + NVDA. No WETH, no Chainlink.
+  Pegs: USDC `1e8`, NVDA `200e8` (`NVDA_PEGGED_PRICE`, USD 8d).
 - Reserve params: LTV `7500`, liquidation threshold `8000`, bonus `10500`, reserve factor `1000`.
 - Rate model: base `0`, slope1 `4%`, slope2 `60%`, optimal utilization `80%`.
 - `poolAdmin` / provider owner = deployer `0x749E3A3a743889beC27584C1C8212f4cf926b431`.
 - Deploy: `forge script script/DeployLending.s.sol --rpc-url arc_testnet --broadcast` (no USDC transfers, so Foundry simulation is safe);
   txs in `broadcast/DeployLending.s.sol/5042002/run-latest.json`.
-- Seeded: **10 USDC + 10 EURC** deposited by the deployer — `aUSDC` / `aEURC` balances = 10 each.
-  - approve USDC `0x9388b95e…`, deposit USDC `0xbb4e6fcf…`, approve EURC `0x2fbd9daf…`, deposit EURC `0xdac4d2c4…`
-- Pegs (softcoded, owner-settable): USDC `1e8`, EURC `1.1617e8`; demo re-set txs `0x54f26bf3…` (USDC), `0x89444df1…` (EURC).
+- Seeded: **10 USDC** deposited by the deployer — `aUSDC` balance = 10 (NVDA seeds after the v3 redeploy).
+  - approve USDC `0x9388b95e…`, deposit USDC `0xbb4e6fcf…`
+- Pegs (softcoded, owner-settable): USDC `1e8`, NVDA `200e8` (`NVDA_PEGGED_PRICE`); demo re-set tx `0x54f26bf3…` (USDC).
   Ops tool: `npm run lending:status | lending:set-price | lending:seed` (`scripts/lending-admin.mjs`).
 - Verified onchain: provider wiring, oracle pegs, aToken names/symbols. Docs: `docs/LENDING.md`.
 
-### TrancheJITHook live demo (USDC/EURC, test exercise)
+### TrancheJITHook live demo (test exercise)
 
 | Contract | Address |
 |---|---|
 | `TrancheJITHook` | `0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0` |
 | `HookShareToken` (created by hook) | `0xFA8F387fAa130Fffe46A9513D1090f69478A4BAF` |
-| EURC price oracle (`NVDAPriceOracle` instance) | `0xef7295e74b5ac0a8f3caf89ec19bd26e5f812174` |
+| Demo price oracle (`NVDAPriceOracle` instance) | `0xef7295e74b5ac0a8f3caf89ec19bd26e5f812174` |
 | `StrategyController` | `0x6ea148829e32ba3051869f73092c015d34661edd` |
 | `StrategyAgent` | `0x636bfd9e072c9ba93453a2d798Cb7D09b8Fe1E8c` |
 | Agent operator (separate key, local `.env`) | `0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95` |
 | PoolId | `0x1adee7f4fc915d8217b238785d857f49c431ded9ed48bdaf1e8ecf3559eb7f86` |
 
-- Pool: USDC/EURC, dynamic fee (`0x800000`), tickSpacing `1`, initialized at tick `-1499` (1.1617 USD/EURC).
-- Liquidity: ~1.06 USDC + 0.94 EURC (L=42,000,000 over `[-1987, -1062]`) — tx `0x2b10fd16…`.
+- Pool: dynamic fee (`0x800000`), tickSpacing `1` (v2 test deployment; superseded by the v3 USDC/NVDA redeploy).
+- Liquidity: seeded over the v2 test range (tx `0x2b10fd16…`).
 - Live exercise txs: fund operator `0x343f8392…`, `submitParams` `0x2cb53bcb…`, swap @ fee 3000 `0x298179e5…`,
-  `submitBaseFee(5000)` `0x06666bc4…`, swap @ fee 5000 `0x7b0d966f…`, oracle → 1.19 `0x4956708f…`,
+  `submitBaseFee(5000)` `0x06666bc4…`, swap @ fee 5000 `0x7b0d966f…`, oracle move `0x4956708f…`,
   **toxic swap charged surge 30000 (3%)** `0x24fdfebc…`, wrap 1 USDC → Aave `0xd4fbc548…`,
   unwrap 0.5 shares `0xd8161857…`, oracle reset `0x43e1429e…`.
 - Result: oracle-anchored toxic-flow pricing, agent-controlled dynamic fee, TTL-gated quoting, and the
@@ -129,18 +126,24 @@ Never hardcode these in app code; read them from the manifest / `.env`.
 | `TrancheAccountant` | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
 | `SeniorVault` | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` |
 | `JuniorVault` | `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
-| PoolId (USDC/EURC, dynamic fee, tickSpacing 1) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
+| PoolId (dynamic fee, tickSpacing 1) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
 | `StrategyController` / `StrategyAgent` | `0x6ea148829e32ba3051869f73092c015d34661edd` / `0x636bfd9e072c9ba93453a2d798cb7d09b8fe1e8c` |
 | Keeper (operator) | `0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95` |
 
-The v2 stack trades the USDC/EURC test pair. The v3 redeploy swaps in the USDC/NVDA dual-token
+The v2 stack was the test-pair deployment. The v3 redeploy swaps in the USDC/NVDA dual-token
 `TranchePipeModule` and replaces hook/share/accountant/vault/controller addresses.
 
 ### V3 redeploy checklist
 
-1. Fill `.env`: `USDC_ADDRESS`, `NVDA_ADDRESS`, `NVDA_ORACLE`, `V3_INITIAL_TICK` (compute for the
-   address-sorted pair and 18/6 decimals), `V3_TICK_SPACING`, `HOOK_DEMO_CONTROLLER`, `LENDING_POOL`,
-   optional `REBALANCE_ROUTER` / `REBALANCE_POOL_FEE` / `REBALANCE_TICK_SPACING`.
+**Before running (required env):** `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA token on Arc),
+`NVDA_ORACLE` (x402-pushed price for the hook), `NVDA_PEGGED_PRICE` (USD 8d, e.g. `20000000000`),
+and the pool knobs `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` / `NVDA_POOL_PRICE` (tick is derived).
+`NVDA_ADDRESS` is the single source for the pool, the lending reserve, and the vault equity leg.
+
+1. Fill `.env`: `USDC_ADDRESS`, `NVDA_ADDRESS`, `NVDA_ORACLE`, `NVDA_PEGGED_PRICE`,
+   `V3_INITIAL_TICK` (compute for the address-sorted pair and 18/6 decimals), `V3_TICK_SPACING`,
+   `HOOK_DEMO_CONTROLLER`, `LENDING_POOL`, optional `REBALANCE_ROUTER` / `REBALANCE_POOL_FEE` /
+   `REBALANCE_TICK_SPACING`.
 2. `forge script script/DeployTrancheHookV3.s.sol:DeployTrancheHookV3 --rpc-url arc_testnet --broadcast -vv`
    (deploys the hook + `TranchePipeModule`, inits the pool, wires module/controller). Set
    `HOOK_ADDRESS` and `PIPE_ADDRESS` from the logs.
@@ -149,7 +152,8 @@ The v2 stack trades the USDC/EURC test pair. The v3 redeploy swaps in the USDC/N
 4. Update `.env`: `TRANCHE_HOOK`, `TRANCHE_SHARE`, `TRANCHE_ACCOUNTANT`, `TRANCHE_SENIOR`,
    `TRANCHE_JUNIOR`, `TRANCHE_POOL_ID`, `PIPE_ADDRESS`, `AGENT_HOOK`, `AGENT_MODULE`, `AGENT_KEEPER`.
 5. `npm run export:pack` then `npm run subgraph:sync` (manifest + ABIs + subgraph addresses).
-6. Seed the external rebalance venue, push a fresh oracle price, then `npm run agent:tick -- --submit`.
+6. Seed the lending market (`npm run lending:seed` → 10 USDC + 1 NVDA) and the external rebalance
+   venue (`npm run seed:nvda -- --execute`), push a fresh oracle price, then `npm run agent:tick -- --submit`.
 
 ### Hook proof (SmokeHook, test-only)
 

@@ -18,9 +18,10 @@ export async function readStockPrice() {
   };
 }
 
-// v4 pool state (works for any pool in the manifest)
-export async function readUsdcEurcPool() {
-  const poolId = pools.usdcEurc.poolId as `0x${string}`;
+// v4 pool state: prefers the USDC/NVDA venue pool, falls back to the live demo pool
+export async function readUsdcNvdaPool() {
+  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const poolId = pool.poolId as `0x${string}`;
   const [sqrtPriceX96, tick, , lpFee] = await publicClient.readContract({
     address: contracts.stateView as `0x${string}`,
     abi: stateViewAbi,
@@ -33,22 +34,36 @@ export async function readUsdcEurcPool() {
     functionName: "getLiquidity",
     args: [poolId],
   });
-  const price = 1.0001 ** Number(tick); // EURC per USDC
+  // human price = raw price * 10^(dec0 - dec1); NVDA is 18d, USDC is 6d
+  const nvdaIsToken0 =
+    pool.key.currency0.toLowerCase() === contracts.mockNvda.toLowerCase() ||
+    (contracts.nvda != null && pool.key.currency0.toLowerCase() === contracts.nvda.toLowerCase());
+  const dec0 = nvdaIsToken0 ? 18 : 6;
+  const dec1 = nvdaIsToken0 ? 6 : 18;
+  const human = 1.0001 ** Number(tick) * 10 ** (dec0 - dec1); // token1 per token0
+  const usdPerNvda = nvdaIsToken0 ? human : 1 / human;
   return {
     tick: Number(tick),
     lpFee: Number(lpFee),
     liquidity: liquidity.toString(),
-    usdPerEurc: 1 / price,
+    usdPerNvda,
     sqrtPriceX96: sqrtPriceX96.toString(),
   };
 }
 
 // Quote an exact-input swap (see V4Quoter ABI for the tuple shape)
-export async function quoteUsdcToEurc(amountIn: bigint) {
+export async function quoteUsdcToNvda(amountIn: bigint) {
+  const pool = pools.usdcNvda ?? pools.mockNvdaUsdc;
+  const tokenIn = [pool.key.currency0, pool.key.currency1].some(
+    (currency) => currency.toLowerCase() === contracts.usdc.toLowerCase(),
+  )
+    ? contracts.usdc
+    : contracts.mockUsdc;
+  const zeroForOne = pool.key.currency0.toLowerCase() === tokenIn.toLowerCase();
   return publicClient.readContract({
     address: contracts.v4Quoter as `0x${string}`,
     abi: quoterAbi,
     functionName: "quoteExactInputSingle",
-    args: [pools.usdcEurc.key, true, amountIn, "0x"],
+    args: [pool.key, zeroForOne, amountIn, "0x"],
   });
 }
