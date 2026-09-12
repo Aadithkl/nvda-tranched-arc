@@ -97,7 +97,6 @@ hook moves `ACTIVE → DEGRADED → REST`, with capital resting in Aave.
 ```bash
 npm run market        # live table
 npm run market:json   # cache snapshot (read by the agent tick)
-npm run test:agent    # offline math tests
 ```
 
 Full definitions: `docs/AGENT_MARKET.md`. The agent tick reads `agent/.cache/market.json` and overlays
