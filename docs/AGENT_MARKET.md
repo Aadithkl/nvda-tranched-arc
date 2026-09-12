@@ -82,12 +82,16 @@ USDC over x402. The model is explicit, never random:
 
 | Tier | Endpoint | Example models |
 |---|---|---|
-| `v1-chat` (default) | metered | `openai/gpt-4o-mini`, `openai/gpt-4.1-mini`, `anthropic/claude-haiku-4.5`, `google/gemini-2.5-flash` |
-| `v1-chat-nano` | metered | `openai/gpt-5-nano`, `google/gemini-2.5-flash-lite`, `meta-llama/llama-3.2-3b` |
-| `v1-chat-pro` | metered | `openai/gpt-4.1`, `anthropic/claude-sonnet-5`, `google/gemini-2.5-pro` |
-| `v1-chat-premium` | metered | `openai/gpt-5`, `openai/o3`, `anthropic/claude-opus-5` |
+| `v1-chat-nano` | metered | `openai/gpt-5-nano`, `openai/gpt-5.6-luna`, `google/gemini-2.5-flash-lite`, `meta-llama/llama-3.2-3b`, `mistralai/ministral-8b`, `qwen/qwen-2.5-7b`, `deepseek/deepseek-chat`, `poolside/laguna-s-2.1` |
+| `v1-chat` (default) | metered | `openai/gpt-4o-mini`, `openai/gpt-4.1-mini`, `anthropic/claude-haiku-4.5`, `google/gemini-2.5-flash`, `google/gemini-3.5-flash-lite`, plus `deepseek/*`, `meta-llama/*`, `mistralai/*`, `qwen/*` |
+| `v1-chat-pro` | metered | `openai/gpt-4.1`, `anthropic/claude-sonnet-5`, `google/gemini-2.5-pro`, `google/gemini-3.1-pro-preview`, `google/gemini-3.6-flash`, `x-ai/grok-4.6` |
+| `v1-chat-premium` | metered | `openai/gpt-5`, `openai/gpt-5.6-sol`, `openai/gpt-5.6-terra`, `openai/o3`, `openai/o4-mini`, `anthropic/claude-opus-5` |
 | `v1-chat-auto` | metered | server picks the model (eval-ranked) — the only non-deterministic routing |
 | `v1-chat-grounded` | metered | grounded in a live web search |
+
+Live-verified `2026-09-12`: 58 models across 10 tiers; no `gpt-5.5-luna` — the Luna line is
+`gpt-5.6-luna` (nano), with `gpt-5.6-sol` / `gpt-5.6-terra` in premium. Re-check anytime with
+`npm run ai:models` (`GET /v1/models` is free; the response ETag signals changes).
 
 - Allowlist + per-tier limits: `GET /v1/models` (`npm run ai:models`).
 - Billing: the 402 quotes exact input + `max_tokens` at the model price × 1.15 (from $0.001, cap $2);
