@@ -12,7 +12,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | M0 | Env, repo, Foundry, deps, license audit | done |
 | M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
-| M2b | Aave V2 fork (USDC + EURC + mNVDA reserves) on Arc Testnet | pending |
+| M2b | Aave V2 semi-fork (USDC + EURC markets, pegged oracle) on Arc Testnet | implemented (`src/lending/`, 29 tests) — deploy pending |
 | M3 | `TrancheJITHook` (DualPool-style multi-bucket JIT + gates) | pending |
 | M4 | `StrategyController` + agent daemon + CRE safety stub | pending |
 | M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share | in progress — vault structure (`src/vaults/`, 28 tests) landed; accountant + share token next |
@@ -79,6 +79,7 @@ Environment: copy `.env.example` to `.env` and fill in secrets (never committed)
 
 - `LICENSES.md` — dependency license audit
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
+- `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + EURC markets, pegs, gaps
 - `docs/VAULT_HOOK_MASTER_PLAN.md` — locked master plan: tranche → rules → hook → agent (P1–P8)
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
