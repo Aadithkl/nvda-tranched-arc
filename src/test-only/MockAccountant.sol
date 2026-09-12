@@ -10,10 +10,15 @@ contract MockAccountant is ITrancheAccountant {
 
     uint256 public override seniorClaim;
     uint256 public override juniorClaim;
+    bool public override escrowFunded = true;
 
     constructor(address seniorVault_, address juniorVault_) {
         seniorVault = seniorVault_;
         juniorVault = juniorVault_;
+    }
+
+    function setEscrowFunded(bool funded) external {
+        escrowFunded = funded;
     }
 
     function poolValue() external view override returns (uint256) {

@@ -2,7 +2,7 @@
 
 **Standards:** ERC-7540 (Senior/Junior tranches) · ERC-7575 (pool strategy share)
 **Scope:** tranche layer → rules → hook (rehypothecation JIT) → agent control plane
-**Status:** in progress — lending rest state live on Arc (M2b) and tranche vault structure landed; hook share token, JIT hook, accountant, agent next
+**Status:** in progress — lending rest state live on Arc (M2b), tranche vault structure + hook base (toxic-flow fee, TTL state machine, risk budget, agent/controller separation) landed; JIT engine, accountant, agent daemon next
 
 ---
 
