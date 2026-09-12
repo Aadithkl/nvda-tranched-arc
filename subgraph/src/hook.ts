@@ -34,6 +34,7 @@ import {
   Quote,
   ShareFlow as ShareFlowEntity
 } from "../generated/schema";
+import { handleBlock as handleYieldBlock, recordDeposit, recordWithdraw } from "./yield";
 
 function loadState(id: string): HookState {
   let state = HookState.load(id);
@@ -81,6 +82,10 @@ function quoteStateName(state: i32): string {
 
 function shareFlowId(event: ethereum.Event): string {
   return event.transaction.hash.toHexString() + "-" + event.logIndex.toString();
+}
+
+export function handleBlock(block: ethereum.Block): void {
+  handleYieldBlock(block);
 }
 
 export function handleParamsUpdated(event: ParamsUpdated): void {
@@ -232,6 +237,8 @@ export function handleSharesWrapped(event: SharesWrapped): void {
   flow.timestamp = event.block.timestamp;
   flow.blockNumber = event.block.number;
   flow.save();
+
+  recordDeposit(event.address, event);
 }
 
 export function handleSharesUnwrapped(event: SharesUnwrapped): void {
@@ -250,6 +257,8 @@ export function handleSharesUnwrapped(event: SharesUnwrapped): void {
   flow.timestamp = event.block.timestamp;
   flow.blockNumber = event.block.number;
   flow.save();
+
+  recordWithdraw(event.address, event);
 }
 
 export function handleSuppliedToAave(event: SuppliedToAave): void {
