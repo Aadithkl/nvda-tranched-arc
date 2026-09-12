@@ -53,6 +53,8 @@ node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
 npm run seed:eurc                     # USDC/EURC FX pool status (--execute to seed)
 npm run lending:status                # Aave semi-fork: prices, balances, liquidity index
 npm run lending:seed                  # deposit 10 USDC + 10 EURC into the lending pool
+npm run hook:demo -- --status         # live TrancheJITHook demo (fees, toxic surge, Aave rest)
+npm run agent:keygen                  # generate the local agent-operator key (testnet only)
 npm run export:pack                   # regenerate ABIs + deployment manifest
 npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
 cd subgraph && npm install && npm run build    # subgraph codegen + compile
