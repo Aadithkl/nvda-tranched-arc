@@ -1,0 +1,61 @@
+# Tranche Agent (external AI / policy daemon)
+
+Offchain control plane for `TrancheJITHook`. It **perceives** (oracle, pool price, hook params, risk
+budget), **reasons** (volatility regime), and **acts** through the whitelisted `StrategyAgent` contract —
+it can never mint/burn shares, move funds, or change roles.
+
+```
+oracle + hook + accountant ──► agent/index.mjs ──► StrategyAgent ──► StrategyController ──► hook params
+      (RPC / The Graph)          regime policy        (whitelisted)      (hard bounds)
+```
+
+## Run modes
+
+| Mode | Command |
+|---|---|
+| Local dry run | `node agent/index.mjs --once` |
+| Local submit | `node agent/index.mjs --once --submit` |
+| Local loop (default 600s) | `node agent/index.mjs --loop --interval 600 --submit` |
+| GitHub Actions heartbeat | `.github/workflows/agent-heartbeat.yml` (cron every 10 min, `workflow_dispatch` for manual) |
+| EigenCompute (later) | containerized daemon (`Dockerfile` to be added when key custody matters) |
+
+## Regimes (policy)
+
+| Regime | Condition | Base fee | Surge cap | Deviation band | TTL | Max deploy |
+|---|---|---|---|---|---|---|
+| calm | deviation ≤ 50 bps | 0.30% | 3% | 300 bps | 3600s | 1 USDC |
+| elevated | ≤ 150 bps | 0.50% | 6% | 250 bps | 1800s | 0.5 USDC |
+| turbulent | > 150 bps | 0.80% | 10% | 150 bps | 900s | 0.1 USDC |
+| closed | oracle invalid / market closed | — | — | — | — | quoting **off** |
+| unfunded | senior escrow not funded | — | — | — | — | quoting **off** |
+
+The `StrategyController` enforces hard bounds on every submitted param, so a compromised or wrong agent
+can only shrink/reshape activity within those limits.
+
+## Environment
+
+```
+ARC_RPC_URL=
+AGENT_HOOK=        # TrancheJITHook address
+AGENT_ORACLE=      # price oracle address
+AGENT_ADDRESS=     # StrategyAgent address (whitelisted on the controller)
+AGENT_KEEPER=      # TrancheAccountant address (optional; for fulfillRedeem/rebalance)
+AGENT_OPERATOR_PRIVATE_KEY=  # operator key ONLY (never the deployer key), local .env / GitHub secret
+AGENT_CADENCE_SECONDS=600
+PARAMS_TTL_SECONDS=3600
+# x402 reasoning endpoint (optional; rules fallback is used when unset)
+AGENT_REASONING_URL=
+```
+
+## x402 reasoning (planned)
+
+The policy function is pluggable: when `AGENT_REASONING_URL` is set the daemon will request a paid quote
+(or richer volatility signal) through the x402/Circle Gateway rail already used by the oracle keeper, and
+fall back to the deterministic regime table above otherwise. The onchain result is identical in shape —
+bounded params submitted via `StrategyAgent`.
+
+## GitHub Actions
+
+`.github/workflows/agent-heartbeat.yml` runs every 10 minutes and on manual dispatch; configure the
+secrets above in the repository settings. The protocol is safe if the agent stops: params expire and the
+hook moves `ACTIVE → DEGRADED → REST`, with capital resting in Aave.

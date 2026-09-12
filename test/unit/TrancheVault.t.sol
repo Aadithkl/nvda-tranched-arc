@@ -14,6 +14,7 @@ import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
 import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { TrancheVault } from "../../src/vaults/TrancheVault.sol";
 import { MockHookShare } from "../../src/test-only/MockHookShare.sol";
+import { MockRiskAccountant } from "../../src/test-only/MockRiskAccountant.sol";
 import { MockToken } from "../../src/test-only/MockToken.sol";
 
 contract TrancheVaultTest is Test {
@@ -27,7 +28,7 @@ contract TrancheVaultTest is Test {
     address internal bob;
 
     function setUp() public {
-        accountant = makeAddr("accountant");
+        accountant = address(new MockRiskAccountant());
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
