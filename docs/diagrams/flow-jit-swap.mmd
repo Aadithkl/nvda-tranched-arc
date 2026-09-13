@@ -1,0 +1,30 @@
+sequenceDiagram
+    actor S as Swapper
+    participant R as DemoRouter
+    participant PM as PoolManager — v4
+    participant H as TrancheJITHook
+    participant A as LendingPool — rest
+
+    S->>R: swapExactIn(poolKey, zeroForOne, amountIn, minOut, hookData)
+    R->>PM: swap(...)
+    PM->>H: beforeSwap(hookData)
+    H->>H: gates — active pool · quoteState ≠ Rest · cooldown
+    H->>H: prices — pool slot0 vs oracle mid, maxPriceAge 300s
+    H->>H: deviation ≤ maxDeviationBps
+    H->>H: toxic? fee = baseFee + deviation × toxicityMultiplier, capped at MAX_FEE
+    H->>H: EV gate — fee ≥ minEvBps, else revert NotEvPositive
+    alt risk budget is 0 — senior escrow unfunded
+        H-->>PM: revert JitUnavailable
+    else funded
+        H->>H: bucket-exact JIT size from amount-delta math, +1% buffer
+        H->>H: seed value ≤ effectiveMaxDeploy(), else JitCapacityExceeded
+        H->>A: withdraw USDC or equity from rest
+        H->>PM: settle and seed one-sided transient range
+        PM->>PM: swap executes inside the bucket
+        PM->>H: afterSwap(...)
+        H->>PM: remove liquidity
+        PM-->>H: positive deltas become ERC-6909 claims
+        H->>H: negative deltas paid from Aave (JitRangeExceeded reverts if price left range)
+        H->>H: next flow redeems claims, unwindClaims() for keepers
+    end
+    R-->>S: output tokens

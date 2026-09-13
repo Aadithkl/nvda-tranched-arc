@@ -1,0 +1,46 @@
+flowchart LR
+    subgraph FE["Frontend — frontend/ · Vite + TypeScript"]
+        direction TB
+        PAGES["4 pages<br/>Vaults · Price · Strategy · Markets"]
+        WAL["wallet.ts<br/>injected wallet or Circle passkey smart account<br/>userOps with paymaster: true"]
+        CFG["config.ts<br/>deployments/arc-testnet.json + docs/abis/*"]
+        FCORE["viem public + wallet clients"]
+        PAGES --> CFG
+        CFG --> FCORE
+        PAGES --> WAL
+    end
+
+    subgraph BE["Backend — agent/ Node daemon + scripts/"]
+        direction TB
+        IDX["index.mjs — tick<br/>perceive → economic audit → act"]
+        MKT["market.mjs — Graph market model<br/>volatility · fees · active TVL · IL sweep"]
+        MOD["model.mjs<br/>economicAudit · clamps · rebalance rails"]
+        PRI["price.mjs — oracle rail<br/>staleness check → seller → updatePrice"]
+        REF["refresh.mjs — paid LLM manager<br/>6h verdict, snapshot-hash bound"]
+        SRV["serve.mjs — /tick HTTP bridge"]
+        CACHE[("agent/.cache<br/>market.json · reasoning.json · policy.json")]
+        IDX --> MKT
+        IDX --> MOD
+        MKT --> CACHE
+        REF --> CACHE
+        IDX <--> CACHE
+        SRV --> IDX
+    end
+
+    subgraph EXT["External"]
+        RPC["Arc RPC"]
+        GRAPH["The Graph Gateway"]
+        GW["Circle Gateway"]
+        SELLERS["BlockRun nanoprice quotes"]
+        LLM["agent402 metered LLM"]
+    end
+
+    FCORE -->|"reads / user ops"| RPC
+    PAGES -->|"NVDAc pool stats via API key"| GRAPH
+    MKT --> GRAPH
+    PRI -->|"402 → nanopayment"| GW
+    GW --> SELLERS
+    PRI -->|"oracle.updatePrice"| RPC
+    IDX -->|"submitParams / submitRebalance"| RPC
+    REF -->|"x402 paid call"| LLM
+    WAL -->|"userOps via bundler"| RPC

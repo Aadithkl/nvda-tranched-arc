@@ -28,6 +28,7 @@
     "circle:stock": "node scripts/circle-stock.mjs",
     "test:agent": "node --test agent/test/model.test.mjs",
     "export:pack": "node scripts/export-frontend-pack.mjs",
+    "diagrams:export": "node scripts/export-diagrams.mjs",
     "subgraph:sync": "node scripts/sync-subgraph-addresses.mjs",
     "graph:query": "node scripts/graph-query.mjs"
   },
