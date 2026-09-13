@@ -1075,12 +1075,91 @@ async function readJit() {
   }
 }
 
-/* ─────────── manual agent check (local bridge) ─────────── */
+/* ─────────── manual agent check (local bridge / hosted heartbeat) ─────────── */
 
 // On the hosted site there is no local bridge; the agent ticks in GitHub Actions every 10 min.
-const AGENT_HEARTBEAT_URL = "https://github.com/Aadithkl/nvda-tranched-arc/actions/workflows/agent-heartbeat.yml";
+const AGENT_HEARTBEAT_WORKFLOW = "agent-heartbeat.yml";
+const AGENT_HEARTBEAT_URL = `https://github.com/Aadithkl/nvda-tranched-arc/actions/workflows/${AGENT_HEARTBEAT_WORKFLOW}`;
 const agentBridgeIsLocal = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//.test(`${AGENT_URL}/`);
 const pageIsLocal = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
+
+// Optional fine-grained PAT (Actions: read+write, this repo only) baked in at build time so the
+// hosted page can dispatch the heartbeat. When absent the button falls back to opening the runs page.
+const GH_DISPATCH_TOKEN = ((import.meta.env.VITE_GH_DISPATCH_TOKEN as string | undefined) ?? "").trim();
+const GH_REPO = "Aadithkl/nvda-tranched-arc";
+const GH_WORKFLOW_API = `https://api.github.com/repos/${GH_REPO}/actions/workflows/${AGENT_HEARTBEAT_WORKFLOW}`;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const ghHeaders = (): HeadersInit => ({
+  accept: "application/vnd.github+json",
+  ...(GH_DISPATCH_TOKEN ? { authorization: `Bearer ${GH_DISPATCH_TOKEN}` } : {}),
+});
+
+type WorkflowRun = { id: number; html_url: string; status: string; conclusion: string | null; created_at: string };
+
+async function findDispatchedRun(sinceMs: number): Promise<WorkflowRun | undefined> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await sleep(3000);
+    const response = await fetch(`${GH_WORKFLOW_API}/runs?event=workflow_dispatch&per_page=5`, { headers: ghHeaders() });
+    if (!response.ok) continue;
+    const data = (await response.json()) as { workflow_runs?: WorkflowRun[] };
+    const found = data.workflow_runs?.find((entry) => Date.parse(entry.created_at) >= sinceMs - 60_000);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+// Hosted mode: dispatch the GitHub Actions heartbeat, then surface a compact status plus its run link.
+async function runHeartbeat() {
+  const button = $("agentRun") as HTMLButtonElement;
+  const resultBox = $("agentResult");
+  resultBox.classList.add("hidden");
+  button.disabled = true;
+  button.textContent = "Triggering…";
+  const link = (url: string, label: string) =>
+    `<a class="underline" href="${url}" target="_blank" rel="noreferrer">${label}</a>`;
+  try {
+    $("agentStatus").textContent = "Dispatching hosted heartbeat…";
+    const dispatchedAt = Date.now();
+    const response = await fetch(`${GH_WORKFLOW_API}/dispatches`, {
+      method: "POST",
+      headers: ghHeaders(),
+      body: JSON.stringify({ ref: "main" }),
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("GitHub rejected the dispatch token (expired or missing Actions: write)");
+    }
+    if (response.status === 404) throw new Error("heartbeat workflow not found on GitHub");
+    if (!response.ok) throw new Error(`dispatch failed: HTTP ${response.status}`);
+    $("agentStatus").innerHTML = `Triggered · waiting for the run to start… ${link(AGENT_HEARTBEAT_URL, "runs")}`;
+    const runInfo = await findDispatchedRun(dispatchedAt);
+    if (!runInfo) {
+      $("agentStatus").innerHTML = `Triggered · ${link(AGENT_HEARTBEAT_URL, "view heartbeat runs")}`;
+      return;
+    }
+    let status = runInfo.status;
+    let conclusion = runInfo.conclusion;
+    while (status !== "completed") {
+      const current = await fetch(`https://api.github.com/repos/${GH_REPO}/actions/runs/${runInfo.id}`, { headers: ghHeaders() });
+      if (current.ok) {
+        const data = (await current.json()) as WorkflowRun;
+        status = data.status;
+        conclusion = data.conclusion;
+      }
+      $("agentStatus").innerHTML = `Run ${link(runInfo.html_url, `#${runInfo.id}`)} · ${status}…`;
+      if (status === "completed") break;
+      await sleep(4000);
+    }
+    $("agentStatus").innerHTML = `Hosted heartbeat ${conclusion ?? status} · ${link(runInfo.html_url, "view run")} · refreshing data…`;
+    setTimeout(() => refresh().catch(() => undefined), 4000);
+  } catch (error) {
+    $("agentStatus").textContent = `Could not trigger the hosted heartbeat: ${(error as Error).message}`;
+    throw error;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Run agent check";
+  }
+}
 
 async function runAgentCheck() {
   const button = $("agentRun") as HTMLButtonElement;
@@ -1680,12 +1759,15 @@ function wire() {
   $("faucetBtn").addEventListener("click", mintEquity);
   if (agentBridgeIsLocal && !pageIsLocal) {
     const button = $("agentRun") as HTMLButtonElement;
-    button.textContent = "Open heartbeat runs";
     $("agentStatus").innerHTML =
-      `The agent is hosted on GitHub Actions and ticks every 10 minutes. ` +
+      `Hosted agent — ticks on GitHub Actions every 10 minutes. ` +
       `<a class="underline" href="${AGENT_HEARTBEAT_URL}" target="_blank" rel="noreferrer">View the latest heartbeat run</a> ` +
       `for the last tick, audit verdict and any submitted transactions.`;
-    button.addEventListener("click", () => window.open(AGENT_HEARTBEAT_URL, "_blank", "noopener,noreferrer"));
+    button.addEventListener("click", () =>
+      GH_DISPATCH_TOKEN
+        ? run("agent check", runHeartbeat)
+        : window.open(AGENT_HEARTBEAT_URL, "_blank", "noopener,noreferrer"),
+    );
   } else {
     $("agentRun").addEventListener("click", () => run("agent check", runAgentCheck));
   }
