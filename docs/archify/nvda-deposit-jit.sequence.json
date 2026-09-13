@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Deposit to JIT Swap",
+    "output": "nvda-deposit-jit.sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1126, 590]
+  },
+  "participants": [
+    { "id": "depositor", "type": "external", "label": "Depositor" },
+    { "id": "vault", "type": "backend", "label": "Tranche vault" },
+    { "id": "pipe", "type": "backend", "label": "TranchePipeModule" },
+    { "id": "hook", "type": "backend", "label": "TrancheJITHook" },
+    { "id": "aave", "type": "database", "label": "Aave rest" },
+    { "id": "poolManager", "type": "backend", "label": "v4 PoolManager" },
+    { "id": "swapper", "type": "external", "label": "Swapper" }
+  ],
+  "segments": [
+    { "from": 152, "to": 308, "label": "Deposit + rest" },
+    { "from": 324, "to": 514, "label": "JIT swap" }
+  ],
+  "messages": [
+    { "id": "deposit", "from": "depositor", "to": "vault", "y": 160, "label": "depositUSDC", "variant": "emphasis" },
+    { "id": "vault-wrap", "from": "vault", "to": "pipe", "y": 188, "label": "wrapUSDC" },
+    { "id": "pipe-wrap", "from": "pipe", "to": "hook", "y": 216, "label": "wrapUSDC" },
+    { "id": "hook-supply", "from": "hook", "to": "aave", "y": 244, "label": "supply idle USDC" },
+    { "id": "hook-shares", "from": "hook", "to": "pipe", "y": 272, "label": "ERC-7575 shares", "variant": "return" },
+    { "id": "pipe-shares", "from": "pipe", "to": "vault", "y": 300, "label": "vault shares", "variant": "return" },
+    { "id": "swap", "from": "swapper", "to": "poolManager", "y": 334, "label": "swap", "variant": "emphasis" },
+    { "id": "before-swap", "from": "poolManager", "to": "hook", "y": 362, "label": "beforeSwap" },
+    { "id": "pull-inventory", "from": "hook", "to": "aave", "y": 390, "label": "pull inventory" },
+    { "id": "seed-jit", "from": "hook", "to": "poolManager", "y": 418, "label": "seed one-sided JIT" },
+    { "id": "after-swap", "from": "poolManager", "to": "hook", "y": 446, "label": "afterSwap" },
+    { "id": "remove-range", "from": "hook", "to": "poolManager", "y": 474, "label": "remove range - fee claim" },
+    { "id": "output", "from": "poolManager", "to": "swapper", "y": 502, "label": "output", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "vault", "from": 155, "to": 306, "type": "backend" },
+    { "participant": "pipe", "from": 182, "to": 276, "type": "backend" },
+    { "participant": "hook", "from": 210, "to": 480, "type": "backend" },
+    { "participant": "aave", "from": 238, "to": 420, "type": "database" },
+    { "participant": "poolManager", "from": 330, "to": 508, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Deposit", "items": ["One share per book, minted only by the hook", "Vaults are ERC-7540 wrappers over that share", "Idle capital supplies Aave while it waits"] },
+    { "dot": "orange", "title": "JIT swap", "items": ["Hook seeds only the bucket the swap trades into", "Range is removed in afterSwap", "Fee stays as an ERC-6909 claim"] },
+    { "dot": "rose", "title": "Fail-closed", "items": ["Unfunded escrow stops JIT: JitUnavailable", "Price out of bucket reverts: JitRangeExceeded", "At expiry swaps revert, only settlement runs"] }
+  ]
+}
