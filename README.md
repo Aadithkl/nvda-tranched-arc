@@ -108,3 +108,53 @@ Before running anything onchain, set `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA
 - `docs/MCP.md` — The Graph subgraph MCP (cross-protocol analysis)
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)
+
+## Uniswap v4 integration
+
+The canonical Uniswap v4 contracts are used unmodified (pinned submodules) and redeployed on Arc
+testnet, because Arc has no canonical v4 deployment. The tranche hook is the integration point —
+verifiable at the lines below.
+
+| Piece | Source |
+|---|---|
+| Hook permissions (`beforeSwap` + `afterSwap`) | [`TrancheJITHook.sol:207`](src/hook/TrancheJITHook.sol#L207) |
+| `beforeSwap` entry / quote gates | [`TrancheJITHook.sol:844`](src/hook/TrancheJITHook.sol#L844) / [`493`](src/hook/TrancheJITHook.sol#L493) |
+| Dynamic fee (deviation × toxicity, EV floor) | [`TrancheJITHook.sol:768`](src/hook/TrancheJITHook.sol#L768) |
+| JIT one-sided position | [`_jitBeforeSwap:500`](src/hook/TrancheJITHook.sol#L500) / [`_jitAfterSwap:555`](src/hook/TrancheJITHook.sol#L555) / [`_sizeJit:615`](src/hook/TrancheJITHook.sol#L615) |
+| `afterSwap` entry | [`TrancheJITHook.sol:860`](src/hook/TrancheJITHook.sol#L860) |
+| Pool init / active pool | [`340`](src/hook/TrancheJITHook.sol#L340) / [`347`](src/hook/TrancheJITHook.sol#L347) |
+| Swap entry (`swapExactIn`) | [`DemoRouter.sol:59`](src/router/DemoRouter.sol#L59) |
+| v4 deployment (`new PoolManager`) | [`DeployV4Stack.s.sol:40`](script/DeployV4Stack.s.sol#L40) |
+| Live addresses | `docs/DEPLOYMENTS.md`, `deployments/arc-testnet.json` |
+
+Developer feedback for the Uniswap team: [`FEEDBACK.md`](FEEDBACK.md).
+
+
+## The Graph integration
+
+The Graph is load-bearing, live, and in the decision path:
+
+- **Subgraph (protocol indexing):** `tranch-stock` indexes the oracle, v4 pools, hook quotes/JIT,
+  strategy submissions and tranche events. Live query URL in `deployments/arc-testnet.json`;
+  entities and example queries in [`docs/GRAPH.md`](docs/GRAPH.md).
+- **Graph gateway (agent decisions):** `agent/market.mjs` pulls 336h hourly + 30d daily pool data
+  and computes volatility, fee capture, active TVL and the fee-vs-IL range sweep that drives
+  quoting and rebalancing — [`docs/AGENT_MARKET.md`](docs/AGENT_MARKET.md).
+- **Subgraph MCP (cross-protocol analysis):** the same Messari `vaults` query runs against our
+  subgraph and any live yield subgraph — [`docs/MCP.md`](docs/MCP.md).
+- **Verify live data:** `npm run graph:query` and `npm run market`.
+
+
+
+## Integrations
+
+- **Circle / Arc:** Circle Gateway nanopayments (oracle rail +
+  paid agent reasoning), Modular Wallets/passkey + Paymaster frontend, Agent Marketplace discovery,
+  Arc-native USDC accounting — [`docs/CIRCLE.md`](docs/CIRCLE.md).
+- **Uniswap:** [`FEEDBACK.md`](FEEDBACK.md) — integration feedback.
+- **The Graph:** Subgraphs + Subgraph MCP as the blockchain-data source (above).
+
+## License
+
+MIT — see [`LICENSE`](LICENSE); third-party scope (incl. the Uniswap v4 BUSL-1.1 testnet note) in
+[`LICENSES.md`](LICENSES.md).
