@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph ArcT["Arc testnet — eip155:5042002"]
+        A1["Tranche stack<br/>TrancheJITHook · HookShareToken · TrancheAccountant<br/>SeniorVault · JuniorVault · StrategyController · StrategyAgent"]
+        A2["Uniswap v4 instance<br/>PoolManager · PositionManager · StateView<br/>V4Quoter · ReservesLens · DemoRouter"]
+        A3["Aave V2 semi-fork — redeployed 2026-09-13<br/>LendingPool · aUSDC · aNVDA (USDC + NVDA markets)"]
+        A4["NVDAPriceOracle · PeggedPriceOracle"]
+        A5["frontend/ build — Vite static app"]
+        A6["agent daemon + heartbeat"]
+    end
+
+    subgraph BaseM["Base mainnet — eip155:8453"]
+        B1["Circle agent wallet<br/>USDC funding source"]
+    end
+
+    subgraph PolyM["Polygon — eip155:137"]
+        P1["Agent Marketplace / BlockRun<br/>x402 reasoning settlement"]
+    end
+
+    subgraph Cloud["External services"]
+        C1["The Graph — tranch-stock subgraph"]
+        C2["Circle Gateway facilitator<br/>gateway-api-testnet.circle.com"]
+    end
+
+    A5 -->|"reads / user ops"| A1
+    A6 -->|"submits params · oracle · ticks"| A1
+    A6 -->|"market data"| C1
+    A6 -->|"nanopayments"| C2
+    B1 -->|"Gateway deposit"| C2
+    A6 -->|"paid reasoning"| P1

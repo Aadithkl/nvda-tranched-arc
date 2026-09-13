@@ -1,0 +1,23 @@
+sequenceDiagram
+    actor U as Depositor
+    participant V as Vault — ERC-7540
+    participant P as TranchePipeModule
+    participant H as TrancheJITHook
+    participant A as LendingPool — rest state
+    participant C as TrancheAccountant
+
+    U->>V: depositUSDC(usdcAmount, receiver)
+    V->>V: transferFrom USDC · check expired / paused / cap
+    V->>P: wrapUSDC(usdcAmount, vault)
+    P->>H: wrapUSDC(usdcAmount, vault)
+    H->>H: mint hook shares — ERC-7575 virtual-share conversion
+    H->>A: supply idle USDC into rest state
+    H-->>P: hook shares
+    P-->>V: hook shares
+    V->>V: mint vault shares to receiver
+    V->>C: onTrancheDeposit(isSenior, hookShares)
+    C->>C: update tranche principal and entitlements
+    V-->>U: Deposit + UsdcDeposited events
+
+    Note over V,C: ERC-7540 async path: requestDeposit → claimable → deposit(assets) syncs the same wrap flow
+    Note over H,A: Equity never leaves the hook — it sits in Aave as aTokenEquity when configured

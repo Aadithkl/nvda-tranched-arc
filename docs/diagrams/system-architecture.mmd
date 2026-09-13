@@ -1,0 +1,78 @@
+flowchart TB
+    subgraph Actors["Actors"]
+        SD["Senior depositor"]
+        JD["Junior depositor"]
+        SW["Swapper"]
+    end
+
+    subgraph Offchain["Offchain applications"]
+        FE["frontend/ — Vite + TypeScript<br/>Vaults · Price · Strategy · Markets<br/>injected wallet or Circle passkey (paymaster)"]
+        AG["agent/ daemon — index.mjs<br/>tick loop: perceive → audit → act"]
+        PX["agent/price.mjs<br/>automatic NVDA price rail"]
+        SRV["agent/serve.mjs<br/>/tick · /health bridge"]
+        GHA["GitHub Actions<br/>agent-heartbeat (10 min cron)"]
+    end
+
+    subgraph Arc["Arc testnet — chainId 5042002"]
+        subgraph Core["Tranche core"]
+            SR["SeniorVault — ERC-7540"]
+            JR["JuniorVault — ERC-7540"]
+            AC["TrancheAccountant<br/>claims · escrow · senior priority"]
+            PP["TranchePipeModule<br/>wrap/unwrap · rebalance · settlement"]
+            HK["TrancheJITHook<br/>dynamic fee · JIT · Aave rest · expiry"]
+            HS["HookShareToken — ERC-7575"]
+            SC["StrategyController<br/>hard bounds"]
+            SA["StrategyAgent<br/>operator surface"]
+        end
+        subgraph Venue["Uniswap v4 instance — canonical code redeployed"]
+            PM["PoolManager"]
+            PER["PositionManager · StateView<br/>V4Quoter · ReservesLens · DemoRouter"]
+            VPOOL["USDC/NVDA venue pool<br/>hookless · fee 3000"]
+        end
+        subgraph Rest["Lending rest state — Aave V2 semi-fork"]
+            LP["LendingPool + aTokens<br/>USDC + NVDA markets"]
+            PEG["PeggedPriceOracle"]
+        end
+        OR["NVDAPriceOracle<br/>writer = agent operator"]
+    end
+
+    subgraph External["External services"]
+        GR["The Graph<br/>tranch-stock subgraph · Gateway · MCP"]
+        GW["Circle Gateway<br/>nanopayments — x402"]
+        LLM["agent402 / BlockRun<br/>metered LLM reasoning"]
+        SELL["BlockRun nanoprice<br/>NVDA stock quotes"]
+    end
+
+    SD -->|"depositUSDC · requestRedeem · claimAndUnwrap*"| SR
+    JD -->|"depositUSDC · requestRedeem · claimAndUnwrap*"| JR
+    FE -->|"user ops + reads"| Arc
+    FE -->|"POST /tick"| SRV
+    SRV --> AG
+    SR <-->|"wrap / unwrap"| PP
+    JR <-->|"wrap / unwrap"| PP
+    SR -->|"onTrancheDeposit / Redeem / Claim"| AC
+    JR -->|"onTrancheDeposit / Redeem / Claim"| AC
+    AC -->|"moveShares"| SR
+    AC -->|"moveShares"| JR
+    AC -->|"escrowFunded · juniorClaim"| HK
+    PP <-->|"wrap · unwrap · moduleBurn · modulePull"| HK
+    HS <-->|"mint / burn"| HK
+    HK <-->|"supply / withdraw"| LP
+    SW -->|"swapExactIn"| PER
+    PER --> PM
+    PM <-->|"beforeSwap / afterSwap · JIT seed + claims"| HK
+    PP -->|"rebalanceSwap"| VPOOL
+    PM --- VPOOL
+    AG -->|"submitParams / submitRebalance"| SA
+    SA --> SC
+    SC -->|"setParams within bounds"| HK
+    PX -->|"updatePrice"| OR
+    OR -->|"getPrice gates"| HK
+    OR -.->|"pegged reference"| PEG
+    AG <-->|"market data"| GR
+    PX -->|"x402 nanopayment"| GW
+    GW --> SELL
+    SELL -->|"quote + paymentRef"| PX
+    AG -->|"paid verdict refresh"| LLM
+    GR -.->|"indexes events"| Arc
+    GHA -->|"cron tick"| AG

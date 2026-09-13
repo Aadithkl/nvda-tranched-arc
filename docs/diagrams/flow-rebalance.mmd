@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant LLM as LLM verdict — reasoning.json
+    participant IDX as index.mjs
+    participant M as model.mjs — validateRebalanceProposal
+    participant SA as StrategyAgent
+    participant SC as StrategyController
+    participant PP as TranchePipeModule
+    participant V as External venue — USDC/NVDA pool
+
+    LLM-->>IDX: action buy / sell / hold + sizeUsd, hash-bound and capped in age
+    IDX->>M: validate rails
+    M->>M: oracle must be valid
+    M->>M: buys require escrowFunded — RebalanceNotFunded otherwise
+    M->>M: post-trade equityBps ≤ hardMaxEquityBps — default 75% — EquityCapExceeded otherwise
+    M->>M: size clamped to min/max and remaining cap room
+    M->>M: verdict age and snapshot hash must match
+    M-->>IDX: clamped proposal or rejection
+    IDX->>SA: submitRebalance(equityOut, amountIn, minOut, deadline)
+    SA->>SC: forward
+    SC->>SC: per-call cap maxRebalanceSwapUsdc + cooldown
+    SC->>PP: rebalanceSwap(...)
+    PP->>PP: minOut must beat oracle − maxRebalanceSlippageBps — SlippageBoundUnmet otherwise
+    PP->>V: router swap
+    V-->>PP: output tokens
+    PP-->>IDX: composition refreshed — assetComposition()
+    Note over IDX,LLM: no fresh verdict ⇒ no trade — the params path still runs
+    Note over PP: venue is configured with setRebalanceVenue — never the hook ERC-7575 JIT pool

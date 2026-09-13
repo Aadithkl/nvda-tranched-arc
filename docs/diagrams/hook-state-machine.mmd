@@ -1,0 +1,22 @@
+stateDiagram-v2
+    [*] --> ACTIVE : params set · quoting enabled
+    ACTIVE --> DEGRADED : now > paramsUpdatedAt + ttl
+    DEGRADED --> ACTIVE : agent refreshes params
+    DEGRADED --> REST : grace period elapsed
+    ACTIVE --> REST : paused · quoting disabled · pool unset
+    REST --> ACTIVE : quoting re-enabled and params fresh
+    REST --> REST : expired() — terminal
+
+    note right of ACTIVE
+        full quoting
+        effectiveMaxDeploy = min(maxDeployPerSwap, riskBudget)
+    end note
+    note right of DEGRADED
+        reduced size
+        effectiveMaxDeploy = min(maxDeployPerSwap / 4, riskBudget)
+    end note
+    note right of REST
+        no quotes — capital rests in Aave
+        riskBudget = juniorClaim only when accountant.escrowFunded()
+        after expiry: swaps revert QuotingOff, rebalancing reverts TradingClosed
+    end note

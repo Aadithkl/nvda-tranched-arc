@@ -1,0 +1,28 @@
+sequenceDiagram
+    actor O as Owner
+    actor Any as Anyone
+    participant H as TrancheJITHook
+    participant P as TranchePipeModule
+    participant C as TrancheAccountant
+    participant SV as SeniorVault
+    participant JV as JuniorVault
+    actor Hold as Senior / Junior holders
+
+    O->>H: setExpiry(timestamp) — one-shot, future-only
+    Note over H: expired() ⇒ quoteState = Rest<br/>swaps revert · JIT + rebalancing stop · deposits and new requests close
+    Any->>P: settleSwap(equityIn, minUsdcOut, deadline)
+    P->>P: equity → USDC at the oracle floor, permissionless and oracle-bounded
+    Any->>P: finalizeSettlement()
+    P->>C: seniorGuaranteeUsdc() — principal + escrow, oracle-free
+    Note over P: requires usdcUnits ≥ guarantee OR equityUnits = 0, else SettlementNotReady
+    P->>H: unwindClaims()
+    P->>H: moduleBurn for both vault hook-share balances
+    P->>SV: modulePull USDC up to the guarantee
+    P->>JV: modulePull remaining USDC + all equity
+    P->>SV: creditSettlement(usdcToSenior, 0)
+    P->>JV: creditSettlement(usdcToJunior, equityUnits)
+    P->>P: settled = true — one-shot
+    Note over SV,JV: terminal per-share rates frozen — usdcPerShare1e18 / equityPerShare1e18
+    Hold->>SV: redeemAtExpiry(shares, receiver) or redeem()
+    Hold->>JV: redeemAtExpiry(shares, receiver) or redeem()
+    Note over P: if the USDC leg cannot be completed, owner fallback finalizeSettlementHaircut()

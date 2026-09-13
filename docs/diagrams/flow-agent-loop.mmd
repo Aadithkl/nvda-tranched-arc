@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant GHA as GitHub Actions — 10 min cron
+    participant SRV as serve.mjs — /tick
+    participant IDX as index.mjs — tick
+    participant PX as price.mjs
+    participant G as The Graph
+    participant GW as Circle Gateway
+    participant R as refresh.mjs — paid LLM fan-out
+    participant SA as StrategyAgent
+    participant SC as StrategyController
+    participant H as TrancheJITHook
+    participant PP as TranchePipeModule
+
+    GHA->>IDX: scheduled tick
+    SRV->>IDX: POST /tick — frontend Run agent check
+    IDX->>PX: attempt automatic oracle push
+    PX->>PX: skip when price fresh (< 80% of maxStaleness) or market closed
+    PX->>GW: pay nanoprice seller when stale
+    GW-->>PX: quote + paymentRef
+    PX->>H: oracle.updatePrice(mid, marketStatus, sourceTimestamp, paymentRef)
+    IDX->>G: refresh market model — pools, volatility, fees, IL sweep
+    IDX->>H: perceive — params, bounds, quoteState, oracle, composition
+    IDX->>IDX: economicAudit + deterministic regime clamps — model.mjs
+    IDX->>R: verdict older than AGENT_LLM_REFRESH_SECONDS (6h)?
+    R->>R: paid call — x402 / Circle Gateway, hash-bound verdict
+    R-->>IDX: fresh verdict or deterministic fallback
+    IDX->>SA: submitParams / submitRebalance within PARAM_CLAMPS ∩ live bounds
+    SA->>SC: forward
+    SC->>H: setParams / setBaseFee / setQuotingEnabled
+    SC->>PP: rebalanceSwap(equityOut, amountIn, minOut, deadline)
+    Note over IDX,H: hooks still enforce per-swap gates — oracle, EV, risk budget, active pool

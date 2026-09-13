@@ -23,10 +23,18 @@ x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
 Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
 Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and LLM-proposed, rail-validated rebalancing (75% equity hard cap).
-Hardening (v3.1): bucket-exact JIT sizing from v4 amount-delta math (replacing the spot approximation, under EIP-170); deadline-enforced, `SafeERC20` rebalancing router; controller guardian pause + bounds validation; two-step oracle ownership with oracle-decimal scaling; locked-redemption accounting fix; invariant suite (`test/invariant/`, 174 tests total); agent-side economic audit gate (`agent/model.mjs`) with LLM manager: paid verdict every 6h owns params/audit thresholds/rebalances, deterministic clamps and per-swap onchain gates enforce the rails.
+Hardening (v3.1): bucket-exact JIT sizing from v4 amount-delta math (replacing the spot approximation, under EIP-170); deadline-enforced, `SafeERC20` rebalancing router; controller guardian pause + bounds validation; two-step oracle ownership with oracle-decimal scaling; locked-redemption accounting fix; invariant suite (`test/invariant/`); agent-side economic audit gate (`agent/model.mjs`) with LLM manager: paid verdict every 6h owns params/audit thresholds/rebalances, deterministic clamps and per-swap onchain gates enforce the rails.
 Maturity (v3.2): one `EXPIRY_TIMESTAMP` per book (hook + both vaults). At expiry quoting/JIT and rebalancing stop, deposits close; permissionless settlement (`TranchePipeModule.settleSwap` / `finalizeSettlement`) converts equity to USDC only as needed, pays the senior guarantee first, hands the remainder (USDC + all equity) to junior, and freezes terminal per-share redemption rates — holders then burn srNVDA/jrNVDA via `redeemAtExpiry`.
 
-## Architecture (target)
+## Architecture
+
+![System architecture](docs/assets/system-architecture.svg)
+
+Full component map, code pointers (file + line links), deployment topology and seven flow
+walkthroughs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Diagrams are authored in Mermaid
+(`docs/diagrams/*.mmd`) and exported with `npm run diagrams:export`.
+
+### Components
 
 - **Price**: two variables — stock price pushed onchain from x402 purchases (USDC paid
   on Arc via Circle Gateway nanopayments) and the Uniswap v4 AMM price. See
@@ -89,11 +97,14 @@ Before running anything onchain, set `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA
 ## Docs
 
 - `LICENSES.md` — dependency licenses
+- `docs/CIRCLE.md` — Circle integration: Arc, Gateway/nanopayments, Agent Marketplace, wallets/paymaster
 - `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
-- `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, roles, agent surface
-- `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, senior-priority keeper
+- `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, maturity, roles
+- `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, settlement
 - `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
+- `docs/AGENT_MARKET.md` — market model: pool registry, IL/fee math, LLM manager, audit gate
 - `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + NVDA markets, pegs, gaps
 - `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
+- `docs/MCP.md` — The Graph subgraph MCP (cross-protocol analysis)
 - `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
 - `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)

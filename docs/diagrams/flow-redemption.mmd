@@ -1,0 +1,26 @@
+sequenceDiagram
+    actor U as Depositor
+    participant V as Vault — ERC-7540
+    participant C as TrancheAccountant
+    participant K as Keeper
+    participant P as TranchePipeModule
+    participant H as TrancheJITHook
+    participant A as LendingPool — rest
+
+    U->>V: requestRedeem(shares, controller, owner)
+    V->>C: onTrancheRedeem(isSenior, hookShares)
+    C->>C: lock shares in claimableSenior / claimableJunior
+    K->>C: rebalance() — public, idempotent
+    C->>V: moveShares(...) pegs entitlement, never below locked balance
+    K->>C: fulfillRedeem(isSenior, user)
+    C->>V: rate locked via admin-redeem path
+    Note over K,C: junior fills revert while any senior request is pending — SeniorPriority
+    Note over C: after expiry fulfillRedeem becomes permissionless
+    U->>V: claimAndUnwrapUSDC(shares, receiver)
+    V->>P: unwrapUSDC(shares, receiver, minUsdcOut)
+    P->>H: moduleBurn(msg.sender, shares) + modulePull(usdc, receiver, amount)
+    H->>A: withdraw from rest if idle USDC is short
+    H-->>U: USDC
+
+    Note over U,V: Junior-only alternatives — claimAndUnwrapEquity (oracle-priced, conversion fee stays in pool)<br/>and claimAndUnwrapProportional (oracle-free unit fractions). Senior vaults revert SeniorUsdcOnly.
+    Note over U,V: Before expiry, fulfilled claims still redeem at the frozen rate after finalizeSettlement
