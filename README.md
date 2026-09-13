@@ -76,6 +76,22 @@ Developer feedback: [`FEEDBACK.md`](FEEDBACK.md).
   subgraphs — [`docs/MCP.md`](docs/MCP.md).
 - **Verify:** `npm run graph:query` and `npm run market`.
 
+## Arc & Circle integration
+
+Arc is the execution and settlement chain — USDC is the native gas currency (18-dec native
+balance, 6-dec ERC-20 interface) — and every paid call in the product settles through
+**Circle Gateway batched settlement (nanopayments)**.
+
+| Piece | Source |
+|---|---|
+| Oracle rail — x402 quote bought with USDC, paid via Gateway, pushed onchain | [`price.mjs:136`](agent/price.mjs#L136) / [`170`](agent/price.mjs#L170) |
+| Paid LLM verdict (every 6h) settled from the payer key | [`refresh.mjs:62`](agent/refresh.mjs#L62) |
+| Agent Marketplace discovery + per-call nanopayment | [`agent-market.mjs:50`](scripts/agent-market.mjs#L50) / [`177`](scripts/agent-market.mjs#L177) |
+| Passkey smart account + gasless userOps (`paymaster: true`) | [`wallet.ts:124`](frontend/src/wallet.ts#L124) |
+| Modular transport (Circle client key, Arc testnet) | [`config.ts:108`](frontend/src/config.ts#L108) |
+| Tranche stack + lending fork deployed on Arc | [`DeployTrancheHookV3.s.sol:27`](script/DeployTrancheHookV3.s.sol#L27) / [`DeployLending.s.sol:12`](script/DeployLending.s.sol#L12) |
+| Rail policy, CLI setup, passkey troubleshooting | [`docs/CIRCLE.md`](docs/CIRCLE.md) |
+
 ## Hosting (GitHub Actions)
 
 - **Frontend:** every push to `main` builds `frontend/` and deploys to GitHub Pages —
