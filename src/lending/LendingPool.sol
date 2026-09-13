@@ -262,8 +262,8 @@ contract LendingPool is IAaveV2Pool {
         (uint256 collateralBase, uint256 debtBase,,, uint256 ltv,) = getUserAccountData(onBehalfOf);
         uint256 borrowCapacity = (collateralBase * ltv) / BPS;
         uint256 availableBorrows = borrowCapacity > debtBase ? borrowCapacity - debtBase : 0;
-        uint256 price = IPriceOracleGetter(ILendingPoolAddressesProvider(ADDRESSES_PROVIDER).getPriceOracle())
-            .getAssetPrice(asset);
+        uint256 price =
+            IPriceOracleGetter(ILendingPoolAddressesProvider(ADDRESSES_PROVIDER).getPriceOracle()).getAssetPrice(asset);
         uint256 amountBase = (amount * price) / (10 ** config.getDecimals());
         if (amountBase > availableBorrows) revert BorrowCapacityExceeded(amountBase, availableBorrows);
 
