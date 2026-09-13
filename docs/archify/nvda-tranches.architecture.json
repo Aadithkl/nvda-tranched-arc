@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "NVDA Tranched - Arc Testnet",
+    "output": "nvda-tranches.architecture.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "Users", "sublabel": "depositors / swappers", "pos": [40, 320], "size": [130, 64] },
+    { "id": "vaults", "type": "backend", "label": "Tranche vaults", "sublabel": "ERC-7540 / senior + junior", "pos": [250, 320], "size": [150, 64] },
+    { "id": "share", "type": "backend", "label": "HookShareToken", "sublabel": "ERC-7575 / tjSHARE", "pos": [470, 320], "size": [150, 64], "tag": "one share per book" },
+    { "id": "hook", "type": "backend", "label": "TrancheJITHook", "sublabel": "dynamic fee / JIT / expiry", "pos": [690, 320], "size": [150, 64] },
+    { "id": "pool", "type": "backend", "label": "USDC/NVDA pool", "sublabel": "v4 / JIT only", "pos": [910, 320], "size": [140, 64] },
+    { "id": "rest", "type": "database", "label": "Aave rest state", "sublabel": "capital sits here", "pos": [690, 130], "size": [150, 60] },
+    { "id": "graph", "type": "external", "label": "The Graph", "sublabel": "indexes chain events", "pos": [250, 540], "size": [150, 60] },
+    { "id": "agent", "type": "backend", "label": "Strategy agent", "sublabel": "6h verdict / bounded params", "pos": [470, 540], "size": [160, 64] },
+    { "id": "circle", "type": "external", "label": "Circle Gateway", "sublabel": "paid quotes + verdict", "pos": [690, 540], "size": [160, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Arc testnet", "wraps": ["vaults", "share", "hook", "pool", "rest"], "pad": 36 }
+  ],
+  "connections": [
+    { "id": "users-vaults", "from": "users", "to": "vaults", "label": "USDC in / out", "variant": "emphasis" },
+    { "id": "vaults-share", "from": "vaults", "to": "share", "label": "wrap / unwrap" },
+    { "id": "share-hook", "from": "share", "to": "hook", "label": "mint / burn" },
+    { "id": "hook-pool", "from": "hook", "to": "pool", "label": "JIT + fee", "variant": "emphasis" },
+    { "id": "hook-rest", "from": "hook", "to": "rest", "label": "supply / withdraw" },
+    { "id": "agent-hook", "from": "agent", "to": "hook", "label": "bounded params", "variant": "emphasis", "fromSide": "top" },
+    { "id": "graph-agent", "from": "graph", "to": "agent", "label": "market data", "variant": "dashed" },
+    { "id": "circle-agent", "from": "circle", "to": "agent", "label": "paid calls", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Tranche book", "items": ["One ERC-7575 share backs both vaults", "Senior vault is USDC-only, junior takes equity", "Senior is paid first at maturity"] },
+    { "dot": "orange", "title": "Execution", "items": ["Pool holds zero standing liquidity", "JIT is seeded per swap, removed in afterSwap", "Gates: oracle freshness, deviation, escrow risk budget"] },
+    { "dot": "violet", "title": "Rails", "items": ["The Graph indexes prices, swaps and flows", "Circle Gateway pays per call, no subscriptions", "Agent ticks on a 10 minute heartbeat"] }
+  ]
+}

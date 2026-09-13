@@ -8,6 +8,7 @@ on:
       - "deployments/**"
       - "agent/pools.json"
       - "docs/abis/**"
+      - "docs/archify/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -43,6 +44,10 @@ jobs:
         run: |
           echo "VITE_GRAPH_API_KEY=${{ secrets.GRAPH_API_KEY }}" > ../.env
           npm run build
+      - name: Include Archify diagrams
+        run: |
+          mkdir -p dist/archify
+          cp ../docs/archify/*.html ../docs/archify/*.json dist/archify/
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

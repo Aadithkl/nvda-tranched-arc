@@ -36,10 +36,13 @@ Full script list in `package.json`; pinned dependencies and build flags in
 
 ## Architecture
 
-![System architecture](docs/assets/system-architecture.svg)
+![System architecture](docs/archify/nvda-tranches.architecture.png)
 
-Component map with file + line code pointers, deployment topology and flow walkthroughs:
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Interactive, self-contained maps: [system architecture](docs/archify/nvda-tranches.architecture.html) and
+[deposit to JIT swap](docs/archify/nvda-deposit-jit.sequence.html) - also hosted on the
+[Pages site](https://aadithkl.github.io/nvda-tranched-arc/archify/nvda-tranches.architecture.html).
+Code pointers and integration notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Diagrams are
+generated with Archify from the typed JSON sources in `docs/archify/`.
 
 ## Uniswap v4 integration
 
