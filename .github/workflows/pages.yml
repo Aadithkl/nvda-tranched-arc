@@ -40,6 +40,7 @@ jobs:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: |
           echo "VITE_GRAPH_API_KEY=${{ secrets.GRAPH_API_KEY }}" > ../.env
+          echo "VITE_CLIENT_KEY=${{ secrets.VITE_CLIENT_KEY }}" >> ../.env
           npm run build
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
