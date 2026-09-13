@@ -163,13 +163,16 @@ function renderWallet() {
     await refresh();
   });
 
-(window as never as Record<string, unknown>).connectPasskeyWallet = (mode: "register" | "login") =>
-  run("connect passkey", async () => {
+(window as never as Record<string, unknown>).connectPasskeyWallet = (mode: "register" | "login" = "login") =>
+  run(mode === "register" ? "create passkey wallet" : "unlock passkey wallet", async () => {
     const username = ($("wmUsername") as HTMLInputElement).value;
     session = await connectPasskey(username, mode);
     renderWallet();
     $("walletMenu").classList.add("hidden");
-    toast(`Passkey wallet <b>${shortAddr(session.address)}</b> ready`, "🔑");
+    toast(
+      `Passkey wallet <b>${shortAddr(session.address)}</b> ${mode === "register" ? "created" : "unlocked"}`,
+      "🔑",
+    );
     await refresh();
   });
 

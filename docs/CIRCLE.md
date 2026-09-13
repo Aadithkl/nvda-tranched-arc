@@ -31,8 +31,8 @@ episodes with toxic surge fees. Manifest: `deployments/arc-testnet.json` → `st
 | **Arc + USDC** | Contracts, gas, accounting (tranches, lending fork, JIT hook, NVDA pool) | live on Arc testnet |
 | **Agent Marketplace (Discovery API)** | `scripts/agent-market.mjs --search` picks the LLM service by network/price/rails | working (no auth) |
 | **Nanopayment for AI reasoning** | `scripts/agent-market.mjs` pays the selected LLM service per call from the agent wallet (Gateway) with the Graph snapshot | working — BlockRun verified (Polygon); needs a funded agent wallet |
-| **Circle Wallets (modular/passkey)** | `frontend/` — passkey smart account (create/unlock) with injected-wallet fallback | implemented in frontend |
-| **Paymaster / Gas Station** | `frontend/` userOps submit with `paymaster: true` (testnet sponsorship) | implemented; one-time Console passkey-domain config |
+| **Circle Wallets (modular/passkey)** | `frontend/` — Create provisions a passkey smart account; Unlock signs in an existing passkey (injected-wallet fallback) | implemented; set `VITE_CLIENT_KEY` + Console passkey domain to go live |
+| **Paymaster / Gas Station** | `frontend/` userOps submit with `paymaster: true` (testnet sponsorship) | implemented; automatic on testnet once the client key is set |
 | **CCTP / Bridge Kit** | optional funding flow (Base→Arc) | not started (optional) |
 | StableFX | permissioned institutional product — documented as unavailable | n/a |
 | Circle Contracts (SCP) | optional (Arc testnet only); not needed for the DeFi flows | n/a |
@@ -97,9 +97,13 @@ Transfers from the agent wallet need the ERC-20 explicitly:
 - `frontend/` (`frontend/src/wallet.ts`) connects an injected browser wallet or a Circle passkey
   smart account (`@circle-fin/modular-wallets-core`); userOps submit with `paymaster: true`
   (gasless, testnet sponsorship).
-- Env: `frontend/.env` → `VITE_CLIENT_KEY` (Console → Keys → Client Key) and `VITE_CLIENT_URL`.
+- Flows: **Create** registers a passkey (username required) and provisions its smart account;
+  **Unlock** signs back in with an existing passkey (username optional). Same passkey ⇒ same
+  smart-account address; operations are gasless userOps.
+- Env: repo-root `.env` → `VITE_CLIENT_KEY` (Console → Keys → Client Key; Vite reads the root
+  `.env` via `envDir: ".."`), optional `VITE_CLIENT_URL`.
 - Precondition: Circle Console → **Wallets → Modular Wallets → Passkey domain** set to the frontend
-  origin (localhost for dev).
+  origin (localhost for dev). Passkeys are domain-bound — create once per domain (localhost ≠ Pages).
 - App surface: vault deposit, redeem request, keeper fulfill and claim; oracle price + market
   session; hook quote state and strategy bounds reads; contract registry. See
   `docs/FRONTEND_INTEGRATION.md`.

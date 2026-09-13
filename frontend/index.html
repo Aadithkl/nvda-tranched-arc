@@ -114,11 +114,12 @@ tailwind.config = {
         <button class="btn-ghost w-full justify-center !text-[13px] mb-3" onclick="connectInjectedWallet()">Browser wallet</button>
         <div id="passkeyWrap" class="hidden">
           <div class="mono-label mb-2">Passkey wallet (gasless)</div>
-          <input id="wmUsername" class="field mb-2" placeholder="passkey username (email)" />
+          <input id="wmUsername" class="field mb-2" placeholder="username (needed to create)" />
           <div class="flex gap-2">
             <button class="btn-accent !text-[13px] !py-2 flex-1 justify-center" onclick="connectPasskeyWallet('register')">Create</button>
             <button class="btn-ghost !text-[13px] !py-2 flex-1 justify-center" onclick="connectPasskeyWallet('login')">Unlock</button>
           </div>
+          <p class="hint mt-2">First time: Create. Already have a passkey here: Unlock.</p>
         </div>
         <div id="walletInfo" class="hidden mt-2">
           <div class="kv"><span>address</span><span id="wmAddr">—</span></div>
