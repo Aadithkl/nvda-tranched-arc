@@ -5,19 +5,6 @@ Senior (fixed 5% target) and Junior (leveraged) tranches, with capital resting i
 lending market and a defensive Uniswap v4 JIT hook executing only in `+EV`, market-open,
 oracle-valid windows under an agent-operated strategy controller.
 
-## Status
-
-| Milestone | Scope | State |
-|---|---|---|
-| M0 | Env, repo, Foundry, deps, licenses | done |
-| M1 | x402 price oracle + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
-| M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
-| M2b | Aave V2 semi-fork (USDC + NVDA markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
-| M3 | `TrancheJITHook` — JIT engine, dynamic fee, toxic-flow pricing, Aave rest | live (v3 dual-token USDC/equity redeploy pending) |
-| M4 | `StrategyController` + agent daemon | live — bounded controller; LLM strategy manager (6h paid verdict) with deterministic rails |
-| M5 | ERC-7540 Senior/Junior vaults + ERC-7575 hook share + `TrancheAccountant` | live — dual-token exits via `TranchePipeModule` |
-| M6 | E2E on Arc Testnet, docs/ABIs | pending |
-
 Indexing: The Graph subgraph (`subgraph/`) indexes the x402 oracle, v4 pools, and the tranche stack; live query URL in `deployments/arc-testnet.json`.
 x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
 Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
