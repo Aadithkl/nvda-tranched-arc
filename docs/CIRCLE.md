@@ -101,7 +101,8 @@ Transfers from the agent wallet need the ERC-20 explicitly:
   **Unlock** signs back in with an existing passkey (username optional). Same passkey ⇒ same
   smart-account address; operations are gasless userOps.
 - Env: repo-root `.env` → `VITE_CLIENT_KEY` (Console → Keys → Client Key; Vite reads the root
-  `.env` via `envDir: ".."`), optional `VITE_CLIENT_URL`.
+  `.env` via `envDir: ".."`), optional `VITE_CLIENT_URL`. The Pages workflow injects the same
+  value from the `VITE_CLIENT_KEY` repository secret.
 - Precondition: Circle Console → **Wallets → Modular Wallets → Passkey domain** set to the frontend
   origin (localhost for dev). Passkeys are domain-bound — create once per domain (localhost ≠ Pages).
 - App surface: vault deposit, redeem request, keeper fulfill and claim; oracle price + market
