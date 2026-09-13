@@ -10,7 +10,7 @@ oracle-valid windows under an agent-operated strategy controller.
 | Milestone | Scope | State |
 |---|---|---|
 | M0 | Env, repo, Foundry, deps, licenses | done |
-| M1 | x402 price oracle + keeper + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
+| M1 | x402 price oracle + Circle Gateway rail (no Chainlink) | live on Arc + verified end-to-end |
 | M2a | Uniswap v4 fork: core + full periphery + hook proof | done — 8 contracts live, callbacks verified |
 | M2b | Aave V2 semi-fork (USDC + NVDA markets, pegged oracle) on Arc Testnet | live on Arc — addresses in `docs/DEPLOYMENTS.md`, docs in `docs/LENDING.md` |
 | M3 | `TrancheJITHook` — JIT engine, dynamic fee, toxic-flow pricing, Aave rest | live (v3 dual-token USDC/equity redeploy pending) |
@@ -56,11 +56,8 @@ walkthroughs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Diagrams are autho
 
 ```shell
 forge build                          # contracts
-npm install                           # keeper tooling
-node scripts/x402-price.mjs --probe   # inspect a live x402 stock-quote challenge
-node scripts/x402-price.mjs --gateway --push   # pay on Arc + push price to oracle
-node scripts/x402-seller.mjs          # local Gateway-accepting seller (demo)
-npm run seed:nvda                     # USDC/NVDA pool status (--execute to seed)
+npm install                           # tooling
+npm run seed:nvda                     # USDC/NVDA venue pool: seed + swaps (--execute, --usdc N --nvda N --swaps N)
 npm run lending:status                # Aave semi-fork: prices, balances, liquidity index
 npm run lending:seed                  # deposit 10 USDC + 1 NVDA into the lending pool
 npm run hook:demo -- --status         # live TrancheJITHook demo (fees, toxic surge, Aave rest)
@@ -98,7 +95,7 @@ Before running anything onchain, set `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA
 
 - `LICENSES.md` — dependency licenses
 - `docs/CIRCLE.md` — Circle integration: Arc, Gateway/nanopayments, Agent Marketplace, wallets/paymaster
-- `docs/PRICE_SOURCES.md` — x402 stock-price design, Circle Gateway rails, keeper commands
+- `docs/PRICE_SOURCES.md` — oracle price design, writer gate, staleness rules
 - `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, maturity, roles
 - `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, settlement
 - `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)

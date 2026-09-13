@@ -14,6 +14,7 @@ import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { TrancheJITHook } from "../src/hook/TrancheJITHook.sol";
 import { TranchePipeModule } from "../src/periphery/TranchePipeModule.sol";
 import { StrategyController } from "../src/strategy/StrategyController.sol";
+import { StrategyAgent } from "../src/strategy/StrategyAgent.sol";
 
 /// @notice Step 1 of the v3 (dual-token USDC/NVDA) stack deploy: JIT hook at a mined address,
 ///         pool initialization, lending wiring, controller re-point, optional rebalance venue.
@@ -31,13 +32,24 @@ contract DeployTrancheHookV3 is Script {
         address priceOracle = vm.envOr("NVDA_ORACLE", address(0));
         if (priceOracle == address(0)) priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
         address lendingPool = vm.envOr("LENDING_POOL", address(0));
-        address controllerAddr = vm.envAddress("HOOK_DEMO_CONTROLLER");
+        address controllerAddr = vm.envOr("HOOK_DEMO_CONTROLLER", address(0));
+        address agentOperator = vm.envOr("AGENT_OPERATOR_ADDRESS", deployer);
 
         int24 tickSpacing = int24(vm.envOr("V3_TICK_SPACING", int256(60)));
         int24 initialTick = int24(vm.envInt("V3_INITIAL_TICK"));
         uint16 hardCapBps = uint16(vm.envOr("V3_HARD_CAP_BPS", uint256(7_500)));
 
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
+
+        // Fresh controller + agent when HOOK_DEMO_CONTROLLER is unset (current bounds layout).
+        StrategyAgent agent;
+        if (controllerAddr == address(0)) {
+            StrategyController fresh = new StrategyController(deployer);
+            agent = new StrategyAgent(deployer, agentOperator, address(fresh));
+            fresh.setAgent(address(agent), true);
+            controllerAddr = address(fresh);
+            console2.log("StrategyAgent:", address(agent));
+        }
 
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG

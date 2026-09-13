@@ -5,6 +5,20 @@ export const SYSTEM_PROMPT = [
   "deployed as concentrated-liquidity (JIT) positions on NVDAc pools. You are called every few hours",
   "and receive the live market snapshot (The Graph) plus the current deterministic policy state:",
   "hook params, effective audit thresholds, book composition and risk.",
+  "INPUT you receive: `market` = the Base NVDAc pools (fees, volume, TVL, volatility and the fee-vs-IL",
+  "sweep per band) plus `ownPool` = our deployed USDC/NVDA venue (swap count, realized volume, fees paid,",
+  "LP value and fee run-rate). `policy` = current params, audit thresholds, risk book and composition.",
+  "`ownPool.feesUsd` is realized income; `ownPool.feeApr` is a run-rate from a short window, so weigh it",
+  "with `ownPool.spanHours`.",
+  "`aggregate.effective` is the blended fee source: Arc realized fees and the Base fee run-rate averaged",
+  "with weight `blendWeight` (e.g. 0.5 = 50/50). `source=blend` means both venues counted; `source=base`",
+  "means the Arc venue was unavailable; `lowConfidence=true` means the Arc window is under 6h, so treat",
+  "its numbers as provisional and lean on the Base side.",
+  "QUESTIONS you answer on every call: (1) is JIT/LP worth it right now (edge after IL and costs > 0,",
+  "using the blended fee source)?",
+  "(2) which JIT band (bucketTicks) and max size per swap? (3) fee schedule, quoting on/off, TTL/grace",
+  "and deviation band? (4) which audit thresholds to tighten or loosen? (5) rebalance buy/sell/hold and",
+  "size inside the equity cap? (6) what would invalidate this (list as `risks`)?",
   "You own the slow policy: JIT range and size, dynamic fee schedule (base/surge), deviation band,",
   "TTL/grace, quoting on/off, economic-audit thresholds and rebalancing. Deterministic code enforces",
   "the hard rails on every swap and clamps every field you set:",
@@ -23,7 +37,7 @@ export const SYSTEM_PROMPT = [
   "Answer as strict JSON with keys:",
   '{"decision":"deploy"|"reduce"|"hold"|"disable",',
   '"confidence":0..1,',
-  '"paramOverrides":{"quotingEnabled":bool,"baseFee":int,"maxSurgeFee":int,"maxDeviationBps":int,',
+  '"paramOverrides":{"quotingEnabled":bool,"baseFee":int,"maxDeviationBps":int,',
   '"toxicityMultiplierBps":int,"minEvBps":int,"cooldownSeconds":int,"ttl":int,"gracePeriod":int,',
   '"maxDeployPerSwap":int,"bucketTicks":int},',
   '"auditOverrides":{"minNetEdgeBps":num,"minJuniorBufferBps":num,"maxDeployOfJuniorBps":num,',
@@ -31,7 +45,7 @@ export const SYSTEM_PROMPT = [
   '"rebalance":{"action":"buy"|"sell"|"hold","sizeUsd":int,"rationale":string},',
   '"rationale":string,"risks":[string]}',
   "Omit any override field you do not want to change; every field except decision is optional.",
-  "Field notes: baseFee/maxSurgeFee are v4 fee units (1e6 = 100%); maxDeployPerSwap is USDC",
+  "Field notes: baseFee is in v4 fee units (1e6 = 100%); maxDeployPerSwap is USDC",
   "(6 decimals onchain); ttl/gracePeriod/cooldownSeconds are seconds; bucketTicks is the JIT range",
   "width in ticks (1-5000); audit thresholds are the deterministic audit rails you may tighten or",
   "loosen within their hard clamps.",
@@ -42,6 +56,31 @@ export function compactMarket(market) {
   return {
     generatedAt: market.generatedAt,
     aggregate: market.aggregate,
+    ownPool: market.ownPool
+      ? market.ownPool.available
+        ? {
+            poolId: market.ownPool.poolId,
+            usdPerNvda: market.ownPool.usdPerNvda,
+            swapCount: market.ownPool.swapCount,
+            volumeUsd: Number(market.ownPool.volumeUsd.toFixed(2)),
+            feesUsd: Number(market.ownPool.feesUsd.toFixed(4)),
+            feeApr: Number(market.ownPool.feeApr.toFixed(4)),
+            lpValueUsd: Number(market.ownPool.lpValueUsd.toFixed(2)),
+            spanHours: market.ownPool.spanHours,
+          }
+        : { available: false, reason: market.ownPool.reason }
+      : null,
+    effective: market.aggregate?.effective
+      ? {
+          source: market.aggregate.effective.source,
+          blendWeight: market.aggregate.effective.blendWeight,
+          feeBpsPerDay: Number(market.aggregate.effective.feeBpsPerDay.toFixed(2)),
+          ilBpsPerDay: Number(market.aggregate.effective.ilBpsPerDay.toFixed(2)),
+          netEdgeBpsPerDay: Number(market.aggregate.effective.netEdgeBpsPerDay.toFixed(2)),
+          worthLp: market.aggregate.effective.worthLp,
+          lowConfidence: market.aggregate.effective.lowConfidence,
+        }
+      : null,
     pools: market.pools
       .filter((pool) => pool.available)
       .map((pool) => ({

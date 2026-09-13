@@ -43,7 +43,7 @@ const routerAbi = parseAbi([
 
 const hookAbi = parseAbi([
   "function previewQuote(bool zeroForOne) view returns (uint24 fee, bool toxic, uint16 deviationBps, uint8 state)",
-  "function params() view returns ((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks))",
+  "function params() view returns ((bool quotingEnabled, uint24 baseFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks))",
   "function quoteState() view returns (uint8)",
   "function lastQuotedAt() view returns (uint256)",
   "function totalManagedAssets() view returns (uint256)",
@@ -59,7 +59,7 @@ const hookAbi = parseAbi([
 ]);
 
 const agentAbi = parseAbi([
-  "function submitParams((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
+  "function submitParams((bool quotingEnabled, uint24 baseFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
   "function submitBaseFee(uint24 baseFee)",
   "function submitQuotingEnabled(bool enabled)",
 ]);
@@ -74,15 +74,14 @@ const poolManagerAbi = parseAbi(["function extsload(bytes32 slot) view returns (
 const DEFAULT_PARAMS = {
   quotingEnabled: true,
   baseFee: 3000,
-  maxSurgeFee: 30000,
   maxDeviationBps: 300,
   toxicityMultiplierBps: 1000,
   minEvBps: 0,
   cooldownSeconds: 0,
   ttl: 3600,
   gracePeriod: 3600,
-  maxDeployPerSwap: 1_000_000n,
-  bucketTicks: 1,
+  maxDeployPerSwap: 4_000_000n,
+  bucketTicks: 60,
 };
 
 loadEnv();
@@ -220,7 +219,7 @@ async function status() {
   console.log(`hook: ${config.hook} poolId: ${poolId}`);
   console.log(`oracle NVDA/USD mid: ${Number(oracle.mid) / 1e8} (valid: ${oracle.valid}, session: ${oracle.session})`);
   console.log(`pool tick: ${s0.tick} | stored lpFee: ${s0.lpFee} | sqrtPriceX96: ${s0.sqrtPriceX96}`);
-  console.log(`params.baseFee: ${params.baseFee} | maxSurgeFee: ${params.maxSurgeFee} | maxDeviationBps: ${params.maxDeviationBps} | ttl: ${params.ttl}`);
+  console.log(`params.baseFee: ${params.baseFee} | maxDeviationBps: ${params.maxDeviationBps} | ttl: ${params.ttl}`);
   console.log(`quoteState: ${["Rest", "Degraded", "Active"][Number(state)]} | lastQuotedAt: ${lastQuotedAt}`);
   console.log(`effectiveMaxDeploy: ${maxDeploy} (risk budget)`);
   console.log(`hook Aave rest: aToken ${aTokenAddress} balance ${formatUnits(aTokenBal, 6)} USDC | totalManaged ${formatUnits(totalManaged, 6)} USDC | deployer shares ${formatUnits(shareSupply, 18)}`);
@@ -282,9 +281,10 @@ async function addLiquidity() {
 
 async function swap() {
   const amountIn = BigInt(value("--swap", "10000"));
-  const zeroForOne = value("--direction", "usdc-to-nvda") !== "nvda-to-usdc";
-  const inDecimals = zeroForOne === usdcIsToken0 ? 6 : 18;
-  const label = zeroForOne === usdcIsToken0 ? "USDC→NVDA" : "NVDA→USDC";
+  const usdcToNvda = value("--direction", "usdc-to-nvda") !== "nvda-to-usdc";
+  const zeroForOne = usdcToNvda === usdcIsToken0;
+  const inDecimals = usdcToNvda ? 6 : 18;
+  const label = usdcToNvda ? "USDC→NVDA" : "NVDA→USDC";
   await approveIfNeeded(config.usdc, config.router, amountIn);
   await approveIfNeeded(config.nvda, config.router, amountIn);
   const preview = await tryPreview(zeroForOne);

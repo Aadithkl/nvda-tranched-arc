@@ -6,15 +6,12 @@ import { ITrancheHookParams } from "./ITrancheHookParams.sol";
 import { IRebalanceModule } from "../interfaces/IRebalanceModule.sol";
 
 contract StrategyController {
-    uint256 public constant MAX_LP_FEE = 1_000_000;
     uint16 public constant MAX_DEVIATION_BPS = 5_000;
     uint16 public constant MAX_TOXICITY_MULTIPLIER_BPS = 10_000;
     uint32 public constant MAX_TTL = 86_400;
     uint32 public constant MAX_GRACE_PERIOD = 86_400;
 
     struct Bounds {
-        uint24 maxBaseFee;
-        uint24 maxSurgeFee;
         uint16 maxDeviationBps;
         uint16 maxToxicityMultiplierBps;
         uint32 maxTtl;
@@ -56,8 +53,6 @@ contract StrategyController {
     error IsPaused();
     error InvalidBounds();
     error DeadlineExpired(uint256 deadline);
-    error BaseFeeTooHigh(uint24 baseFee, uint24 maxBaseFee);
-    error SurgeFeeTooHigh(uint24 maxSurgeFee, uint24 bound);
     error DeviationTooHigh(uint16 maxDeviationBps, uint16 bound);
     error MultiplierTooHigh(uint16 toxicityMultiplierBps, uint16 bound);
     error TtlTooLong(uint32 ttl, uint32 bound);
@@ -87,8 +82,6 @@ contract StrategyController {
         owner = owner_ == address(0) ? msg.sender : owner_;
         guardian = owner;
         bounds = Bounds({
-            maxBaseFee: 10_000,
-            maxSurgeFee: 100_000,
             maxDeviationBps: 500,
             maxToxicityMultiplierBps: 2_500,
             maxTtl: 3_600,
@@ -158,7 +151,6 @@ contract StrategyController {
     }
 
     function setBaseFee(uint24 baseFee) external onlyAgent whenNotPaused {
-        if (baseFee > bounds.maxBaseFee) revert BaseFeeTooHigh(baseFee, bounds.maxBaseFee);
         _hook().setBaseFee(baseFee);
         emit BaseFeeSubmitted(msg.sender, baseFee);
     }
@@ -192,8 +184,7 @@ contract StrategyController {
 
     function _validateBounds(Bounds memory b) internal pure {
         if (
-            b.maxBaseFee > MAX_LP_FEE || b.maxSurgeFee > MAX_LP_FEE || b.maxSurgeFee < b.maxBaseFee
-                || b.maxDeviationBps > MAX_DEVIATION_BPS || b.maxToxicityMultiplierBps > MAX_TOXICITY_MULTIPLIER_BPS
+            b.maxDeviationBps > MAX_DEVIATION_BPS || b.maxToxicityMultiplierBps > MAX_TOXICITY_MULTIPLIER_BPS
                 || b.maxTtl == 0 || b.maxTtl > MAX_TTL || b.maxGracePeriod > MAX_GRACE_PERIOD || b.maxDeployPerSwap == 0
                 || b.maxRebalanceSwapUsdc == 0
         ) revert InvalidBounds();
@@ -207,8 +198,6 @@ contract StrategyController {
 
     function _checkBounds(HookParams.Params calldata p) internal view {
         Bounds memory b = bounds;
-        if (p.baseFee > b.maxBaseFee) revert BaseFeeTooHigh(p.baseFee, b.maxBaseFee);
-        if (p.maxSurgeFee > b.maxSurgeFee) revert SurgeFeeTooHigh(p.maxSurgeFee, b.maxSurgeFee);
         if (p.maxDeviationBps > b.maxDeviationBps) revert DeviationTooHigh(p.maxDeviationBps, b.maxDeviationBps);
         if (p.toxicityMultiplierBps > b.maxToxicityMultiplierBps) {
             revert MultiplierTooHigh(p.toxicityMultiplierBps, b.maxToxicityMultiplierBps);

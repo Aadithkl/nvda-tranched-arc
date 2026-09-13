@@ -46,9 +46,6 @@ const contracts = {
   permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   multicall3: "0xcA11bde05977b3631167028862bE2a173976CA11",
   create2Deployer: "0x4e59b44847b379578588920cA78FbF26c0B4956C",
-  gatewayWallet: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
-  gatewayMinter: "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
-  demoSeller: process.env.DEMO_SELLER || "0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3",
 };
 
 // Tranche stack addresses are env-sourced so redeploys only touch .env, never code.
@@ -65,6 +62,7 @@ const priorStack = previousStack();
 const stack = {
   status: process.env.STACK_STATUS || "test-only — superseded by v3 redeploy",
   ...priorStack,
+  note: process.env.STACK_NOTE || priorStack.note,
   hook: process.env.TRANCHE_HOOK || process.env.AGENT_HOOK || priorStack.hook || null,
   pipe: process.env.PIPE_ADDRESS || priorStack.pipe || null,
   shareToken: process.env.TRANCHE_SHARE || priorStack.shareToken || null,
@@ -244,7 +242,12 @@ const manifest = {
   },
   pools: {
     usdcNvda: nvdaPoolKey
-      ? { ...(await poolState(nvdaPoolKey)), note: "USDC/NVDA pool (NVDA_POOL_FEE / NVDA_POOL_TICK_SPACING, no hook)" }
+      ? await (async () => {
+          const state = await poolState(nvdaPoolKey);
+          return state.error
+            ? null
+            : { ...state, note: "USDC/NVDA pool (NVDA_POOL_FEE / NVDA_POOL_TICK_SPACING, no hook)" };
+        })()
       : null,
     demoNvdaUsdc: { ...(await poolState(demoPoolKey)), note: "demo pool (test tokens, no hook)" },
     smokeHookPool: { ...(await poolState(smokePoolKey)), note: "hook callback proof pool (test-only hook)" },
@@ -268,14 +271,6 @@ const manifest = {
       { symbol: "NVDA", underlying: contracts.nvda ?? contracts.mNvda, decimals: 18, aToken: contracts.aNvda, variableDebtToken: contracts.dNvda, peggedPriceUsd8: Number(process.env.NVDA_PEGGED_PRICE || 20000000000) },
     ],
     note: "Rest state for the tranche hook; see docs/LENDING.md",
-  },
-  x402: {
-    gatewayWallet: contracts.gatewayWallet,
-    gatewayMinter: contracts.gatewayMinter,
-    gatewayDomain: 26,
-    testnetFacilitator: "https://gateway-api-testnet.circle.com",
-    demoSeller: contracts.demoSeller,
-    note: "Keeper: scripts/x402-price.mjs --gateway --push; seller: scripts/x402-seller.mjs",
   },
   subgraph: {
     network: "arc-testnet",

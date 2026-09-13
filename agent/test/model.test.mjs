@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   activeTvl,
+  blendVenueEdge,
   bandToTicks,
   clampAuditOverrides,
   clampParamOverrides,
@@ -353,11 +354,10 @@ test("clampAuditOverrides bounds both ways and rejects garbage", () => {
   assert.equal(clampAuditOverrides(defaults, { minNetEdgeBps: "abc" }).minNetEdgeBps, 0.2);
 });
 
-test("clampParamOverrides respects controller bounds and fee ordering", () => {
+test("clampParamOverrides respects controller bounds and protocol fee range", () => {
   const params = {
     quotingEnabled: true,
     baseFee: 3000,
-    maxSurgeFee: 30_000,
     maxDeviationBps: 300,
     toxicityMultiplierBps: 1000,
     minEvBps: 0,
@@ -368,8 +368,6 @@ test("clampParamOverrides respects controller bounds and fee ordering", () => {
     bucketTicks: 1,
   };
   const bounds = {
-    maxBaseFee: 20_000,
-    maxSurgeFee: 40_000,
     maxDeviationBps: 400,
     maxToxicityMultiplierBps: 2000,
     maxTtl: 7_200,
@@ -379,8 +377,7 @@ test("clampParamOverrides respects controller bounds and fee ordering", () => {
   const out = clampParamOverrides(
     params,
     {
-      baseFee: 50_000,
-      maxSurgeFee: 10_000,
+      baseFee: 700_000,
       maxDeviationBps: 9_000,
       ttl: 99_999,
       maxDeployPerSwap: 123_456_789_000_000n,
@@ -389,8 +386,7 @@ test("clampParamOverrides respects controller bounds and fee ordering", () => {
     },
     bounds,
   );
-  assert.equal(out.baseFee, 20_000);
-  assert.equal(out.maxSurgeFee, 20_000);
+  assert.equal(out.baseFee, 700_000);
   assert.equal(out.maxDeviationBps, 400);
   assert.equal(out.ttl, 7_200);
   assert.equal(out.maxDeployPerSwap, 900_000_000n);
@@ -492,4 +488,37 @@ test("economicAudit holds on VaR95 and IL-probability breaches", () => {
   assert.equal(economicAudit({ ...base, var95Bps: -900 }).reason, "var95");
   assert.equal(economicAudit({ ...base, pIlExceedsFees: 0.9 }).reason, "il_probability");
   assert.equal(economicAudit({ ...base, pIlExceedsFees: 0.2, var95Bps: -100 }).verdict, "deploy");
+});
+
+test("blendVenueEdge averages Arc and Base fees with the Arc weight", () => {
+  const even = blendVenueEdge({
+    arcFeeBpsPerDay: 40,
+    arcIlBpsPerDay: 10,
+    baseFeeBpsPerDay: 20,
+    baseIlBpsPerDay: 2,
+    arcWeight: 0.5,
+  });
+  assert.equal(even.feeBpsPerDay, 30);
+  assert.equal(even.ilBpsPerDay, 6);
+  assert.equal(even.netEdgeBpsPerDay, 24);
+
+  const arcOnly = blendVenueEdge({
+    arcFeeBpsPerDay: 40,
+    arcIlBpsPerDay: 10,
+    baseFeeBpsPerDay: 20,
+    baseIlBpsPerDay: 2,
+    arcWeight: 1,
+  });
+  assert.equal(arcOnly.feeBpsPerDay, 40);
+  assert.equal(arcOnly.netEdgeBpsPerDay, 30);
+
+  const baseOnly = blendVenueEdge({
+    arcFeeBpsPerDay: 40,
+    arcIlBpsPerDay: 10,
+    baseFeeBpsPerDay: 20,
+    baseIlBpsPerDay: 2,
+    arcWeight: 0,
+  });
+  assert.equal(baseOnly.feeBpsPerDay, 20);
+  assert.equal(baseOnly.netEdgeBpsPerDay, 18);
 });

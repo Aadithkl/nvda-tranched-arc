@@ -174,10 +174,26 @@ contract LendingPoolTest is Test {
         assertEq(dUsdc.balanceOf(bob), 0);
     }
 
+    function test_borrow_18Decimals_capacityInBaseValue() public {
+        _deposit(alice, nvda, 10e18);
+        _deposit(bob, usdc, 1_000e6);
+
+        vm.prank(bob);
+        pool.borrow(address(nvda), 3.6e18, 2, 0, bob);
+        assertEq(dNvda.balanceOf(bob), 3.6e18);
+
+        // 0.75 * $1,000 = $750 capacity, $720 used -> $30 left; 0.25 NVDA ($50) exceeds it
+        vm.prank(bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(LendingPool.BorrowCapacityExceeded.selector, uint256(50e8), uint256(30e8))
+        );
+        pool.borrow(address(nvda), 0.25e18, 2, 0, bob);
+    }
+
     function test_borrow_noCollateral_reverts() public {
         _deposit(alice, usdc, 1_000e6);
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(LendingPool.BorrowCapacityExceeded.selector, 100e6, 0));
+        vm.expectRevert(abi.encodeWithSelector(LendingPool.BorrowCapacityExceeded.selector, 100e8, 0));
         pool.borrow(address(usdc), 100e6, 2, 0, bob);
     }
 

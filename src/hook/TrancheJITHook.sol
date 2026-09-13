@@ -362,7 +362,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
     }
 
     function setBaseFee(uint24 baseFee) external onlyController {
-        if (baseFee > _params.maxSurgeFee) revert HookParams.InvalidSurgeFee(_params.maxSurgeFee, baseFee);
+        if (baseFee > HookParams.MAX_FEE) revert HookParams.InvalidBaseFee(baseFee);
         _params.baseFee = baseFee;
         paramsUpdatedAt = block.timestamp;
         if (poolInitialized) poolManager.updateDynamicLPFee(_activeKey, baseFee);
@@ -774,7 +774,7 @@ contract TrancheJITHook is BaseHook, ReentrancyGuard {
 
         uint256 premium = uint256(deviationBps) * _params.toxicityMultiplierBps;
         uint256 surged = uint256(_params.baseFee) + premium;
-        fee = uint24(Math.min(surged, uint256(_params.maxSurgeFee)));
+        fee = uint24(Math.min(surged, uint256(HookParams.MAX_FEE)));
     }
 
     function _prices() internal view returns (uint256 poolUsdPerEquity1e18, uint256 oracleUsdPerEquity1e18) {

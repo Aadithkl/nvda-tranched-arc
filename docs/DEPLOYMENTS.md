@@ -2,7 +2,7 @@
 
 ## Arc Testnet (chainId 5042002, RPC `https://rpc.testnet.arc.network`)
 
-### x402 / Circle Gateway
+### Circle Gateway
 
 | Item | Value |
 |---|---|
@@ -10,8 +10,7 @@
 | Gateway Minter | `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B` |
 | Gateway Domain ID | `26` |
 | Testnet facilitator | `https://gateway-api-testnet.circle.com` |
-| Demo seller (`scripts/x402-seller.mjs`) | `0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3` |
-| Latest x402 oracle update | tx `0x63640b6d9cc19814b1578cfdea1bb1b022d4228c2085c0936617ab10199f0264` (block `61456133`, mid 218.36e8, status 3 = post-market; paymentRef `0x1a1a…4f72` = keccak256 of the Circle settlement id) |
+| Latest oracle update | tx `0x63640b6d9cc19814b1578cfdea1bb1b022d4228c2085c0936617ab10199f0264` (block `61456133`, mid 218.36e8, status 3 = post-market) |
 
 ### Oracle — `NVDAPriceOracle` (x402 push, no Chainlink)
 
@@ -54,11 +53,14 @@
 
 | Item | Value |
 |---|---|
-| Pair | USDC `0x3600…0000` (6d) / NVDA (`NVDA_ADDRESS`, 18d) |
-| Params | `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` (default `3000` / `60`), no hook |
-| Initial price | tick derived from `NVDA_POOL_PRICE` (default 200 USD/NVDA) and token decimals |
-| Liquidity | `NVDA_POOL_LIQUIDITY` over a ±6000-tick band around the derived tick |
-| Tool | `node scripts/seed-usdc-nvda.mjs [--execute] [--swap]` |
+| Pair | USDC `0x3600…0000` (6d) / `MOCK_NVDA` `0x308F…BE9` (18d; test token until a real `NVDA_ADDRESS` is listed) |
+| PoolId | `0x8b3f39708820fd7b754259c9f05d288aa787b79fd3a6986451c40b248c0d459f` |
+| Params | fee `3000` (0.30%), tickSpacing `60`, no hook |
+| Range | `[-226380, -220380]` around tick `-223338` (≈ 200 USD/NVDA at seed) |
+| Liquidity | `30,072,089,785,824` ≈ **60 USDC + 0.3 NVDA** (deployer is the only LP) |
+| Volume | **26 swaps, ≈ $98 gross** on 2026-09-13 (fees ≈ $0.29 accrue to the LP); subgraph `swapCount = 26` |
+| Tool | `node scripts/seed-usdc-nvda.mjs --execute --usdc 60 --nvda 0.3 --swaps 16 --swap-usdc 3` (add `--skip-lp` for volume-only runs) |
+| Txs | init `0xe9005d0a…`, addLiquidity `0x9d238fc9…`, first swap `0x3c189949…`, last swap `0x7953dd0d…` |
 
 **Important (Arc quirk):** Arc's USDC `transferFrom` calls a compliance precompile
 (`0x1800…0001 isBlocklisted`) that Foundry's local EVM does not emulate, so
@@ -68,70 +70,67 @@
 
 ### Lending — Aave V2 semi-fork (ours, MIT)
 
+Current deployment (2026-09-13, USDC + NVDA, borrow-capacity fix):
+
 | Contract | Address |
 |---|---|
-| `LendingPoolAddressesProvider` | `0xd70165E2eC57c8367f6D93eB8F576978d3b75529` |
-| `PeggedPriceOracle` | `0x6DC2A77B42B4049f96593b5Aa979227580aA510b` |
-| `LendingPool` | `0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8` |
-| `LendingPoolConfigurator` | `0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe` |
-| `DefaultReserveInterestRateStrategy` | `0xdd4DdB9a2f33de6eb6b53B064CC09c60F82381Dc` |
-| `aUSDC` / `dUSDC` | `0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1` / `0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6` |
+| `LendingPoolAddressesProvider` | `0x8757b2a066f1a4F52ff63F2aCeb87F802908C886` |
+| `PeggedPriceOracle` | `0xf74237e03574eF9E2824cC42021A39f7881ad781` |
+| `LendingPool` | `0x492adCb2e5d5b2f7e82c8c9E9789Bd6dCBff7028` |
+| `LendingPoolConfigurator` | `0x03f17Df6903228edc76b07Fce52FaEAa6c4bA4C4` |
+| `DefaultReserveInterestRateStrategy` | `0x8bb7733B71ad2daaEc506813744831744EC195b7` — base `0`, slope1 `9%`, slope2 `60%`, optimal `80%` |
+| `aUSDC` / `dUSDC` | `0xAF09f106Aa27EdaA0ea7f7dB3B4a92c6b929dc4F` / `0xfaeFcc1D448330aed160Ff934F1fE86D55c9d38f` |
+| `aNVDA` / `dNVDA` | `0x3F6Ee392f39d323652CD1cE528BCbD3e494F981D` / `0x134187EE4ceB9c2E187a04750c9C3eB72075642D` |
 
-- Markets: USDC + NVDA (both initialized by `DeployLending.s.sol`); the current live pool predates the
-  NVDA reserve — the v3 redeploy re-inits with USDC + NVDA. No WETH, no Chainlink.
+- Markets: **USDC + NVDA** (NVDA = `MOCK_NVDA` 18d until a real `NVDA_ADDRESS` is set). No WETH, no Chainlink.
   Pegs: USDC `1e8`, NVDA `200e8` (`NVDA_PEGGED_PRICE`, USD 8d).
 - Reserve params: LTV `7500`, liquidation threshold `8000`, bonus `10500`, reserve factor `1000`.
-- Rate model: base `0`, slope1 `4%`, slope2 `60%`, optimal utilization `80%`.
-- `poolAdmin` / provider owner = deployer `0x749E3A3a743889beC27584C1C8212f4cf926b431`.
-- Deploy: `forge script script/DeployLending.s.sol --rpc-url arc_testnet --broadcast` (no USDC transfers, so Foundry simulation is safe);
-  txs in `broadcast/DeployLending.s.sol/5042002/run-latest.json`.
-- Seeded: **10 USDC** deposited by the deployer — `aUSDC` balance = 10 (NVDA seeds after the v3 redeploy).
-  - approve USDC `0x9388b95e…`, deposit USDC `0xbb4e6fcf…`
-- Pegs (softcoded, owner-settable): USDC `1e8`, NVDA `200e8` (`NVDA_PEGGED_PRICE`); demo re-set tx `0x54f26bf3…` (USDC).
-  Ops tool: `npm run lending:status | lending:set-price | lending:seed` (`scripts/lending-admin.mjs`).
+- Deploy: `NVDA_ADDRESS=$MOCK_NVDA LENDING_RATE_SLOPE1=0.09e27 forge script script/DeployLending.s.sol --rpc-url arc_testnet --broadcast`
+  (no USDC transfers, so Foundry simulation is safe); txs in `broadcast/DeployLending.s.sol/5042002/run-latest.json`.
+- **Borrow-capacity fix:** `borrow` converts the amount to USD base (`amount × price / 10^decimals`) before
+  comparing against `availableBorrows`; the earlier code compared raw token units and broke 18-dec assets.
+- Flowing since 2026-09-13 (deployer-wallet seeds):
+  USDC supplied **230**, borrowed **160** — utilization **69.6%**, supply **4.90%**, borrow **7.83%**;
+  NVDA supplied **2**, borrowed **1.2** — utilization **60.0%**, supply **3.64%**, borrow **6.75%**;
+  account collateral **$630**, debt **$400**, HF **1.26**.
+  Txs: seed USDC `0xbe91a532…`, seed NVDA `0x5289f851…`, borrow USDC `0x16ffecce…`, borrow NVDA `0xb05c71b0…`,
+  `updateState` USDC `0x023c539f…`, NVDA `0x41887181…`.
+- Pegs (softcoded, owner-settable): USDC `1e8`, NVDA `200e8`; ops:
+  `npm run lending:status | lending:set-price | lending:seed` plus `--deposit / --borrow / --repay / --withdraw /
+  --update / --set-strategy / --init-nvda / --mint-nvda / --deposit-nvda / --borrow-nvda` (`scripts/lending-admin.mjs`).
+- Legacy pre-fix lending deployments are deprecated; `.env` + `deployments/arc-testnet.json` point at this stack.
 - Verified onchain: provider wiring, oracle pegs, aToken names/symbols. Docs: `docs/LENDING.md`.
 
-### TrancheJITHook live demo (test exercise)
-
-| Contract | Address |
-|---|---|
-| `TrancheJITHook` | `0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0` |
-| `HookShareToken` (created by hook) | `0xFA8F387fAa130Fffe46A9513D1090f69478A4BAF` |
-| Demo price oracle (`NVDAPriceOracle` instance) | `0xef7295e74b5ac0a8f3caf89ec19bd26e5f812174` |
-| `StrategyController` | `0x6ea148829e32ba3051869f73092c015d34661edd` |
-| `StrategyAgent` | `0x636bfd9e072c9ba93453a2d798Cb7D09b8Fe1E8c` |
-| Agent operator (separate key, local `.env`) | `0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95` |
-| PoolId | `0x1adee7f4fc915d8217b238785d857f49c431ded9ed48bdaf1e8ecf3559eb7f86` |
-
-- Pool: dynamic fee (`0x800000`), tickSpacing `1` (v2 test deployment; superseded by the v3 USDC/NVDA redeploy).
-- Liquidity: seeded over the v2 test range (tx `0x2b10fd16…`).
-- Live exercise txs: fund operator `0x343f8392…`, `submitParams` `0x2cb53bcb…`, swap @ fee 3000 `0x298179e5…`,
-  `submitBaseFee(5000)` `0x06666bc4…`, swap @ fee 5000 `0x7b0d966f…`, oracle move `0x4956708f…`,
-  **toxic swap charged surge 30000 (3%)** `0x24fdfebc…`, wrap 1 USDC → Aave `0xd4fbc548…`,
-  unwrap 0.5 shares `0xd8161857…`, oracle reset `0x43e1429e…`.
-- Result: oracle-anchored toxic-flow pricing, agent-controlled dynamic fee, TTL-gated quoting, and the
-  Aave rest state (aToken credited/debited) all verified onchain.
-- Runbook: `npm run hook:demo -- --status | --set-params | --add-liquidity | --swap <usdc6> | --set-fee <fee> | --set-oracle <8d> | --wrap <usdc6> | --unwrap <shares18> | --fund-operator <usdc6>`
-- Deploy txs: `broadcast/DeployTrancheHookDemo.s.sol/5042002/run-latest.json`.
-
-### Tranche stack — current test deployment (v2, superseded by v3)
+### Tranche stack — live v3 (USDC/NVDA JIT, 2026-09-13)
 
 Source of truth: `deployments/arc-testnet.json` (`stack`), regenerated by `npm run export:pack`.
 Never hardcode these in app code; read them from the manifest / `.env`.
 
 | Contract | Address |
 |---|---|
-| `TrancheJITHook` (v2) | `0xB229976cB5F64C6f747033c26217299AeCD42Ac0` |
-| `HookShareToken` (created by hook) | `0x917386b70E03cdC2026B612fd1388d9DfC349C96` |
-| `TrancheAccountant` | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
-| `SeniorVault` | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` |
-| `JuniorVault` | `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
-| PoolId (dynamic fee, tickSpacing 1) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
-| `StrategyController` / `StrategyAgent` | `0x6ea148829e32ba3051869f73092c015d34661edd` / `0x636bfd9e072c9ba93453a2d798cb7d09b8fe1e8c` |
+| `TrancheJITHook` (v3, JIT quoting live) | `0x5C374e0B4F3646705839BE9D2b45F6753EAC6aC0` |
+| `HookShareToken` (created by hook) | `0x9341fA835A44A225E7f36a245A149794239c221A` |
+| `TranchePipeModule` | `0x04614f09DfC7D66B5072FB9B745C9B1b9503bA5e` |
+| `TrancheAccountant` | `0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3` |
+| `SeniorVault` / `JuniorVault` | `0x2b9Bc484b5De5ffd96e0aD37a05D0ff1B4380266` / `0xdBEAaAc8281459510E871aBdE4bf88C8AC530F8a` |
+| PoolId (USDC/NVDA, dynamic fee, tickSpacing 60) | `0x93b8dfd381ccd69e771c70fb0dc6fc19ab9b031d60197032372e46000fa67292` |
+| `StrategyController` / `StrategyAgent` | `0x14F723bd9D1Cd4Ab288EeeeADb14D6a00d54Aade` / `0x2235C6a19C2C80e93f74915c922B1B319B954320` |
 | Keeper (operator) | `0xbA965f327c05E9daD998f387C1Cb4E6720eEaf95` |
 
-The v2 stack was the test-pair deployment. The v3 redeploy swaps in the USDC/NVDA dual-token
-`TranchePipeModule` and replaces hook/share/accountant/vault/controller addresses.
+- Deploy (both steps with `--slow` to avoid Arc RPC nonce races):
+  `DeployTrancheHookV3` (fresh controller+agent when `HOOK_DEMO_CONTROLLER` is unset) then
+  `DeployTrancheStack` with `HOOK_ADDRESS` + `PIPE_ADDRESS`. Blocks `61893891…61894101`.
+- Funded + JIT exercised: senior 10 USDC / junior 5 USDC; inventory seeded 20 USDC + 0.02 NVDA
+  (later topped up +0.03 NVDA); params baseFee `3000`, band `300`, TTL/grace `3600`, maxDeploy `4` USDC,
+  bucketTicks `60`. **21 swaps routed through the hook** (2 USDC / 0.01 NVDA sizes) produced 21 JIT
+  episodes — all returning to rest — with **$39.49 gross volume and $2.38 fees captured** (11 toxic
+  surge quotes up to 14.1%); hook managed assets grew `35.00 → 47.87` USDC and JIT net realized
+  (claims − seeds) ≈ **+$2.87**. Txs: seed USDC `0xd000e0e9…`, seed NVDA `0xd112e32c…` (+top-up
+  `0xbb7be3bc…`), params `0x270c22f2…`, swaps starting `0x760329ae…` / `0xf8ecaa56…`.
+- Subgraph v3b (`tranch-stock/v3b-20260913`, start block `61891077`) indexes the hook pool, JIT
+  episodes/claims, quotes and vault flows; `hookStates` reports `totalQuotes = 5, totalJitRemovals = 5`.
+- The v2 stack (hook `0xB229…2Ac0`, EURC-era test pair) is deprecated; it never expires (`expiry()`
+  reverts), while the v3 vaults inherit the hook's `EXPIRY_TIMESTAMP` (`1789862400`, ~6 days out).
 
 ### V3 redeploy checklist
 
@@ -143,7 +142,8 @@ and the pool knobs `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` / `NVDA_POOL_PRICE
 1. Fill `.env`: `USDC_ADDRESS`, `NVDA_ADDRESS`, `NVDA_ORACLE`, `NVDA_PEGGED_PRICE`,
    `V3_INITIAL_TICK` (compute for the address-sorted pair and 18/6 decimals), `V3_TICK_SPACING`,
    `HOOK_DEMO_CONTROLLER`, `LENDING_POOL`, optional `REBALANCE_ROUTER` / `REBALANCE_POOL_FEE` /
-   `REBALANCE_TICK_SPACING`.
+   `REBALANCE_TICK_SPACING`, and optional `EXPIRY_TIMESTAMP` (unix seconds, shared by the hook and
+   both vaults; blank/`0` = no expiry).
 2. `forge script script/DeployTrancheHookV3.s.sol:DeployTrancheHookV3 --rpc-url arc_testnet --broadcast -vv`
    (deploys the hook + `TranchePipeModule`, inits the pool, wires module/controller). Set
    `HOOK_ADDRESS` and `PIPE_ADDRESS` from the logs.
@@ -155,19 +155,23 @@ and the pool knobs `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` / `NVDA_POOL_PRICE
 6. Seed the lending market (`npm run lending:seed` → 10 USDC + 1 NVDA) and the external rebalance
    venue (`npm run seed:nvda -- --execute`), push a fresh oracle price, then `npm run agent:tick -- --submit`.
 
-### Hook proof (SmokeHook, test-only)
+### Historical proofs (test-only, verified)
 
 | Item | Value |
 |---|---|
-| `SmokeHook` | `0x3Cee7340818FD498e54D44DA2E634d02a72800C0` |
-| Hook poolId | `0x092c224a431c94b955394fcdd56fcccae4970b2223fcbd9796737e631a023677` |
-| Permissions | `beforeSwap` + `afterSwap` (salt-mined address) |
-| Onchain proof | `swapCount = 1`, `lastSqrtPriceX96 = 1420897083832996649242119661407270`, `lastHookDataHash = keccak256(0xfeed)` |
+| `SmokeHook` (v4 callback proof) | `0x3Cee7340818FD498e54D44DA2E634d02a72800C0` |
+| SmokeHook poolId | `0x092c224a431c94b955394fcdd56fcccae4970b2223fcbd9796737e631a023677` |
+| JIT demo hook (pre-v2 exercise) | `0xceb3ed91e12b828cbea2d1f407d5d3c99e192ac0` |
+| JIT demo poolId (dynamic fee, tickSpacing 1) | `0x1adee7f4fc915d8217b238785d857f49c431ded9ed48bdaf1e8ecf3559eb7f86` |
+
+Verified onchain: v4 `beforeSwap`/`afterSwap` fired with exact `hookData` (`swapCount = 1`,
+`lastHookDataHash = keccak256(0xfeed)`); JIT demo charged the oracle-anchored toxic surge (3%),
+took agent-set dynamic fees under the TTL gate, and moved the Aave rest state (`aToken`
+credited/debited). Tx trail: `broadcast/DeployTrancheHookDemo.s.sol/5042002/run-latest.json`;
+runbook `npm run hook:demo`.
 
 ### Not yet deployed
 
-- v3 stack: USDC/NVDA dual-token `TrancheJITHook` + `TranchePipeModule` + tranche vaults — see the
-  redeploy checklist above.
 - Universal Router (deferred; DemoRouter + PositionManager cover swaps/LP)
 - Lending extensions (liquidations, treasury accrual, stable-rate debt) — documented gaps in `docs/LENDING.md`
 
@@ -181,9 +185,11 @@ and the pool knobs `NVDA_POOL_FEE` / `NVDA_POOL_TICK_SPACING` / `NVDA_POOL_PRICE
 
 ## Indexing (The Graph)
 
-Subgraph in `subgraph/` (`arc-testnet`): `NVDAPriceOracle` + `PoolManager`.
-Not yet deployed to Graph Studio (pending a Studio key); manifests carry the current addresses
-and start blocks.
+Live: Studio subgraph **Tranch-Stock** (`tranch-stock`) —
+`https://api.studio.thegraph.com/query/1760210/tranch-stock/version/latest`. Sources
+(`NVDAPriceOracle`, `PoolManager`, hook/controller/agent, vaults, accountant) are synced from
+`deployments/arc-testnet.json` with per-source start blocks (`npm run subgraph:sync`, verify with
+`--check`). Entities and queries: `docs/GRAPH.md`; MCP setup: `docs/MCP.md`.
 
 ## Conventions
 

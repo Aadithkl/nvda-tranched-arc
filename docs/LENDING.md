@@ -63,12 +63,28 @@ Reserve prices are **owner-set pegs**, not hardcoded in the pool:
 ## Ops
 
 ```shell
-npm run lending:status                 # prices, wallet/aToken balances, liquidity index
+npm run lending:status                 # markets: supplied/borrowed/utilization/APYs/params + your position
 npm run lending:set-price              # re-set USDC/NVDA pegs (owner tx)
 npm run lending:seed                   # approve + deposit 10 USDC + 1 NVDA (override with --usdc-amount/--nvda-amount)
+node scripts/lending-admin.mjs --deposit <usdc6>    # supply USDC from the deployer wallet
+node scripts/lending-admin.mjs --borrow <usdc6>     # variable-rate borrow (rate mode 2)
+node scripts/lending-admin.mjs --repay <usdc6>      # repay variable debt
+node scripts/lending-admin.mjs --withdraw <usdc6>   # withdraw supplied USDC
+node scripts/lending-admin.mjs --update             # poke updateState (refresh indexes/rates)
+node scripts/lending-admin.mjs --set-strategy --slope1 9 [--base 0] [--slope2 60] [--optimal 80]
+                                        # deploy a new rate strategy and swap it onto USDC
+node scripts/lending-admin.mjs --init-nvda            # set the peg + init/configure the NVDA reserve (owner)
+node scripts/lending-admin.mjs --mint-nvda <wei18>    # mint mock NVDA to the deployer (test token only)
+node scripts/lending-admin.mjs --deposit-nvda <wei18> # supply NVDA
+node scripts/lending-admin.mjs --borrow-nvda <wei18>  # variable-rate borrow of NVDA (rate mode 2)
 ```
 
-Seeded on Arc: 10 USDC (the NVDA market seeds after the v3 lending redeploy); txs in `docs/DEPLOYMENTS.md`.
+Live markets on Arc (2026-09-13 redeploy): **USDC + NVDA**, strategy base `0`, slope1 `9%`, slope2 `60%`,
+optimal `80%`.
+- USDC: supplied 230, borrowed 160 → utilization 69.6%, supply 4.90% / borrow 7.83%.
+- NVDA: supplied 2, borrowed 1.2 → utilization 60.0%, supply 3.64% / borrow 6.75%.
+`borrow` now values the requested amount in USD base (`amount × price / 10^decimals`) before the LTV check,
+so 18-dec debt markets work; addresses and txs are in `docs/DEPLOYMENTS.md`.
 
 ## Deploy
 

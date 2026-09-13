@@ -23,7 +23,6 @@ export function handleParamsSubmitted(event: ParamsSubmitted): void {
   let p = event.params.params;
   action.quotingEnabled = p.quotingEnabled;
   action.baseFee = BigInt.fromI32(p.baseFee);
-  action.maxSurgeFee = BigInt.fromI32(p.maxSurgeFee);
   action.maxDeviationBps = p.maxDeviationBps;
   action.toxicityMultiplierBps = p.toxicityMultiplierBps;
   action.minEvBps = p.minEvBps;
@@ -70,7 +69,6 @@ export function handleAgentParamsSubmitted(event: AgentParamsSubmitted): void {
   let p = event.params.params;
   action.quotingEnabled = p.quotingEnabled;
   action.baseFee = BigInt.fromI32(p.baseFee);
-  action.maxSurgeFee = BigInt.fromI32(p.maxSurgeFee);
   action.maxDeviationBps = p.maxDeviationBps;
   action.toxicityMultiplierBps = p.toxicityMultiplierBps;
   action.minEvBps = p.minEvBps;

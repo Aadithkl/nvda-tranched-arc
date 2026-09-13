@@ -3,24 +3,25 @@
 Everything below is used *because it does a job in the product*, not for coverage.
 
 **Payment rail policy:** every paid call in the product settles through **Circle Gateway batched
-settlement (nanopayments)**. Raw x402 paths are legacy (`x402-ai.mjs`, `x402-price.mjs --legacy-x402`)
-and are not used in production flows.
+settlement (nanopayments)**. Raw x402 paths are legacy (`x402-ai.mjs`) and are not used in production flows.
 
 ## Tranche stack deployment (Arc testnet, 2026-09-12)
 
 | Contract | Address |
 |---|---|
-| TrancheJITHook (v2, JIT + security fixes) | `0xB229976cB5F64C6f747033c26217299AeCD42Ac0` |
-| HookShareToken (ERC-7575) | `0x917386b70E03cdC2026B612fd1388d9DfC349C96` |
-| TrancheAccountant | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` |
-| SeniorVault (ERC-7540) | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` |
-| JuniorVault (ERC-7540) | `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` |
-| PoolId (dynamic fee, JIT) | `0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1` |
+| TrancheJITHook (v3, USDC/NVDA JIT live) | `0x5C374e0B4F3646705839BE9D2b45F6753EAC6aC0` |
+| HookShareToken (ERC-7575) | `0x9341fA835A44A225E7f36a245A149794239c221A` |
+| TranchePipeModule | `0x04614f09DfC7D66B5072FB9B745C9B1b9503bA5e` |
+| TrancheAccountant | `0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3` |
+| SeniorVault (ERC-7540) | `0x2b9Bc484b5De5ffd96e0aD37a05D0ff1B4380266` |
+| JuniorVault (ERC-7540) | `0xdBEAaAc8281459510E871aBdE4bf88C8AC530F8a` |
+| PoolId (dynamic fee, JIT) | `0x93b8dfd381ccd69e771c70fb0dc6fc19ab9b031d60197032372e46000fa67292` |
 
-Deployed in two steps to avoid a solc pragma clash between v4-core (0.8.26) and ERC-7540 (^0.8.27):
-`forge script script/DeployTrancheHookV2.s.sol` then `script/DeployTrancheStack.s.sol` with
-`HOOK_ADDRESS` set. Wiring verified onchain (accountant/senior/junior/controller/share/JIT flag).
-Manifest: `deployments/arc-testnet.json` → `stack`.
+Deployed in two steps (`--slow`) to avoid a solc pragma clash between v4-core (0.8.26) and ERC-7540
+(^0.8.27): `DeployTrancheHookV3` (fresh controller+agent, pipe, pool init) then `DeployTrancheStack`
+with `HOOK_ADDRESS` + `PIPE_ADDRESS`. Wiring verified onchain; five hook-routed swaps produced JIT
+episodes with toxic surge fees. Manifest: `deployments/arc-testnet.json` → `stack`; see
+`docs/DEPLOYMENTS.md`.
 
 
 ## What is integrated
@@ -28,11 +29,10 @@ Manifest: `deployments/arc-testnet.json` → `stack`.
 | Circle product | Where | Status |
 |---|---|---|
 | **Arc + USDC** | Contracts, gas, accounting (tranches, lending fork, JIT hook, NVDA pool) | live on Arc testnet |
-| **Gateway / Nanopayments** | x402 price rail (`scripts/x402-price.mjs`, `scripts/x402-seller.mjs`) | live, settled |
 | **Agent Marketplace (Discovery API)** | `scripts/agent-market.mjs --search` picks the LLM service by network/price/rails | working (no auth) |
-| **Nanopayment for AI reasoning** | `scripts/agent-market.mjs` pays AIsa per call from the agent wallet (Gateway) with the Graph snapshot | ready; needs agent-wallet login + ~$1–2 on Base |
-| **Circle Wallets (modular/passkey)** | `frontend/` scaffold (deferred to last): passkey wallet on Arc testnet | scaffolded |
-| **Paymaster / Gas Station** | frontend gasless user op (`paymaster: true`), testnet policy preconfigured | scaffolded (frontend phase) |
+| **Nanopayment for AI reasoning** | `scripts/agent-market.mjs` pays the selected LLM service per call from the agent wallet (Gateway) with the Graph snapshot | working — BlockRun verified (Polygon); needs a funded agent wallet |
+| **Circle Wallets (modular/passkey)** | `frontend/` — passkey smart account (create/unlock) with injected-wallet fallback | implemented in frontend |
+| **Paymaster / Gas Station** | `frontend/` userOps submit with `paymaster: true` (testnet sponsorship) | implemented; one-time Console passkey-domain config |
 | **CCTP / Bridge Kit** | optional funding flow (Base→Arc) | not started (optional) |
 | StableFX | permissioned institutional product — documented as unavailable | n/a |
 | Circle Contracts (SCP) | optional (Arc testnet only); not needed for the DeFi flows | n/a |
@@ -85,21 +85,24 @@ npm run circle:reason     # pay per call with the agent wallet, store the verdic
   (`maxTimeoutSeconds 604900`) while the Circle CLI signs `2592000` → `payment_requirements_mismatch`
   (no funds moved). Workaround: pay via `@circle-fin/x402-batching` `GatewayClient` once a Gateway
   balance is held by a local (non-custodial) key — needs mainnet gas for the deposit.
-- Arc-native nanopayment verified: the testnet agent wallet paid our own x402 seller $0.001 on Arc
-  (`circle services pay http://127.0.0.1:4021/api/nvda --address 0xbba6... --chain ARC-TESTNET`),
-  seller logged `[settled]`.
+- Arc-native nanopayments settle through the Gateway client (testnet facilitator); no
+  public push or seller endpoints remain in the repo.
 
 Transfers from the agent wallet need the ERC-20 explicitly:
 `circle wallet transfer 0xTO --amount 0.05 --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --address 0x974f... --chain BASE`
 (omitting `--token` targets the native balance and fails with insufficient funds).
 
-## Paymaster (Arc testnet) — frontend phase
+## Passkey wallets + Paymaster (Arc testnet) — frontend
 
-- Client key stored in `.env` (`CIRCLE_CLIENT_KEY`, `NEXT_PUBLIC_CIRCLE_CLIENT_KEY`).
-- Preconditions: in Circle Console configure **Wallets → Modular Wallets → Passkey domain** to the
-  frontend domain (localhost for dev).
-- The scaffolded `frontend/` page creates a passkey modular wallet, reads USDC/NVDA balances, and
-  submits an `approve + swap` batch with `paymaster: true` (gasless, testnet policy preconfigured).
+- `frontend/` (`frontend/src/wallet.ts`) connects an injected browser wallet or a Circle passkey
+  smart account (`@circle-fin/modular-wallets-core`); userOps submit with `paymaster: true`
+  (gasless, testnet sponsorship).
+- Env: `frontend/.env` → `VITE_CLIENT_KEY` (Console → Keys → Client Key) and `VITE_CLIENT_URL`.
+- Precondition: Circle Console → **Wallets → Modular Wallets → Passkey domain** set to the frontend
+  origin (localhost for dev).
+- App surface: vault deposit, redeem request, keeper fulfill and claim; oracle price + market
+  session; hook quote state and strategy bounds reads; contract registry. See
+  `docs/FRONTEND_INTEGRATION.md`.
 
 ## Notes / risks
 
