@@ -1,0 +1,40 @@
+flowchart LR
+    subgraph Depositors["Depositors"]
+        SD["Senior depositor"]
+        JD["Junior depositor"]
+    end
+
+    subgraph Vaults["ERC-7540 tranche vaults — asset = hook share"]
+        SV["SeniorVault<br/>USDC-only exits"]
+        JV["JuniorVault<br/>USDC · equity · proportional"]
+        AC["TrancheAccountant<br/>moveShares pegs entitlements<br/>senior priority · escrow"]
+    end
+
+    subgraph Primitive["ERC-7575 share primitive"]
+        HS["HookShareToken — tjSHARE<br/>vault(asset) → hook<br/>mint / burn: hook only"]
+    end
+
+    subgraph Strategy["Hook strategy — one basket"]
+        HK["TrancheJITHook"]
+        AA["Aave rest state<br/>aUSDC + aTokenEquity"]
+        JIT["v4 JIT execution<br/>dynamic fee"]
+    end
+
+    PX["TranchePipeModule<br/>unwrapUSDC · unwrapEquity · unwrapProportional"]
+
+    SD -->|"depositUSDC"| SV
+    JD -->|"depositUSDC"| JV
+    SV <-->|"wrap / unwrap shares"| PX
+    JV <-->|"wrap / unwrap shares"| PX
+    PX <-->|"wrapUSDC → mint<br/>unwrap* → burn"| HS
+    HS <-->|"mint / burn by hook"| HK
+    HK <--> AA
+    HK <--> JIT
+    SV -->|"report deposit / redeem / claim"| AC
+    JV -->|"report deposit / redeem / claim"| AC
+    AC -->|"moveShares"| SV
+    AC -->|"moveShares"| JV
+    AC -.->|"escrowFunded · juniorClaim"| HK
+
+    classDef sharePillar fill:#e7f5ff,stroke:#1971c2,stroke-width:3px
+    class HS sharePillar

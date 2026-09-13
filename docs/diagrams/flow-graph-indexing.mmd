@@ -1,0 +1,37 @@
+flowchart LR
+    subgraph Arc["Arc testnet contracts — emit events"]
+        OR["NVDAPriceOracle"]
+        PM["PoolManager — v4"]
+        HK["TrancheJITHook"]
+        SV["SeniorVault · JuniorVault"]
+        SA["StrategyAgent · StrategyController"]
+        AC["TrancheAccountant"]
+    end
+
+    subgraph Sub["subgraph/ — tranch-stock<br/>Messari Yield Aggregator v1.3.1 + extensions"]
+        DS["data sources + mappings<br/>addresses synced from the deployment manifest"]
+        ENT["entities<br/>OracleState · PriceUpdate · Pool · PoolSwap<br/>HookState · Quote · JitDeployment · ShareFlow<br/>VaultState · VaultFlow · AgentAction · AccountantReport"]
+    end
+
+    subgraph Consumers["Consumers"]
+        MKT["agent/market.mjs<br/>volatility · fees · active TVL · IL sweep"]
+        FE["frontend Markets page<br/>NVDAc pool stats via gateway"]
+        MCP["Subgraph MCP<br/>natural-language cross-protocol queries"]
+    end
+
+    GW["The Graph gateway<br/>API key · keyless Studio · x402-paid"]
+
+    OR --> DS
+    PM --> DS
+    HK --> DS
+    SV --> DS
+    SA --> DS
+    AC --> DS
+    DS --> ENT
+    ENT --> GW
+    GW --> MKT
+    GW --> FE
+    GW --> MCP
+
+    classDef graphPillar fill:#f3f0ff,stroke:#7048e8,stroke-width:3px
+    class Sub,GW graphPillar
