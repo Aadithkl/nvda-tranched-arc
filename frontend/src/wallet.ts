@@ -55,55 +55,82 @@ export async function connectInjected(): Promise<Session> {
   };
 }
 
+function passkeyError(error: unknown, mode: "register" | "login"): Error {
+  const name = (error as { name?: string })?.name ?? "";
+  const message = String((error as { message?: string })?.message ?? error);
+
+  if (name === "NotAllowedError" || /timed out|was not allowed/i.test(message)) {
+    return new Error(
+      mode === "login"
+        ? "No passkey found for this site, or the prompt was cancelled — use Create once, or a browser wallet"
+        : "Passkey creation was cancelled",
+    );
+  }
+  if (name === "InvalidStateError" || /already (registered|exists)|credential already/i.test(message)) {
+    return new Error("A passkey for this username already exists on this device — use Unlock instead");
+  }
+  if (name === "SecurityError" || /relying party|rp id|different origin/i.test(message)) {
+    return new Error(
+      "Passkey domain mismatch — set Console → Wallets → Modular Wallets → Passkey to this site's domain",
+    );
+  }
+  if (/entity config/i.test(message)) {
+    return new Error(
+      "Circle Console setup missing — set Console → Wallets → Modular Wallets → Passkey to this site's domain",
+    );
+  }
+  if (/invalid credentials/i.test(message)) {
+    return new Error(
+      "This client key isn't allowed for this domain — add the domain to the key under Console → Keys (one key per domain)",
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
 export async function connectPasskey(username: string, mode: "register" | "login"): Promise<Session> {
   if (!CLIENT_KEY) throw new Error("VITE_CLIENT_KEY is not set (Circle Console client key)");
 
   const trimmed = username.trim();
   if (mode === "register" && !trimmed) throw new Error("Enter a username to create a passkey wallet");
 
-  const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
-  const credential = await toWebAuthnCredential({
-    transport: passkeyTransport,
-    mode: mode === "register" ? WebAuthnMode.Register : WebAuthnMode.Login,
-    ...(trimmed ? { username: trimmed } : {}),
-  }).catch((error: unknown) => {
-    if ((error as { name?: string })?.name === "NotAllowedError") {
-      throw new Error(
-        mode === "login"
-          ? "No passkey found for this site (or the prompt was cancelled) — use Create once, or a browser wallet"
-          : "Passkey creation was cancelled",
-      );
-    }
-    throw error;
-  });
+  try {
+    const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
+    const credential = await toWebAuthnCredential({
+      transport: passkeyTransport,
+      mode: mode === "register" ? WebAuthnMode.Register : WebAuthnMode.Login,
+      ...(trimmed ? { username: trimmed } : {}),
+    });
 
-  const modularTransport = toModularTransport(`${CLIENT_URL}/arcTestnet`, CLIENT_KEY);
-  const client = createPublicClient({ chain, transport: modularTransport as never });
-  const smartAccount = await toCircleSmartAccount({
-    client: client as never,
-    owner: toWebAuthnAccount({ credential: credential as never }),
-  });
-  const bundlerClient = createBundlerClient({
-    account: smartAccount as never,
-    chain,
-    transport: modularTransport as never,
-  });
+    const modularTransport = toModularTransport(`${CLIENT_URL}/arcTestnet`, CLIENT_KEY);
+    const client = createPublicClient({ chain, transport: modularTransport as never });
+    const smartAccount = await toCircleSmartAccount({
+      client: client as never,
+      owner: toWebAuthnAccount({ credential: credential as never }),
+    });
+    const bundlerClient = createBundlerClient({
+      account: smartAccount as never,
+      chain,
+      transport: modularTransport as never,
+    });
 
-  return {
-    kind: "passkey",
-    address: smartAccount.address as Address,
-    sendCalls: async (calls) => {
-      const sendUserOperation = bundlerClient.sendUserOperation as never as (args: unknown) => Promise<Hex>;
-      const waitForReceipt = bundlerClient.waitForUserOperationReceipt as never as (args: {
-        hash: Hex;
-      }) => Promise<{ receipt?: { transactionHash?: Hex } }>;
-      const hash = await sendUserOperation({ calls, paymaster: true });
-      try {
-        const receipt = await waitForReceipt({ hash });
-        return [(receipt?.receipt?.transactionHash ?? hash) as Hex];
-      } catch {
-        return [hash];
-      }
-    },
-  };
+    return {
+      kind: "passkey",
+      address: smartAccount.address as Address,
+      sendCalls: async (calls) => {
+        const sendUserOperation = bundlerClient.sendUserOperation as never as (args: unknown) => Promise<Hex>;
+        const waitForReceipt = bundlerClient.waitForUserOperationReceipt as never as (args: {
+          hash: Hex;
+        }) => Promise<{ receipt?: { transactionHash?: Hex } }>;
+        const hash = await sendUserOperation({ calls, paymaster: true });
+        try {
+          const receipt = await waitForReceipt({ hash });
+          return [(receipt?.receipt?.transactionHash ?? hash) as Hex];
+        } catch {
+          return [hash];
+        }
+      },
+    };
+  } catch (error) {
+    throw passkeyError(error, mode);
+  }
 }
