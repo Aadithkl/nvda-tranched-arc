@@ -1074,6 +1074,11 @@ async function readJit() {
 
 /* ─────────── manual agent check (local bridge) ─────────── */
 
+// On the hosted site there is no local bridge; the agent ticks in GitHub Actions every 10 min.
+const AGENT_HEARTBEAT_URL = "https://github.com/Aadithkl/nvda-tranched-arc/actions/workflows/agent-heartbeat.yml";
+const agentBridgeIsLocal = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//.test(`${AGENT_URL}/`);
+const pageIsLocal = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
+
 async function runAgentCheck() {
   const button = $("agentRun") as HTMLButtonElement;
   const resultBox = $("agentResult");
@@ -1148,7 +1153,9 @@ async function runAgentCheck() {
     resultBox.classList.remove("hidden");
     refresh().catch(() => undefined);
   } catch (error) {
-    $("agentStatus").textContent = `Agent not reachable at ${AGENT_URL} — start it with "npm run agent:serve".`;
+    $("agentStatus").textContent = pageIsLocal
+      ? `Agent not reachable at ${AGENT_URL} — start it with "npm run agent:serve".`
+      : `Agent bridge ${AGENT_URL} is not reachable from this site — the hosted agent ticks on GitHub Actions every 10 minutes.`;
     resultBox.classList.add("hidden");
     throw error;
   } finally {
@@ -1668,7 +1675,17 @@ function wire() {
   $("redMaturedAmt").addEventListener("input", () => updateMaturedEstimate());
   $("redRedeemExpiry").addEventListener("click", redeemAtExpiryAction);
   $("faucetBtn").addEventListener("click", mintEquity);
-  $("agentRun").addEventListener("click", () => run("agent check", runAgentCheck));
+  if (agentBridgeIsLocal && !pageIsLocal) {
+    const button = $("agentRun") as HTMLButtonElement;
+    button.textContent = "Open heartbeat runs";
+    $("agentStatus").innerHTML =
+      `The agent is hosted on GitHub Actions and ticks every 10 minutes. ` +
+      `<a class="underline" href="${AGENT_HEARTBEAT_URL}" target="_blank" rel="noreferrer">View the latest heartbeat run</a> ` +
+      `for the last tick, audit verdict and any submitted transactions.`;
+    button.addEventListener("click", () => window.open(AGENT_HEARTBEAT_URL, "_blank", "noopener,noreferrer"));
+  } else {
+    $("agentRun").addEventListener("click", () => run("agent check", runAgentCheck));
+  }
 
   document.addEventListener("click", (event) => {
     const menu = $("walletMenu");
