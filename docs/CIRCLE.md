@@ -101,10 +101,13 @@ Transfers from the agent wallet need the ERC-20 explicitly:
   **Unlock** signs back in with an existing passkey (username optional). Same passkey ⇒ same
   smart-account address; operations are gasless userOps.
 - Env: repo-root `.env` → `VITE_CLIENT_KEY` (Console → Keys → Client Key; Vite reads the root
-  `.env` via `envDir: ".."`), optional `VITE_CLIENT_URL`. The Pages workflow injects the same
-  value from the `VITE_CLIENT_KEY` repository secret.
-- Precondition: Circle Console → **Wallets → Modular Wallets → Passkey domain** set to the frontend
-  origin (localhost for dev). Passkeys are domain-bound — create once per domain (localhost ≠ Pages).
+  `.env` via `envDir: ".."`), optional `VITE_CLIENT_URL`. The Pages workflow injects the
+  `VITE_CLIENT_KEY` repository secret for the hosted site
+  (<https://aadithkl.github.io/nvda-tranched-arc/>).
+- Precondition (hosted): the client key's **allowed domain** and the **Wallets → Modular Wallets →
+  Passkey domain** must both be `aadithkl.github.io`. Passkeys are RP-ID/domain-bound — create the
+  passkey on the hosted domain; a passkey from another domain cannot unlock here (local dev needs
+  its own key + passkey pair).
 - App surface: vault deposit, redeem request, keeper fulfill and claim; oracle price + market
   session; hook quote state and strategy bounds reads; contract registry. See
   `docs/FRONTEND_INTEGRATION.md`.
@@ -113,9 +116,9 @@ Transfers from the agent wallet need the ERC-20 explicitly:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Cannot find the entity config in the system` | Passkey domain not configured | Console → **Wallets → Modular Wallets → Passkey** → set it to this site's hostname (`localhost` for dev) |
-| `Invalid credentials` (HTTP 401) | Client key isn't linked to this origin | Console → **Keys** → the key's allowed domain must match the origin. Keys are domain-scoped — create a separate key for the Pages domain (`aadithkl.github.io`) |
-| `NotAllowedError` / prompt never appears | No passkey for this site, or the user cancelled | Create once per domain — passkeys are RP-ID bound (a `localhost` passkey will not work on Pages) |
+| `Cannot find the entity config in the system` | Passkey domain not configured | Console → **Wallets → Modular Wallets → Passkey** → set it to `aadithkl.github.io` |
+| `Invalid credentials` (HTTP 401) | Client key isn't linked to this origin | Console → **Keys** → set the key's allowed domain to `aadithkl.github.io` (or create a key for it). The localhost-linked key gets 401 on the Pages domain |
+| `NotAllowedError` / prompt never appears | No passkey for this domain, or the user cancelled | Create once on `aadithkl.github.io` — a passkey created on `localhost` cannot unlock on the Pages domain |
 | `SecurityError` | Passkey belongs to a different origin | Create a passkey on this domain instead |
 | `InvalidStateError` / already registered | Passkey already exists for that username | Use **Unlock** |
 
