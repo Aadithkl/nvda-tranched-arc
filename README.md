@@ -68,12 +68,21 @@ Developer feedback: [`FEEDBACK.md`](FEEDBACK.md).
 ## The Graph integration
 
 - **Subgraph:** `tranch-stock` indexes the oracle, v4 pools, hook quotes/JIT, strategy submissions
-  and tranche events — entities and queries in [`docs/GRAPH.md`](docs/GRAPH.md).
-- **Agent decisions:** `agent/market.mjs` pulls 336h hourly + 30d daily pool data through the
-  gateway and computes volatility, fee capture and the fee-vs-IL sweep that drives quoting and
-  rebalancing — [`docs/AGENT_MARKET.md`](docs/AGENT_MARKET.md).
-- **Cross-protocol MCP:** the same Messari `vaults` query runs against this subgraph and live yield
-  subgraphs — [`docs/MCP.md`](docs/MCP.md).
+  and tranche events — live at
+  `https://api.studio.thegraph.com/query/1760210/tranch-stock/version/latest`
+  (entities and queries in [`docs/GRAPH.md`](docs/GRAPH.md)).
+- **Standardized schema:** implements the **Messari Yield Aggregator v1.3.1** schema (vendored at
+  [`subgraph/schema-yield.graphql`](subgraph/schema-yield.graphql)) so identical queries run across
+  protocols.
+- **Agent decisions (Graph-only):** `agent/market.mjs` + `agent/model.mjs` compute volatility, fee
+  capture and the fee-vs-IL sweep from the Graph gateway only; the registry
+  [`agent/pools.json`](agent/pools.json) tracks 3 live Base subgraphs (Uniswap v3, Aerodrome
+  Slipstream, Uniswap v4) — [`docs/AGENT_MARKET.md`](docs/AGENT_MARKET.md).
+- **Cross-protocol MCP:** hosted Subgraph MCP at `https://subgraphs.mcp.thegraph.com/sse` —
+  discovery across 15,000+ subgraphs, schema lookup and query execution; the demo runs the same
+  Messari `vaults` query against this subgraph and **Yearn v2**
+  (`FDLuaz69DbMADuBjJDEcLnTuPnjhZqNbFVrkNiBLGkEg`) — tools and setup in
+  [`docs/MCP.md`](docs/MCP.md).
 - **Verify:** `npm run graph:query` and `npm run market`.
 
 ## Arc & Circle integration
@@ -81,6 +90,18 @@ Developer feedback: [`FEEDBACK.md`](FEEDBACK.md).
 Arc is the execution and settlement chain — USDC is the native gas currency (18-dec native
 balance, 6-dec ERC-20 interface) — and every paid call in the product settles through
 **Circle Gateway batched settlement (nanopayments)**.
+
+**Live v3 stack (Arc):** hook `0x5C374e0B4F3646705839BE9D2b45F6753EAC6aC0` · share
+`0x9341fA835A44A225E7f36a245A149794239c221A` · pipe `0x04614f09DfC7D66B5072FB9B745C9B1b9503bA5e` ·
+accountant `0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3` · senior `0x2b9Bc484b5De5ffd96e0aD37a05D0ff1B4380266` ·
+junior `0xdBEAaAc8281459510E871aBdE4bf88C8AC530F8a` — full tables in
+[`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md).
+
+**JIT exercised on Arc:** 21 hook swaps → 21 JIT episodes (all returned to rest), **$39.49 gross
+volume, $2.38 fees captured** (11 toxic surge quotes up to 14.1%); hook managed assets grew
+35.00 → 47.87 USDC. **Circle verified:** passkey + paymaster live on the hosted app, Agent
+Marketplace discovery working, and a nanopayment run settled end-to-end (BlockRun, $0.003/call via
+Gateway — verdict `reduce` @ 0.7, bucket 488, max deploy $9,600).
 
 | Piece | Source |
 |---|---|
