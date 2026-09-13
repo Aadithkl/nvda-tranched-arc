@@ -5,93 +5,41 @@ Senior (fixed 5% target) and Junior (leveraged) tranches, with capital resting i
 lending market and a defensive Uniswap v4 JIT hook executing only in `+EV`, market-open,
 oracle-valid windows under an agent-operated strategy controller.
 
-Indexing: The Graph subgraph (`subgraph/`) indexes the x402 oracle, v4 pools, and the tranche stack; live query URL in `deployments/arc-testnet.json`.
-x402 on Arc: Circle Gateway rail verified end-to-end (pay $0.001 on Arc → NVDA quote → onchain oracle update).
-Hook path proven: `SmokeHook` deployed at a salt-mined address, `beforeSwap`/`afterSwap` fired with exact `hookData` on Arc (poolId `0x092c…3677`).
-Frontend pack: `deployments/arc-testnet.json` (manifest) + `docs/abis/` + `docs/FRONTEND_INTEGRATION.md` + `examples/`; regenerate with `npm run export:pack`.
-Tranche vaults: `src/vaults/` — ERC-7540 Senior/Junior vaults (asset = hook share) + `TrancheAccountant` rules; `TranchePipeModule` handles USDC/equity exits and LLM-proposed, rail-validated rebalancing (75% equity hard cap).
-Hardening (v3.1): bucket-exact JIT sizing from v4 amount-delta math (replacing the spot approximation, under EIP-170); deadline-enforced, `SafeERC20` rebalancing router; controller guardian pause + bounds validation; two-step oracle ownership with oracle-decimal scaling; locked-redemption accounting fix; invariant suite (`test/invariant/`); agent-side economic audit gate (`agent/model.mjs`) with LLM manager: paid verdict every 6h owns params/audit thresholds/rebalances, deterministic clamps and per-swap onchain gates enforce the rails.
-Maturity (v3.2): one `EXPIRY_TIMESTAMP` per book (hook + both vaults). At expiry quoting/JIT and rebalancing stop, deposits close; permissionless settlement (`TranchePipeModule.settleSwap` / `finalizeSettlement`) converts equity to USDC only as needed, pays the senior guarantee first, hands the remainder (USDC + all equity) to junior, and freezes terminal per-share redemption rates — holders then burn srNVDA/jrNVDA via `redeemAtExpiry`.
+**Live:** https://aadithkl.github.io/nvda-tranched-arc/ · **Addresses:** `docs/DEPLOYMENTS.md` ·
+**Interface pack:** `deployments/arc-testnet.json`, `docs/abis/`, `examples/`
+
+### What's live
+
+- **Price rail** — x402 stock quotes bought with USDC on Arc (Circle Gateway nanopayments) push the
+  onchain NVDA/USD oracle; the v4 AMM price is the second, independent reference. No Chainlink.
+- **Tranche book** — `TrancheJITHook` (dynamic fee, toxic-flow pricing, bucket-exact JIT, Aave rest)
+  plus ERC-7540 Senior/Junior vaults, an ERC-7575 hook share and `TrancheAccountant` settlement;
+  one `EXPIRY_TIMESTAMP` per book stops quoting and freezes terminal redemption rates.
+- **Agent** — bounded `StrategyController` with a 6h paid LLM verdict, deterministic clamps and
+  per-swap onchain gates; hosted heartbeat every 10 minutes.
+- **Reads** — the `tranch-stock` subgraph indexes oracle, pools, hook quotes/JIT, strategy
+  submissions and tranche events for the app and the agent.
+
+## Quickstart
+
+```shell
+forge build && npm install
+cp .env.example .env          # secrets + addresses (never committed)
+npm run agent:tick            # dry-run one agent tick (no tx)
+npm run lending:status        # Aave semi-fork state
+npm run hook:demo -- --status # live TrancheJITHook state
+npm run export:pack           # regenerate ABIs + deployment manifest
+```
+
+Full script list in `package.json`; pinned dependencies and build flags in
+[`REQUIREMENTS.md`](REQUIREMENTS.md).
 
 ## Architecture
 
 ![System architecture](docs/assets/system-architecture.svg)
 
-Full component map, code pointers (file + line links), deployment topology and seven flow
-walkthroughs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Diagrams are authored in Mermaid
-(`docs/diagrams/*.mmd`) and exported with `npm run diagrams:export`.
-
-### Components
-
-- **Price**: two variables — stock price pushed onchain from x402 purchases (USDC paid
-  on Arc via Circle Gateway nanopayments) and the Uniswap v4 AMM price. See
-  `docs/PRICE_SOURCES.md`. No Chainlink anywhere in the price path.
-- **Execution**: full Uniswap v4 fork on Arc — core `PoolManager` + periphery
-  (`PositionManager`, `PositionDescriptor`, `StateView`, `V4Quoter`, `ReservesLens`) +
-  `TrancheJITHook` (multi-bucket JIT, `beforeSwap`/`afterSwap`, no custom-accounting
-  return-delta flags). Hook deploy path proven with `SmokeHook`.
-- **Lending**: forked Aave V2 deployed on Arc Testnet (no ETH/WETH; USDC-native gas).
-- **Vaults**: Senior/Junior as ERC-7540 async vaults; hook strategy receipt as ERC-7575.
-- **Agent**: role-based EOA calling a bounded `StrategyController` — an LLM strategy manager refreshes
-  params/audit thresholds/rebalance proposals every 6h; deterministic code clamps them per tick and the
-  hook checks profitability + hard gates on every swap. It can pause swaps and adjust distribution
-  within caps, but can never withdraw funds to arbitrary addresses or mint/burn user shares.
-- **Indexing**: The Graph subgraph on Arc Testnet for fast reads of prices, pool state
-  and swaps (`docs/GRAPH.md`); RPC remains the trust layer.
-
-## Tools
-
-```shell
-forge build                          # contracts
-npm install                           # tooling
-npm run seed:nvda                     # USDC/NVDA venue pool: seed + swaps (--execute, --usdc N --nvda N --swaps N)
-npm run lending:status                # Aave semi-fork: prices, balances, liquidity index
-npm run lending:seed                  # deposit 10 USDC + 1 NVDA into the lending pool
-npm run hook:demo -- --status         # live TrancheJITHook demo (fees, toxic surge, Aave rest)
-npm run agent:keygen                  # generate the local agent-operator key (testnet only)
-npm run agent:tick                    # offchain agent dry-run (regime -> params, no tx)
-npm run export:pack                   # regenerate ABIs + deployment manifest
-npm run graph:query                   # query the deployed subgraph (needs GRAPH_URL)
-cd subgraph && npm install && npm run build    # subgraph codegen + compile
-```
-
-## Setup
-
-```shell
-forge build
-```
-
-Environment: copy `.env.example` to `.env` and fill in secrets (never committed).
-
-Before running anything onchain, set `USDC_ADDRESS`, `NVDA_ADDRESS` (18-dec NVDA token),
-`NVDA_ORACLE`, and `NVDA_PEGGED_PRICE` (USD 8d); the pool knobs (`NVDA_POOL_FEE`,
-`NVDA_POOL_TICK_SPACING`, `NVDA_POOL_PRICE`) derive the tick automatically. Then seed with
-`npm run lending:seed` (10 USDC + 1 NVDA) and `npm run seed:nvda -- --execute`.
-
-## Dependencies (pinned)
-
-- `Uniswap/v4-core` — `59d3ecf53afa9264a16bba0e38f4c5d2231f80bc` (BUSL-1.1, change date 2027-06-15; testnet/dev use — see `LICENSES.md`)
-- `Uniswap/v4-periphery` — commit `dce236d4e2057422d0791d9a973a58765eb46f65` (MIT)
-- `OpenZeppelin/uniswap-hooks` — `2ae32be4906d300fc49b4384842ef6bc3e902d73` (MIT; hook base + fee modules)
-- `OpenZeppelin/openzeppelin-community-contracts` — `92f252851c41449bd8417a6ebdcc8db95c8f66c9` (MIT; ERC-7540 base)
-- `OpenZeppelin/openzeppelin-contracts` — `v5.7.0` (MIT)
-- `foundry-rs/forge-std` (MIT)
-- Build note: `via_ir = true`, global `optimizer_runs = 200`, `bytecode_hash = "none"` so the periphery fits under EIP-170.
-
-## Docs
-
-- `LICENSES.md` — dependency licenses
-- `docs/CIRCLE.md` — Circle integration: Arc, Gateway/nanopayments, Agent Marketplace, wallets/paymaster
-- `docs/PRICE_SOURCES.md` — oracle price design, writer gate, staleness rules
-- `docs/HOOK.md` — `TrancheJITHook` modules, quote flow, TTL state machine, maturity, roles
-- `docs/ACCOUNTANT.md` — tranche rules: claims, escrow, waterfalls, rebalancing, settlement
-- `agent/README.md` — offchain agent daemon (regimes, run modes, GitHub heartbeat)
-- `docs/AGENT_MARKET.md` — market model: pool registry, IL/fee math, LLM manager, audit gate
-- `docs/LENDING.md` — Aave V2 semi-fork: pool/provider/configurator, USDC + NVDA markets, pegs, gaps
-- `docs/GRAPH.md` — subgraph entities, queries, price conversion, fallbacks
-- `docs/MCP.md` — The Graph subgraph MCP (cross-protocol analysis)
-- `docs/DEPLOYMENTS.md` — live Arc Testnet addresses
-- `docs/FRONTEND_INTEGRATION.md` — addresses/ABIs/flows for the frontend (`deployments/arc-testnet.json`, `docs/abis/`, `examples/`)
+Component map with file + line code pointers, deployment topology and flow walkthroughs:
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Uniswap v4 integration
 
@@ -111,43 +59,37 @@ verifiable at the lines below.
 | v4 deployment (`new PoolManager`) | [`DeployV4Stack.s.sol:40`](script/DeployV4Stack.s.sol#L40) |
 | Live addresses | `docs/DEPLOYMENTS.md`, `deployments/arc-testnet.json` |
 
-Developer feedback for the Uniswap team: [`FEEDBACK.md`](FEEDBACK.md).
-
+Developer feedback: [`FEEDBACK.md`](FEEDBACK.md).
 
 ## The Graph integration
 
-The Graph is load-bearing, live, and in the decision path:
-
-- **Subgraph (protocol indexing):** `tranch-stock` indexes the oracle, v4 pools, hook quotes/JIT,
-  strategy submissions and tranche events. Live query URL in `deployments/arc-testnet.json`;
-  entities and example queries in [`docs/GRAPH.md`](docs/GRAPH.md).
-- **Graph gateway (agent decisions):** `agent/market.mjs` pulls 336h hourly + 30d daily pool data
-  and computes volatility, fee capture, active TVL and the fee-vs-IL range sweep that drives
-  quoting and rebalancing — [`docs/AGENT_MARKET.md`](docs/AGENT_MARKET.md).
-- **Subgraph MCP (cross-protocol analysis):** the same Messari `vaults` query runs against our
-  subgraph and any live yield subgraph — [`docs/MCP.md`](docs/MCP.md).
-- **Verify live data:** `npm run graph:query` and `npm run market`.
+- **Subgraph:** `tranch-stock` indexes the oracle, v4 pools, hook quotes/JIT, strategy submissions
+  and tranche events — entities and queries in [`docs/GRAPH.md`](docs/GRAPH.md).
+- **Agent decisions:** `agent/market.mjs` pulls 336h hourly + 30d daily pool data through the
+  gateway and computes volatility, fee capture and the fee-vs-IL sweep that drives quoting and
+  rebalancing — [`docs/AGENT_MARKET.md`](docs/AGENT_MARKET.md).
+- **Cross-protocol MCP:** the same Messari `vaults` query runs against this subgraph and live yield
+  subgraphs — [`docs/MCP.md`](docs/MCP.md).
+- **Verify:** `npm run graph:query` and `npm run market`.
 
 ## Hosting (GitHub Actions)
 
-- **Frontend:** every push to `main` builds `frontend/` (root `.env` receives `VITE_GRAPH_API_KEY`
-  from repository secrets) and deploys `frontend/dist` to GitHub Pages —
-  https://aadithkl.github.io/nvda-tranched-arc/ — workflow:
+- **Frontend:** every push to `main` builds `frontend/` and deploys to GitHub Pages —
   [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
-- **Agent heartbeat:** cron every 10 minutes refreshes the Graph market snapshot, runs one tick
-  (`--submit` when the regime changes or the params TTL lapses) and refreshes the paid LLM verdict
-  every 6h — workflow:
+- **Agent heartbeat:** cron every 10 minutes runs one tick (`--submit` when the regime changes or
+  the params TTL lapses) and refreshes the paid LLM verdict every 6h —
   [`.github/workflows/agent-heartbeat.yml`](.github/workflows/agent-heartbeat.yml).
 
+## Docs
 
-
-## Integrations
-
-- **Circle / Arc:** Circle Gateway nanopayments (oracle rail +
-  paid agent reasoning), Modular Wallets/passkey + Paymaster frontend, Agent Marketplace discovery,
-  Arc-native USDC accounting — [`docs/CIRCLE.md`](docs/CIRCLE.md).
-- **Uniswap:** [`FEEDBACK.md`](FEEDBACK.md) — integration feedback.
-- **The Graph:** Subgraphs + Subgraph MCP as the blockchain-data source (above).
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — code map + flows ·
+[`docs/HOOK.md`](docs/HOOK.md) — hook modules, quote flow, TTL, maturity ·
+[`docs/ACCOUNTANT.md`](docs/ACCOUNTANT.md) — claims, waterfalls, settlement ·
+[`docs/LENDING.md`](docs/LENDING.md) — Aave semi-fork ·
+[`docs/PRICE_SOURCES.md`](docs/PRICE_SOURCES.md) — oracle design ·
+[`docs/CIRCLE.md`](docs/CIRCLE.md) — Circle/Gateway integration ·
+[`docs/FRONTEND_INTEGRATION.md`](docs/FRONTEND_INTEGRATION.md) — app wiring ·
+[`agent/README.md`](agent/README.md) — agent daemon.
 
 ## License
 
