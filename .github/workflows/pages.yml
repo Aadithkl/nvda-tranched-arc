@@ -39,6 +39,7 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+          VITE_CLIENT_KEY: ${{ secrets.VITE_CLIENT_KEY }}
         run: |
           echo "VITE_GRAPH_API_KEY=${{ secrets.GRAPH_API_KEY }}" > ../.env
           npm run build
