@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { createPublicClient, createWalletClient, defineChain, formatUnits, http, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { compactMarket } from "./ai-prompt.mjs";
+import { refreshOraclePrice } from "./price.mjs";
 import {
   clampAuditOverrides,
   clampParamOverrides,
@@ -40,7 +42,7 @@ const arcTestnet = defineChain({
 });
 
 const abi = parseAbi([
-  "function params() view returns ((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks))",
+  "function params() view returns ((bool quotingEnabled, uint24 baseFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks))",
   "function quoteState() view returns (uint8)",
   "function expired() view returns (bool)",
   "function previewQuote(bool zeroForOne) view returns (uint24 fee, bool toxic, uint16 deviationBps, uint8 state)",
@@ -60,14 +62,14 @@ const oracleAbi = parseAbi([
 const agentAbi = parseAbi([
   "function operator() view returns (address)",
   "function controller() view returns (address)",
-  "function submitParams((bool quotingEnabled, uint24 baseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
+  "function submitParams((bool quotingEnabled, uint24 baseFee, uint16 maxDeviationBps, uint16 toxicityMultiplierBps, uint16 minEvBps, uint32 cooldownSeconds, uint32 ttl, uint32 gracePeriod, uint128 maxDeployPerSwap, int24 bucketTicks) params)",
   "function submitBaseFee(uint24 baseFee)",
   "function submitQuotingEnabled(bool enabled)",
   "function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline)",
 ]);
 
 const controllerAbi = parseAbi([
-  "function bounds() view returns ((uint24 maxBaseFee, uint24 maxSurgeFee, uint16 maxDeviationBps, uint16 maxToxicityMultiplierBps, uint32 maxTtl, uint32 maxGracePeriod, uint128 maxDeployPerSwap, uint128 maxRebalanceSwapUsdc, uint32 rebalanceCooldown))",
+  "function bounds() view returns ((uint16 maxDeviationBps, uint16 maxToxicityMultiplierBps, uint32 maxTtl, uint32 maxGracePeriod, uint128 maxDeployPerSwap, uint128 maxRebalanceSwapUsdc, uint32 rebalanceCooldown))",
 ]);
 
 const accountantAbi = parseAbi([
@@ -109,6 +111,9 @@ const rebalanceMaxUsd = Number(
 );
 const rebalanceSlippageBps = Number(process.env.AGENT_REBALANCE_SLIPPAGE_BPS || "50");
 const rebalanceDeadlineSeconds = Number(process.env.AGENT_REBALANCE_DEADLINE_SECONDS || "300");
+// The agent owns the oracle price rail: on load (and each tick) it pushes a fresh quote when
+// the onchain price is stale. Only the authorized writer (the agent wallet) can publish.
+const pricePushEnabled = process.env.AGENT_PRICE_PUSH !== "0";
 // Economic audit thresholds: env defaults, overridable by the fresh paid LLM within hard clamps
 // (see clampAuditOverrides in model.mjs and AGENT_MARKET.md).
 const auditMinNetEdgeBps = Number(process.env.AGENT_AUDIT_MIN_NET_EDGE_BPS || "0.2");
@@ -172,7 +177,6 @@ const REGIMES = {
   calm: {
     quotingEnabled: true,
     baseFee: 3000,
-    maxSurgeFee: 30_000,
     maxDeviationBps: 300,
     toxicityMultiplierBps: 1000,
     minEvBps: 0,
@@ -185,7 +189,6 @@ const REGIMES = {
   elevated: {
     quotingEnabled: true,
     baseFee: 5000,
-    maxSurgeFee: 60_000,
     maxDeviationBps: 250,
     toxicityMultiplierBps: 1500,
     minEvBps: 0,
@@ -198,7 +201,6 @@ const REGIMES = {
   turbulent: {
     quotingEnabled: true,
     baseFee: 8000,
-    maxSurgeFee: 100_000,
     maxDeviationBps: 150,
     toxicityMultiplierBps: 2500,
     minEvBps: 0,
@@ -209,6 +211,80 @@ const REGIMES = {
     bucketTicks: 1,
   },
 };
+
+function marketCacheAgeSeconds() {
+  try {
+    const cached = JSON.parse(fs.readFileSync(marketCachePath, "utf8"));
+    const age = (Date.now() - Date.parse(cached.generatedAt)) / 1000;
+    return Number.isFinite(age) ? Math.round(age) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Pull a fresh Graph snapshot (fees / TVL / volume / IL sweep) by running agent/market.mjs.
+// Ticks use the cache inside its TTL; the UI button passes ?refresh=1 to force a pull.
+async function maybeRefreshMarket(force) {
+  if (process.env.AGENT_MARKET_REFRESH === "0") return { ok: false, skipped: "market refresh disabled" };
+  const age = marketCacheAgeSeconds();
+  const ttl = Number(process.env.AGENT_MARKET_CACHE_TTL || "900");
+  if (!force && age !== null && age < ttl) {
+    return { ok: false, skipped: `cache ${age}s old < ttl ${ttl}s`, ageSeconds: age };
+  }
+  const { spawnSync } = await import("node:child_process");
+  const started = Date.now();
+  const spawnArgs = ["agent/market.mjs", "--json"];
+  if (force) spawnArgs.push("--no-cache");
+  const run = spawnSync(process.execPath, spawnArgs, {
+    encoding: "utf8",
+    timeout: 180_000,
+    cwd: process.cwd(),
+  });
+  const elapsedMs = Date.now() - started;
+  if (run.status !== 0) {
+    console.warn(`[agent] market refresh failed: ${(run.stderr || run.stdout || "").slice(0, 200)}`);
+    return { ok: false, elapsedMs, error: "market.mjs failed" };
+  }
+  console.log(`[agent] market snapshot refreshed in ${elapsedMs}ms`);
+  return { ok: true, elapsedMs, ageSeconds: marketCacheAgeSeconds() };
+}
+
+// Refresh the paid LLM manager verdict through agent/refresh.mjs when it is older than
+// AGENT_LLM_REFRESH_SECONDS (or forced). Market snapshot must be fresh before the prompt is built.
+async function maybeRefreshReasoning(force) {
+  if (process.env.AGENT_LLM_REFRESH === "0") return { ok: false, skipped: "llm refresh disabled" };
+  const reasoningPath = process.env.AGENT_REASONING_CACHE || "agent/.cache/reasoning.json";
+  const threshold = Number(process.env.AGENT_LLM_REFRESH_SECONDS || "21600");
+  const ageSeconds = () => {
+    try {
+      const raw = JSON.parse(fs.readFileSync(reasoningPath, "utf8"));
+      const age = (Date.now() - Date.parse(raw.generatedAt)) / 1000;
+      return Number.isFinite(age) ? Math.round(age) : null;
+    } catch {
+      return null;
+    }
+  };
+  const before = ageSeconds();
+  if (!force && before !== null && before <= threshold) {
+    return { ok: false, skipped: `verdict ${before}s old <= ${threshold}s`, ageSeconds: before };
+  }
+  const { spawnSync } = await import("node:child_process");
+  const started = Date.now();
+  const spawnArgs = ["agent/refresh.mjs", "--no-market"];
+  if (force) spawnArgs.push("--force");
+  const run = spawnSync(process.execPath, spawnArgs, { encoding: "utf8", timeout: 300_000, cwd: process.cwd() });
+  const elapsedMs = Date.now() - started;
+  if (run.status !== 0) {
+    console.warn(`[agent] reasoning refresh failed: ${(run.stderr || run.stdout || "").slice(0, 300)}`);
+    return { ok: false, elapsedMs, error: "refresh.mjs failed", ageSeconds: ageSeconds() };
+  }
+  const after = ageSeconds();
+  if (after !== null && (before === null || after < before)) {
+    console.log(`[agent] LLM verdict refreshed in ${elapsedMs}ms (age ${after}s)`);
+    return { ok: true, elapsedMs, ageSeconds: after };
+  }
+  return { ok: false, elapsedMs, skipped: "no payer key or LLM call skipped", ageSeconds: after };
+}
 
 async function perceive() {
   const [oracle, params, state, maxDeploy, accountant, expired] = await Promise.all([
@@ -269,6 +345,7 @@ async function perceive() {
   }
 
   let bounds = null;
+  let legacyStack = false;
   try {
     const controller = await publicClient.readContract({
       address: config.agent,
@@ -276,11 +353,15 @@ async function perceive() {
       functionName: "controller",
     });
     if (controller !== "0x0000000000000000000000000000000000000000") {
-      bounds = await publicClient.readContract({
+      const raw = await publicClient.readContract({
         address: controller,
         abi: controllerAbi,
         functionName: "bounds",
       });
+      // The pre-fee-removal controller decodes into the first fee fields; ignore it until the
+      // strategy controller is redeployed with the current (fee-free) bounds layout.
+      legacyStack = Number(raw.maxDeviationBps) > 5_000;
+      bounds = legacyStack ? null : raw;
     }
   } catch {
     bounds = null;
@@ -302,6 +383,7 @@ async function perceive() {
     composition,
     decimals,
     bounds,
+    legacyStack,
     market,
     reasoning: loadReasoning(market),
   };
@@ -310,13 +392,21 @@ async function perceive() {
 function marketOverlay(decision, market) {
   const aggregate = market?.aggregate;
   if (!aggregate) return decision;
-  const suffix = aggregate.worthLp ? "lp-on" : "lp-off";
+  const effective = aggregate.effective;
+  const worthLp = effective ? Boolean(effective.worthLp) : Boolean(aggregate.worthLp);
+  const suffix = `${worthLp ? "lp-on" : "lp-off"}${effective ? `@${effective.source}` : ""}`;
   const params = { ...decision.params };
-  if (!aggregate.worthLp) {
+  if (!worthLp) {
     params.quotingEnabled = false;
   } else {
-    const bucketTicks = Math.max(1, Math.min(5_000, Number(aggregate.suggestedBucketTicks) || params.bucketTicks));
-    const deployUsdc = Math.max(0, Math.min(100_000, Number(aggregate.suggestedMaxDeployUsdc) || 0));
+    const bucketTicks = Math.max(
+      1,
+      Math.min(5_000, Number(effective?.bucketTicks ?? aggregate.suggestedBucketTicks) || params.bucketTicks),
+    );
+    const deployUsdc = Math.max(
+      0,
+      Math.min(100_000, Number(effective?.suggestedMaxDeployUsdc ?? aggregate.suggestedMaxDeployUsdc) || 0),
+    );
     params.bucketTicks = bucketTicks;
     params.maxDeployPerSwap = BigInt(Math.round(deployUsdc)) * 1_000_000n;
     params.quotingEnabled = true;
@@ -374,7 +464,6 @@ function sameParams(a, b) {
   return (
     Boolean(a.quotingEnabled) === Boolean(b.quotingEnabled) &&
     Number(a.baseFee) === b.baseFee &&
-    Number(a.maxSurgeFee) === b.maxSurgeFee &&
     Number(a.maxDeviationBps) === b.maxDeviationBps &&
     Number(a.toxicityMultiplierBps) === b.toxicityMultiplierBps &&
     Number(a.minEvBps) === b.minEvBps &&
@@ -406,15 +495,19 @@ function marketEdge(state) {
     pools.find((pool) => pool.id === aggregate.executedPool) ?? pools.find((pool) => pool.decision?.worthLp) ?? null;
   const best = exec?.decision?.best ?? null;
   const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+  const effective = aggregate.effective ?? null;
   return {
-    worthLp: Boolean(aggregate.worthLp),
-    edgeBps: num(exec?.decision?.best?.netEdgeBps, 0),
-    ilBps: num(exec?.decision?.best?.expectedIlBps, null),
-    sigmaHourly: num(aggregate.sigma14d, null),
-    suggestedDeployUsd: num(aggregate.suggestedMaxDeployUsdc, 0),
+    worthLp: effective ? Boolean(effective.worthLp) : Boolean(aggregate.worthLp),
+    edgeBps: effective ? num(effective.netEdgeBpsPerHour, 0) : num(exec?.decision?.best?.netEdgeBps, 0),
+    ilBps: effective ? num(effective.ilBpsPerDay / 24, null) : num(exec?.decision?.best?.expectedIlBps, null),
+    sigmaHourly: num(effective?.sigmaHourly ?? aggregate.sigma14d, null),
+    suggestedDeployUsd: num(effective?.suggestedMaxDeployUsdc ?? aggregate.suggestedMaxDeployUsdc, 0),
     pIlExceedsFees: num(best?.pIlExceedsFees, 0),
     var95Bps: num(best?.var95Bps, 0),
     cvar95Bps: num(best?.cvar95Bps, 0),
+    source: effective?.source ?? "base",
+    blendWeight: effective?.blendWeight ?? null,
+    lowConfidence: Boolean(effective?.lowConfidence),
   };
 }
 
@@ -531,7 +624,6 @@ function writePolicyCache(state, decision, audit) {
       quotingEnabled: Boolean(decision.params.quotingEnabled),
       params: {
         baseFee: Number(decision.params.baseFee),
-        maxSurgeFee: Number(decision.params.maxSurgeFee),
         maxDeviationBps: Number(decision.params.maxDeviationBps),
         toxicityMultiplierBps: Number(decision.params.toxicityMultiplierBps),
         minEvBps: Number(decision.params.minEvBps),
@@ -567,6 +659,8 @@ function writePolicyCache(state, decision, audit) {
           }
         : null,
       ai: ai ? { decision: ai.decision ?? null, ageSeconds: state.reasoning?.ageSeconds ?? null } : null,
+      ownPool: state.market?.ownPool ?? null,
+      effective: state.market?.aggregate?.effective ?? null,
     };
     fs.mkdirSync(path.dirname(policyCachePath), { recursive: true });
     fs.writeFileSync(policyCachePath, JSON.stringify(payload, null, 2));
@@ -578,7 +672,7 @@ function writePolicyCache(state, decision, audit) {
 async function act(state) {
   if (state.expired) {
     console.log("[agent] book expired: trading/JIT stopped, settlement only; no actions submitted");
-    return;
+    return { expired: true, submitted: false, note: "book expired: settlement only" };
   }
   const decision = reason(state);
   const audit = runAudit(state);
@@ -606,6 +700,53 @@ async function act(state) {
       ? `${plan.action}:${plan.reason}`
       : `off:${rebal.reason}`;
 
+  const ownPool = state.market?.ownPool;
+  const ownPoolLabel = ownPool?.available
+    ? `${ownPool.swapCount}sw/$${ownPool.volumeUsd.toFixed(1)}vol/$${ownPool.feesUsd.toFixed(2)}fee${
+        ownPool.hook ? ` +jit $${ownPool.hook.jitPerDayUsd.toFixed(2)}/d (${ownPool.hook.jitEpisodes}ep)` : ""
+      }`
+    : "n/a";
+  const effective = state.market?.aggregate?.effective;
+  const effLabel = effective
+    ? `${effective.source}:${effective.netEdgeBpsPerDay.toFixed(2)}bps/d@w${effective.blendWeight}${effective.lowConfidence ? "?" : ""}`
+    : "n/a";
+
+  const summary = {
+    expired: false,
+    submitted: submit,
+    regime: decision.regime,
+    oracleMid: state.oracleMid,
+    oracleValid: Boolean(state.oracleValid),
+    marketStatus: state.marketStatus,
+    deviationBps: state.deviationBps,
+    quoteState: state.quoteState,
+    paramsChanged: !upToDate,
+    maxDeployUsd: Number(state.maxDeploy) / 1_000_000,
+    risk: {
+      seniorClaimUsd: Number(state.risk.seniorClaim ?? 0n) / 1_000_000,
+      juniorClaimUsd: Number(state.risk.juniorClaim ?? 0n) / 1_000_000,
+      escrowFunded: Boolean(state.risk.escrowFunded),
+    },
+    market: market
+      ? {
+          worthLp: Boolean(market.worthLp),
+          bestBandBps: market.bestBandBps ?? null,
+          suggestedDeployUsdc: market.suggestedMaxDeployUsdc ?? null,
+        }
+      : null,
+    ai: ai ? { decision: ai.decision ?? null, confidence: ai.confidence ?? null, model: state.reasoning?.model ?? null } : null,
+    ownPool: ownPool ?? null,
+    effective: effective ?? null,
+    audit: {
+      verdict: audit.verdict,
+      reason: audit.reason,
+      juniorBufferBps: audit.juniorBufferBps,
+      netAfterCostsBps: audit.netAfterCostsBps,
+    },
+    rebalance: { action: plan?.action ?? "hold", reason: plan?.reason ?? rebal.reason, sizeUsd: plan?.sizeUsd ?? 0 },
+    txHashes: [],
+  };
+
   console.log(
     `[agent] regime=${decision.regime} devBps=${state.deviationBps} quoteState=${state.quoteState} ` +
       `oracle=${state.oracleMid} valid=${state.oracleValid} funded=${state.risk.escrowFunded} ` +
@@ -615,14 +756,15 @@ async function act(state) {
       `ai=${ai ? `${ai.decision}:${ai.confidence}:${state.reasoning.model ?? "-"}` : state.reasoning?.staleHash ? "stale-hash" : "n/a"} ` +
       `ai-audit=${aiAudit} ` +
       `audit=${audit.verdict}:${audit.reason}:buffer=${audit.juniorBufferBps}bps:net=${audit.netAfterCostsBps}bps ` +
-      `equity=${compLabel} il=${rebal.ilBps != null ? rebal.ilBps.toFixed(1) : "-"} premium=${rebal.premiumBps != null ? rebal.premiumBps.toFixed(2) : "-"} rebal=${rebalLabel}`,
+      `equity=${compLabel} il=${rebal.ilBps != null ? rebal.ilBps.toFixed(1) : "-"} premium=${rebal.premiumBps != null ? rebal.premiumBps.toFixed(2) : "-"} rebal=${rebalLabel} ` +
+      `own=${ownPoolLabel} eff=${effLabel}`,
   );
 
   writePolicyCache(state, decision, audit);
 
   if (!submit) {
     console.log("[agent] dry-run; pass --submit to broadcast through StrategyAgent");
-    return;
+    return summary;
   }
 
   const { account, client } = wallet();
@@ -631,7 +773,9 @@ async function act(state) {
     throw new Error(`operator mismatch: contract=${operator} key=${account.address}`);
   }
 
-  if (!upToDate) {
+  if (state.legacyStack) {
+    console.warn("[agent] legacy v2 stack (pre-v3 redeploy); skipping params submit");
+  } else if (!upToDate) {
     const hash = await client.writeContract({
       address: config.agent,
       abi: agentAbi,
@@ -639,6 +783,7 @@ async function act(state) {
       args: [decision.params],
     });
     await publicClient.waitForTransactionReceipt({ hash });
+    summary.txHashes.push(hash);
     console.log(`[agent] submitted ${decision.regime} params: ${hash}`);
   } else {
     console.log("[agent] params already match the regime; heartbeat fresh");
@@ -652,6 +797,7 @@ async function act(state) {
       args: [exec.equityOut, exec.amountIn, exec.minOut, exec.deadline],
     });
     await publicClient.waitForTransactionReceipt({ hash });
+    summary.txHashes.push(hash);
     console.log(`[agent] submitted ${exec.equityOut ? "sell" : "buy"} rebalance: ${hash}`);
   }
 
@@ -663,25 +809,42 @@ async function act(state) {
         functionName: "rebalance",
       });
       await publicClient.waitForTransactionReceipt({ hash });
+      summary.txHashes.push(hash);
       console.log(`[agent] accountant.rebalance(): ${hash}`);
     } catch (error) {
       console.warn(`[agent] accountant.rebalance skipped: ${error.shortMessage || error.message}`);
     }
   }
+
+  return summary;
 }
 
-async function tick() {
+export async function tick(options = {}) {
   if (!config.hook || !config.oracle || !config.agent) {
     throw new Error("AGENT_HOOK / AGENT_ORACLE / AGENT_ADDRESS (or HOOK_DEMO_*) must be set");
   }
+  if (pricePushEnabled && submit) {
+    try {
+      await refreshOraclePrice({ log: (line) => console.log(line), force: has("--force-price") });
+    } catch (error) {
+      console.warn(`[agent] price push skipped: ${error.shortMessage || error.message}`);
+    }
+  }
+  const marketRefresh = await maybeRefreshMarket(Boolean(options.forceRefresh) || has("--force-market"));
+  const reasoningRefresh = await maybeRefreshReasoning(Boolean(options.forceRefresh) || has("--force-reasoning"));
   const state = await perceive();
-  await act(state);
+  const summary = await act(state);
+  return { ...summary, marketRefresh, reasoningRefresh };
 }
 
-await tick();
-if (!once) {
-  console.log(`[agent] loop every ${intervalSeconds}s`);
-  setInterval(() => {
-    tick().catch((error) => console.error("[agent] tick failed:", error.message));
-  }, intervalSeconds * 1000);
+const isDirectRun = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
+
+if (isDirectRun) {
+  await tick();
+  if (!once) {
+    console.log(`[agent] loop every ${intervalSeconds}s`);
+    setInterval(() => {
+      tick().catch((error) => console.error("[agent] tick failed:", error.message));
+    }, intervalSeconds * 1000);
+  }
 }

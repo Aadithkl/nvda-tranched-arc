@@ -46,7 +46,6 @@ function loadState(id: string): HookState {
     state.paused = false;
     state.maxPriceAge = BigInt.zero();
     state.baseFee = BigInt.zero();
-    state.maxSurgeFee = BigInt.zero();
     state.maxDeviationBps = 0;
     state.toxicityMultiplierBps = 0;
     state.minEvBps = 0;
@@ -93,7 +92,6 @@ export function handleParamsUpdated(event: ParamsUpdated): void {
   let p = event.params.params;
   state.quotingEnabled = p.quotingEnabled;
   state.baseFee = BigInt.fromI32(p.baseFee);
-  state.maxSurgeFee = BigInt.fromI32(p.maxSurgeFee);
   state.maxDeviationBps = p.maxDeviationBps;
   state.toxicityMultiplierBps = p.toxicityMultiplierBps;
   state.minEvBps = p.minEvBps;
@@ -110,7 +108,6 @@ export function handleParamsUpdated(event: ParamsUpdated): void {
   change.kind = "Params";
   change.quotingEnabled = p.quotingEnabled;
   change.baseFee = BigInt.fromI32(p.baseFee);
-  change.maxSurgeFee = BigInt.fromI32(p.maxSurgeFee);
   change.maxDeviationBps = p.maxDeviationBps;
   change.toxicityMultiplierBps = p.toxicityMultiplierBps;
   change.minEvBps = p.minEvBps;

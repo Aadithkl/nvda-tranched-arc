@@ -9,7 +9,6 @@ library HookParams {
     struct Params {
         bool quotingEnabled;
         uint24 baseFee;
-        uint24 maxSurgeFee;
         uint16 maxDeviationBps;
         uint16 toxicityMultiplierBps;
         uint16 minEvBps;
@@ -21,7 +20,6 @@ library HookParams {
     }
 
     error InvalidBaseFee(uint24 baseFee);
-    error InvalidSurgeFee(uint24 maxSurgeFee, uint24 baseFee);
     error InvalidDeviation(uint16 maxDeviationBps);
     error InvalidMultiplier(uint16 toxicityMultiplierBps);
     error InvalidTtl(uint32 ttl);
@@ -29,7 +27,6 @@ library HookParams {
 
     function validate(Params memory p) internal pure {
         if (p.baseFee > MAX_FEE) revert InvalidBaseFee(p.baseFee);
-        if (p.maxSurgeFee > MAX_FEE || p.maxSurgeFee < p.baseFee) revert InvalidSurgeFee(p.maxSurgeFee, p.baseFee);
         if (p.maxDeviationBps > MAX_DEVIATION_BPS) revert InvalidDeviation(p.maxDeviationBps);
         if (p.toxicityMultiplierBps > MAX_TOXICITY_MULTIPLIER_BPS) revert InvalidMultiplier(p.toxicityMultiplierBps);
         if (p.ttl == 0) revert InvalidTtl(p.ttl);

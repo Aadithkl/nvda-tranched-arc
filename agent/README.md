@@ -22,23 +22,38 @@ oracle + hook + accountant ──► agent/index.mjs ─────────
 | Local dry run | `node agent/index.mjs --once` |
 | Local submit | `node agent/index.mjs --once --submit` |
 | Local loop (default 600s) | `node agent/index.mjs --loop --interval 600 --submit` |
+| HTTP bridge for the frontend "Run agent check" button | `npm run agent:serve` (add `-- --submit` to broadcast); `POST /tick`, `GET /health` on `AGENT_HTTP_PORT` (default 8787, dry-run unless `--submit`) |
 | Refresh paid verdict (only if > `AGENT_LLM_REFRESH_SECONDS` old) | `node agent/refresh.mjs` |
 | Force a refresh | `node agent/refresh.mjs --force` |
+| Push oracle price now (also runs on load/each tick) | `npm run oracle:refresh` (`--force`, `--dry`) |
 | GitHub Actions heartbeat | `.github/workflows/agent-heartbeat.yml` (cron every 10 min, `workflow_dispatch` for manual) |
 | EigenCompute (later) | containerized daemon (`Dockerfile` to be added when key custody matters) |
 
 ## Regimes (policy)
 
-| Regime | Condition | Base fee | Surge cap | Deviation band | TTL | Max deploy |
-|---|---|---|---|---|---|---|
-| calm | deviation ≤ 50 bps | 0.30% | 3% | 300 bps | 3600s | 1 USDC |
-| elevated | ≤ 150 bps | 0.50% | 6% | 250 bps | 1800s | 0.5 USDC |
-| turbulent | > 150 bps | 0.80% | 10% | 150 bps | 900s | 0.1 USDC |
-| closed | oracle invalid / market closed | — | — | — | — | quoting **off** |
-| unfunded | senior escrow not funded | — | — | — | — | quoting **off** |
+| Regime | Condition | Base fee | Deviation band | TTL | Max deploy |
+|---|---|---|---|---|---|
+| calm | deviation ≤ 50 bps | 0.30% | 300 bps | 3600s | 1 USDC |
+| elevated | ≤ 150 bps | 0.50% | 250 bps | 1800s | 0.5 USDC |
+| turbulent | > 150 bps | 0.80% | 150 bps | 900s | 0.1 USDC |
+| closed | oracle invalid / market closed | — | — | — | quoting **off** |
+| unfunded | senior escrow not funded | — | — | — | quoting **off** |
 
 The `StrategyController` enforces hard bounds on every submitted param, so a compromised or wrong agent
-can only shrink/reshape activity within those limits.
+can only shrink/reshape activity within those limits. Fees are uncapped apart from the 100% protocol
+maximum — the manager may price extreme markets up to seven figures (70%+).
+
+## Automatic price rail
+
+The agent owns the oracle: before every submitted tick (`agent/price.mjs`) it checks `getPrice()`, and
+when the price is stale it walks the seller list (`ORACLE_PRICE_SELLERS`) until one returns a quote —
+every paid call settles **only through Circle Gateway nanopayments** (x402 sellers; no external oracle
+provider is integrated). The quote is mapped to the US/Eastern session and pushed with
+`updatePrice(...)` from the agent wallet. The oracle only accepts the seeded writer (the agent
+operator), so no one else can publish a price. Closed markets and fresh prices are skipped (no gas, no
+payment). Disable with `AGENT_PRICE_PUSH=0`; `ORACLE_PRICE_USD` is an offline override,
+`ORACLE_PRICE_FALLBACK_URL` an optional last resort. Local dry-runs (`--once` without `--submit`)
+never push; run it manually with `npm run oracle:refresh`.
 
 ### LLM manager layer
 
@@ -46,7 +61,7 @@ When a fresh, snapshot-hash-matched verdict exists, the paid model overlays the 
 
 | Field | Authority | Hard clamp (`model.mjs`) |
 |---|---|---|
-| `paramOverrides.*` | any hook param: `quotingEnabled`, `baseFee`, `maxSurgeFee`, `maxDeviationBps`, `toxicityMultiplierBps`, `minEvBps`, `cooldownSeconds`, `ttl`, `gracePeriod`, `maxDeployPerSwap`, `bucketTicks` | `PARAM_CLAMPS` ∩ live `StrategyController.bounds()` |
+| `paramOverrides.*` | any hook param: `quotingEnabled`, `baseFee`, `maxDeviationBps`, `toxicityMultiplierBps`, `minEvBps`, `cooldownSeconds`, `ttl`, `gracePeriod`, `maxDeployPerSwap`, `bucketTicks` | `PARAM_CLAMPS` ∩ live `StrategyController.bounds()` |
 | `auditOverrides.*` | economic-audit thresholds | `AUDIT_CLAMPS` (bounded both ways) |
 | `rebalance` | buy/sell/hold + size in USD | `validateRebalanceProposal` (oracle, escrow, 75% equity cap, min/max size) |
 | `decision` | deploy/reduce/hold/disable | structural disables re-applied by the audit |
@@ -55,6 +70,28 @@ Stale verdict, hash mismatch, or a missing file means the deterministic path con
 LLM is never in the per-swap path and never blocks a tick. Freshness: overrides live
 `AGENT_REASONING_MAX_AGE_SECONDS` (default 2× the refresh interval), rebalance calls only
 `AGENT_REBALANCE_MAX_AGE_SECONDS` (default one interval).
+
+### LLM prompt contract
+
+Source of truth: `agent/ai-prompt.mjs` (`SYSTEM_PROMPT`, `compactMarket`, `compactPolicy`); the paid
+call is `agent/refresh.mjs` → `scripts/x402-ai.mjs`, which binds the verdict to a sha256 of
+`compactMarket(market)`.
+
+**What is sent** (user message = `{ market, policy }`):
+- `market.aggregate` — pooled σ14d, reference fee bps, best band, `worthLp`, suggested max deploy, executed pool.
+- `market.ownPool` — our deployed Arc USDC/NVDA venue: `{ poolId, usdPerNvda, swapCount, volumeUsd, feesUsd, feeApr, lpValueUsd, spanHours }` (realized volume/fees; `feeApr` is a short-window run-rate).
+- `market.effective` — blended fee source: Arc realized daily fee bps and the Base run-rate averaged at `blendWeight`; while `spanHours < AGENT_OWN_POOL_MIN_SPAN_HOURS` (6h) the Arc weight drops to 0 (Base carries, `lowConfidence=true`).
+- `market.pools[]` — per live NVDAc pool: TVL, 24h volume/fees, fee APR, effective fee bps, active TVL/share, σ3h/σ14d, and the band verdict (`worthLp`, `netEdgeBps`, `expectedIlBps`, `var95Bps`, `pIlExceedsFees`, `suggestedMaxDeployUsdc`).
+- `policy` — current hook params, effective audit thresholds, risk (`oracleValid`, `quoteState`, `deviationBps`, escrow, senior/junior claims) and book composition.
+
+**Questions the model must answer**: (1) is JIT/LP worth it now (edge after IL + costs > 0)?
+(2) which `bucketTicks` band and `maxDeployPerSwap`? (3) fee schedule / quoting / TTL / deviation band?
+(4) which audit thresholds to tighten or loosen? (5) rebalance buy/sell/hold + size within the 75%
+equity cap? (6) what invalidates this (`risks`)?
+
+**Expected answer** (strict JSON, no markdown): `{ decision, confidence, paramOverrides?,
+auditOverrides?, rebalance?, rationale, risks[] }` — every field except `decision` optional; all
+overrides clamped by `model.mjs` and the live `StrategyController.bounds()`.
 
 ## Environment
 

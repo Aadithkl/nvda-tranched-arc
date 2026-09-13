@@ -14,6 +14,17 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
+
+function loadEnv(file = path.join(root, ".env")) {
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (match) process.env[match[1]] ??= match[2].replace(/^["']|["']$/g, "");
+  }
+}
+
+loadEnv();
+
 const refreshSeconds = Number(process.env.AGENT_LLM_REFRESH_SECONDS || "21600");
 const reasoningPath = path.resolve(
   root,
@@ -45,7 +56,8 @@ if (age != null && age <= refreshSeconds && !args.has("--force")) {
   process.exit(0);
 }
 
-run("agent/market.mjs", ["--json"]);
+// The caller (agent tick) may have refreshed the Graph snapshot already.
+if (!args.has("--no-market")) run("agent/market.mjs", ["--json"]);
 
 const payer = process.env.X402_PAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
 if (!payer) {

@@ -1052,6 +1052,32 @@
   },
   {
     "type": "function",
+    "name": "expired",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "expiry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getHookPermissions",
     "inputs": [],
     "outputs": [
@@ -1299,6 +1325,86 @@
   },
   {
     "type": "function",
+    "name": "module",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "moduleBurn",
+    "inputs": [
+      {
+        "name": "from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "shares",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "modulePull",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "moduleSupplyIdle",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "oracleDecimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -1327,11 +1433,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -1617,6 +1718,19 @@
   },
   {
     "type": "function",
+    "name": "setExpiry",
+    "inputs": [
+      {
+        "name": "expiry_",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setGuardian",
     "inputs": [
       {
@@ -1682,6 +1796,19 @@
   },
   {
     "type": "function",
+    "name": "setModule",
+    "inputs": [
+      {
+        "name": "module_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setParams",
     "inputs": [
       {
@@ -1696,11 +1823,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -2017,6 +2139,19 @@
   },
   {
     "type": "event",
+    "name": "ExpirySet",
+    "inputs": [
+      {
+        "name": "expiry",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GuardianUpdated",
     "inputs": [
       {
@@ -2206,6 +2341,32 @@
   },
   {
     "type": "event",
+    "name": "ModuleUpdated",
+    "inputs": [
+      {
+        "name": "module",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OracleDecimalsUpdated",
+    "inputs": [
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnerUpdated",
     "inputs": [
       {
@@ -2253,11 +2414,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -2518,6 +2674,16 @@
   },
   {
     "type": "error",
+    "name": "ExpiryAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExpiryInPast",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ExternalLiquidityDisabled",
     "inputs": [
       {
@@ -2531,6 +2697,27 @@
     "type": "error",
     "name": "HookNotImplemented",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientAsset",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2610,6 +2797,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidOracleDecimals",
+    "inputs": [
+      {
+        "name": "decimals",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidPool",
     "inputs": []
   },
@@ -2617,22 +2815,6 @@
     "type": "error",
     "name": "InvalidPoolKey",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidSurgeFee",
-    "inputs": [
-      {
-        "name": "maxSurgeFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "baseFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      }
-    ]
   },
   {
     "type": "error",
@@ -2723,6 +2905,17 @@
   {
     "type": "error",
     "name": "NotGuardianOrOwner",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotModule",
     "inputs": [
       {
         "name": "caller",

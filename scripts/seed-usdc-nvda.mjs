@@ -41,14 +41,19 @@ const stateViewAbi = parseAbi([
 ]);
 
 const routerAbi = parseAbi([
-  "function initializePool((address,address,uint24,int24,address) key, uint160 sqrtPriceX96) returns (int24)",
-  "function addLiquidity((address,address,uint24,int24,address) key, int24 tickLower, int24 tickUpper, int256 liquidityDelta, uint256 amount0Max, uint256 amount1Max, address recipient, bytes hookData) returns (int256)",
-  "function swapExactIn((address,address,uint24,int24,address) key, bool zeroForOne, uint256 amountIn, uint256 minAmountOut, address recipient, bytes hookData) returns (int256)",
+  "function initializePool((address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) key, uint160 sqrtPriceX96) returns (int24)",
+  "function addLiquidity((address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) key, int24 tickLower, int24 tickUpper, int256 liquidityDelta, uint256 amount0Max, uint256 amount1Max, address recipient, bytes hookData) returns (int256)",
+  "function swapExactIn((address currency0, address currency1, uint24 fee, int24 tickSpacing, address hooks) key, bool zeroForOne, uint256 amountIn, uint256 minAmountOut, address recipient, bytes hookData) returns (int256)",
 ]);
 
 loadEnv();
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+const value = (flag, fallback) => {
+  const i = rawArgs.indexOf(flag);
+  return i >= 0 && rawArgs[i + 1] !== undefined ? rawArgs[i + 1] : fallback;
+};
 
 const rpc = process.env.ARC_RPC_URL || arcTestnet.rpcUrls.default.http[0];
 const pk = process.env.DEPLOYER_PRIVATE_KEY;
@@ -59,18 +64,21 @@ const publicClient = createPublicClient({ chain: arcTestnet, transport: http(rpc
 const walletClient = createWalletClient({ account, chain: arcTestnet, transport: http(rpc) });
 
 const usdc = process.env.USDC_ADDRESS || "0x3600000000000000000000000000000000000000";
-const nvda = process.env.NVDA_ADDRESS;
-if (!nvda) throw new Error("NVDA_ADDRESS must be set in .env");
+const nvda = process.env.NVDA_ADDRESS || process.env.TEST_NVDA || process.env.MOCK_NVDA;
+if (!nvda) throw new Error("NVDA_ADDRESS (or MOCK_NVDA) must be set in .env");
 const stateView = process.env.STATE_VIEW;
 const router = process.env.DEMO_ROUTER;
 if (!stateView || !router) throw new Error("STATE_VIEW and DEMO_ROUTER must be set in .env");
 
-const fee = Number(process.env.NVDA_POOL_FEE || 3000);
-const tickSpacing = Number(process.env.NVDA_POOL_TICK_SPACING || 60);
-const priceUsdPerNvda = Number(process.env.NVDA_POOL_PRICE || 200);
-const liquidity = BigInt(process.env.NVDA_POOL_LIQUIDITY || "1000000000");
-const maxUsdc = BigInt(process.env.NVDA_POOL_MAX_USDC || "5050000");
-const maxNvda = BigInt(process.env.NVDA_POOL_MAX_NVDA || "50000000000000000");
+const fee = Number(value("--fee", process.env.NVDA_POOL_FEE || 3000));
+const tickSpacing = Number(value("--spacing", process.env.NVDA_POOL_TICK_SPACING || 60));
+const priceUsdPerNvda = Number(value("--price", process.env.NVDA_POOL_PRICE || 200));
+const rangeTicks = Number(value("--range", "6000"));
+const targetUsdc = Number(value("--usdc", "50"));
+const targetNvda = Number(value("--nvda", String(targetUsdc / priceUsdPerNvda)));
+const swaps = Number(value("--swaps", "0"));
+const swapUsdc = Number(value("--swap-usdc", "3"));
+const skipLp = args.has("--skip-lp");
 
 const usdcIsToken0 = usdc.toLowerCase() < nvda.toLowerCase();
 const [currency0, currency1] = usdcIsToken0 ? [usdc, nvda] : [nvda, usdc];
@@ -96,16 +104,12 @@ function rawPriceFromUsd() {
 }
 
 const tickAt = (price) => Math.round(Math.log(price) / Math.log(1.0001));
-const align = (value) => Math.floor(value / tickSpacing) * tickSpacing;
+const align = (v) => Math.floor(v / tickSpacing) * tickSpacing;
 
 const rawPrice = rawPriceFromUsd();
 const tick = process.env.NVDA_POOL_TICK ? Number(process.env.NVDA_POOL_TICK) : tickAt(rawPrice);
-const tickLower = process.env.NVDA_POOL_TICK_LOWER
-  ? Number(process.env.NVDA_POOL_TICK_LOWER)
-  : align(tick - 6000);
-const tickUpper = process.env.NVDA_POOL_TICK_UPPER
-  ? Number(process.env.NVDA_POOL_TICK_UPPER)
-  : align(tick + 6000);
+const tickLower = process.env.NVDA_POOL_TICK_LOWER ? Number(process.env.NVDA_POOL_TICK_LOWER) : align(tick - rangeTicks / 2);
+const tickUpper = process.env.NVDA_POOL_TICK_UPPER ? Number(process.env.NVDA_POOL_TICK_UPPER) : align(tick + rangeTicks / 2);
 
 function usdPerNvdaFromTick(poolTick) {
   const raw = Math.exp(Number(poolTick) * Math.log(1.0001));
@@ -135,13 +139,11 @@ async function readPool() {
   }
 }
 
-async function status() {
+async function status(extra = {}) {
   const pool = await readPool();
-  const [usdcBalance, nvdaBalance, usdcAllowance, nvdaAllowance] = await Promise.all([
+  const [usdcBalance, nvdaBalance] = await Promise.all([
     publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
     publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "balanceOf", args: [account.address] }),
-    publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
-    publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
   ]);
   console.log(
     JSON.stringify(
@@ -153,14 +155,8 @@ async function status() {
         lpFee: Number(pool.lpFee),
         liquidity: pool.liquidity.toString(),
         usdPerNvda: pool.initialized ? Number(usdPerNvdaFromTick(pool.tick).toFixed(2)) : priceUsdPerNvda,
-        targetTick: tick,
-        range: [tickLower, tickUpper],
-        wallet: {
-          usdc: usdcBalance.toString(),
-          nvda: nvdaBalance.toString(),
-          usdcAllowance: usdcAllowance.toString(),
-          nvdaAllowance: nvdaAllowance.toString(),
-        },
+        wallet: { usdc: Number(usdcBalance) / 1e6, nvda: Number(nvdaBalance) / 1e18 },
+        ...extra,
       },
       null,
       2
@@ -168,35 +164,48 @@ async function status() {
   );
 }
 
+// Liquidity L that spends ~target amounts at the current price inside [tickLower, tickUpper].
+function liquidityForTargets() {
+  const sqrtP = Math.sqrt(rawPrice);
+  const sqrtA = Math.sqrt(1.0001 ** tickLower);
+  const sqrtB = Math.sqrt(1.0001 ** tickUpper);
+  const per0 = (sqrtB - sqrtP) / (sqrtP * sqrtB);
+  const per1 = sqrtP - sqrtA;
+  const target0 = usdcIsToken0 ? targetUsdc * 10 ** Number(usdcDecimals) : targetNvda * 10 ** Number(nvdaDecimals);
+  const target1 = usdcIsToken0 ? targetNvda * 10 ** Number(nvdaDecimals) : targetUsdc * 10 ** Number(usdcDecimals);
+  const l0 = per0 > 0 ? target0 / per0 : Infinity;
+  const l1 = per1 > 0 ? target1 / per1 : Infinity;
+  const liquidity = Math.floor(Math.min(l0, l1));
+  const amount0 = BigInt(Math.ceil(liquidity * per0 * 1.02));
+  const amount1 = BigInt(Math.ceil(liquidity * per1 * 1.02));
+  return { liquidity: BigInt(liquidity), amount0, amount1 };
+}
+
+async function approveIfNeeded(token, symbol, spender, minAmount) {
+  const allowance = await publicClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [account.address, spender],
+  });
+  if (allowance >= minAmount) return;
+  const hash = await walletClient.writeContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [spender, maxUint256],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`approved ${symbol}: ${hash}`);
+}
+
 async function execute() {
-  const pool = await readPool();
-  const needsApprove = (allowance) => allowance < 10_000_000n;
-
-  const [usdcAllowance, nvdaAllowance] = await Promise.all([
-    publicClient.readContract({ address: usdc, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
-    publicClient.readContract({ address: nvda, abi: erc20Abi, functionName: "allowance", args: [account.address, router] }),
-  ]);
-
-  if (needsApprove(usdcAllowance)) {
-    const hash = await walletClient.writeContract({
-      address: usdc,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [router, maxUint256],
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    console.log("approved USDC:", hash);
+  if (!usdc || !nvda || !router || !stateView) {
+    throw new Error(`missing address: usdc=${usdc} nvda=${nvda} router=${router} stateView=${stateView}`);
   }
-  if (nvdaAllowance < maxNvda) {
-    const hash = await walletClient.writeContract({
-      address: nvda,
-      abi: erc20Abi,
-      functionName: "approve",
-      args: [router, maxUint256],
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
-    console.log("approved NVDA:", hash);
-  }
+  let pool = await readPool();
+  await approveIfNeeded(usdc, "USDC", router, BigInt(Math.ceil(targetUsdc * 1e6)));
+  await approveIfNeeded(nvda, "NVDA", router, BigInt(Math.ceil(targetNvda * 1e18)));
 
   if (!pool.initialized) {
     const sqrtPriceX96 = BigInt(Math.floor(Math.sqrt(rawPrice) * 2 ** 96));
@@ -207,41 +216,57 @@ async function execute() {
       args: [key, sqrtPriceX96],
     });
     await publicClient.waitForTransactionReceipt({ hash });
-    console.log("initialized pool:", hash);
+    console.log(`initialized pool at tick ${tick}: ${hash}`);
+    pool = await readPool();
   } else {
-    console.log("pool already initialized at tick", Number(pool.tick));
+    console.log(`pool already initialized at tick ${Number(pool.tick)}`);
   }
 
-  if (pool.liquidity === 0n) {
-    const [amount0Max, amount1Max] = usdcIsToken0 ? [maxUsdc, maxNvda] : [maxNvda, maxUsdc];
+  if (!skipLp && (targetUsdc > 0 || targetNvda > 0)) {
+    const { liquidity, amount0, amount1 } = liquidityForTargets();
     const hash = await walletClient.writeContract({
       address: router,
       abi: routerAbi,
       functionName: "addLiquidity",
-      args: [key, tickLower, tickUpper, liquidity, amount0Max, amount1Max, account.address, "0x757364632d6e766461"],
+      args: [key, tickLower, tickUpper, liquidity, amount0, amount1, account.address, "0x757364632d6e766461"],
     });
     await publicClient.waitForTransactionReceipt({ hash });
-    console.log("added liquidity:", hash);
-  } else {
-    console.log("liquidity already present:", pool.liquidity.toString());
+    console.log(
+      `added liquidity L=${liquidity} target ${targetUsdc} USDC + ${targetNvda} NVDA range [${tickLower},${tickUpper}]: ${hash}`,
+    );
   }
 
-  if (args.has("--swap")) {
+  for (let i = 0; i < swaps; i += 1) {
+    const sellUsdc = i % 2 === 0;
+    const zeroForOne = sellUsdc ? usdcIsToken0 : !usdcIsToken0;
+    const amountIn = sellUsdc
+      ? BigInt(Math.round(swapUsdc * 1e6))
+      : BigInt(Math.round((swapUsdc / priceUsdPerNvda) * 1e18));
     const hash = await walletClient.writeContract({
       address: router,
       abi: routerAbi,
       functionName: "swapExactIn",
-      args: [key, usdcIsToken0, 500_000n, 0n, account.address, "0x01"],
+      args: [key, zeroForOne, amountIn, 0n, account.address, "0x01"],
     });
     await publicClient.waitForTransactionReceipt({ hash });
-    console.log("swap 0.5 USDC -> NVDA:", hash);
+    const after = await readPool();
+    console.log(
+      `swap ${i + 1}/${swaps} ${sellUsdc ? `${swapUsdc} USDC→NVDA` : `${(swapUsdc / priceUsdPerNvda).toFixed(5)} NVDA→USDC`} ` +
+        `tick ${Number(after.tick)}: ${hash}`,
+    );
   }
 
-  await status();
+  await status({ swaps, swapUsdc, targetUsdc, targetNvda });
 }
 
 if (args.has("--execute")) {
   await execute();
 } else {
-  await status();
+  const preview = skipLp ? null : liquidityForTargets();
+  await status({
+    preview: preview
+      ? { liquidity: preview.liquidity.toString(), amount0Max: preview.amount0.toString(), amount1Max: preview.amount1.toString() }
+      : null,
+    swaps,
+  });
 }

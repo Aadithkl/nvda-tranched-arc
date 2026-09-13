@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12",
+  "generatedAt": "2026-09-13",
   "network": {
     "name": "Arc Testnet",
     "chainId": 5042002,
@@ -16,7 +16,7 @@
   },
   "contracts": {
     "usdc": "0x3600000000000000000000000000000000000000",
-    "nvda": null,
+    "nvda": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
     "poolManager": "0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67",
     "demoRouter": "0xC76fd7Ee062C5E498a0E2be6CcB7c2aD2dF0d062",
     "positionManager": "0x7Cdfa5f9369c3869c63B0fF0Ca89165Ae2B2b111",
@@ -29,35 +29,32 @@
     "mNvda": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
     "nvdAPriceOracle": "0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A",
     "smokeHook": "0x3Cee7340818FD498e54D44DA2E634d02a72800C0",
-    "lendingAddressesProvider": "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
-    "lendingPool": "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8",
-    "lendingConfigurator": "0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe",
-    "peggedPriceOracle": "0x6DC2A77B42B4049f96593b5Aa979227580aA510b",
-    "aUsdc": "0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1",
-    "dUsdc": "0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6",
-    "aNvda": null,
-    "dNvda": null,
+    "lendingAddressesProvider": "0x8757b2a066f1a4F52ff63F2aCeb87F802908C886",
+    "lendingPool": "0x492adCb2e5d5b2f7e82c8c9E9789Bd6dCBff7028",
+    "lendingConfigurator": "0x03f17Df6903228edc76b07Fce52FaEAa6c4bA4C4",
+    "peggedPriceOracle": "0xf74237e03574eF9E2824cC42021A39f7881ad781",
+    "aUsdc": "0xAF09f106Aa27EdaA0ea7f7dB3B4a92c6b929dc4F",
+    "dUsdc": "0xfaeFcc1D448330aed160Ff934F1fE86D55c9d38f",
+    "aNvda": "0x3F6Ee392f39d323652CD1cE528BCbD3e494F981D",
+    "dNvda": "0x134187EE4ceB9c2E187a04750c9C3eB72075642D",
     "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     "multicall3": "0xcA11bde05977b3631167028862bE2a173976CA11",
-    "create2Deployer": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
-    "gatewayWallet": "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
-    "gatewayMinter": "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
-    "demoSeller": "0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3"
+    "create2Deployer": "0x4e59b44847b379578588920cA78FbF26c0B4956C"
   },
   "stack": {
     "status": "test-only — superseded by v3 redeploy",
     "deployedAt": "2026-09-12",
-    "note": "JIT hook v2 (security fixes) + ERC-7540 tranche vaults + accountant; controller/agent re-pointed; v3 module/vaults pending redeploy",
-    "hook": "0xB229976cB5F64C6f747033c26217299AeCD42Ac0",
-    "pipe": null,
-    "shareToken": "0x917386b70E03cdC2026B612fd1388d9DfC349C96",
-    "accountant": "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4",
-    "seniorVault": "0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e",
-    "juniorVault": "0x19858E406Eb262CdD899AF8Dc2aa866521b3135c",
-    "poolId": "0xba11852e08659fc30d1f5221e7de78a3a0b8d9ec69a99341868fe6c5d9e3c4c1",
-    "keeper": "0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4",
-    "controller": "0x6ea148829e32ba3051869f73092c015d34661edd",
-    "agent": "0x636bfd9e072c9ba93453a2d798cb7d09b8fe1e8c",
+    "note": "JIT hook v3 + TranchePipeModule + ERC-7540 vaults over the USDC/NVDA pair; JIT quoting live, vaults funded, swaps routed through the hook",
+    "hook": "0x5C374e0B4F3646705839BE9D2b45F6753EAC6aC0",
+    "pipe": "0x04614f09DfC7D66B5072FB9B745C9B1b9503bA5e",
+    "shareToken": "0x9341fA835A44A225E7f36a245A149794239c221A",
+    "accountant": "0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3",
+    "seniorVault": "0x2b9Bc484b5De5ffd96e0aD37a05D0ff1B4380266",
+    "juniorVault": "0xdBEAaAc8281459510E871aBdE4bf88C8AC530F8a",
+    "poolId": "0x93b8dfd381ccd69e771c70fb0dc6fc19ab9b031d60197032372e46000fa67292",
+    "keeper": "0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3",
+    "controller": "0x14F723bd9D1Cd4Ab288EeeeADb14D6a00d54Aade",
+    "agent": "0x2235C6a19C2C80e93f74915c922B1B319B954320",
     "jitEnabled": true,
     "liquidityGuard": true
   },
@@ -65,6 +62,10 @@
     "USDC": {
       "address": "0x3600000000000000000000000000000000000000",
       "decimals": 6
+    },
+    "NVDA": {
+      "address": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
+      "decimals": 18
     },
     "mUSDC": {
       "address": "0x071E67900B728370969eFF988085CF3D84195E31",
@@ -80,7 +81,22 @@
     }
   },
   "pools": {
-    "usdcNvda": null,
+    "usdcNvda": {
+      "poolId": "0x8b3f39708820fd7b754259c9f05d288aa787b79fd3a6986451c40b248c0d459f",
+      "key": {
+        "currency0": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
+        "currency1": "0x3600000000000000000000000000000000000000",
+        "fee": 3000,
+        "tickSpacing": 60,
+        "hooks": "0x0000000000000000000000000000000000000000"
+      },
+      "sqrtPriceX96": "1119356699649108264809373",
+      "tick": -223358,
+      "protocolFee": 0,
+      "lpFee": 3000,
+      "liquidity": "30072089785824",
+      "note": "USDC/NVDA pool (NVDA_POOL_FEE / NVDA_POOL_TICK_SPACING, no hook)"
+    },
     "demoNvdaUsdc": {
       "poolId": "0xc112eb0d0370c9be9e5bfa00f67e6f88fef91d157b5e371515343438ed756810",
       "key": {
@@ -121,50 +137,42 @@
     "writer": "0x749E3A3a743889beC27584C1C8212f4cf926b431",
     "description": "NVDA/USD (x402 push)",
     "state": {
-      "mid": "21836000000",
-      "bid": "21836000000",
-      "ask": "21836000000",
-      "marketStatus": 3,
-      "session": 2,
-      "sourceTimestamp": 1789073590,
-      "updatedAt": 1789073591,
-      "paymentRef": "0x1a1ab33f1d17f2a31a3464a4b3409a43364f39ae7e22e9bbcebbfb56796f4f72",
-      "valid": false
+      "mid": "20000000000",
+      "bid": "20000000000",
+      "ask": "20000000000",
+      "marketStatus": 2,
+      "session": 1,
+      "sourceTimestamp": 1789300562,
+      "updatedAt": 1789300564,
+      "paymentRef": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "valid": true
     }
   },
   "lending": {
-    "addressesProvider": "0xd70165E2eC57c8367f6D93eB8F576978d3b75529",
-    "pool": "0x75E6E7711a87dbC53D613806bb961bc1Bb01e0c8",
-    "configurator": "0x43169D2DaaC35E90ec4487E7f156A4958D20EFBe",
-    "priceOracle": "0x6DC2A77B42B4049f96593b5Aa979227580aA510b",
+    "addressesProvider": "0x8757b2a066f1a4F52ff63F2aCeb87F802908C886",
+    "pool": "0x492adCb2e5d5b2f7e82c8c9E9789Bd6dCBff7028",
+    "configurator": "0x03f17Df6903228edc76b07Fce52FaEAa6c4bA4C4",
+    "priceOracle": "0xf74237e03574eF9E2824cC42021A39f7881ad781",
     "model": "Aave V2 semi-fork (independent implementation) — supply/withdraw, variable borrow/repay, no liquidations",
     "markets": [
       {
         "symbol": "USDC",
         "underlying": "0x3600000000000000000000000000000000000000",
         "decimals": 6,
-        "aToken": "0x7d38DBec34bbe287181328E9f5Bd66A199E80eA1",
-        "variableDebtToken": "0x2C42c727A7cE9B0f3FC5cbad473228E948ee8ee6",
+        "aToken": "0xAF09f106Aa27EdaA0ea7f7dB3B4a92c6b929dc4F",
+        "variableDebtToken": "0xfaeFcc1D448330aed160Ff934F1fE86D55c9d38f",
         "peggedPriceUsd8": 100000000
       },
       {
         "symbol": "NVDA",
         "underlying": "0x308F5c32fF62c24DA5F66f4F6d40d698B8d37BE9",
         "decimals": 18,
-        "aToken": null,
-        "variableDebtToken": null,
+        "aToken": "0x3F6Ee392f39d323652CD1cE528BCbD3e494F981D",
+        "variableDebtToken": "0x134187EE4ceB9c2E187a04750c9C3eB72075642D",
         "peggedPriceUsd8": 20000000000
       }
     ],
     "note": "Rest state for the tranche hook; see docs/LENDING.md"
-  },
-  "x402": {
-    "gatewayWallet": "0x0077777d7EBA4688BDeF3E311b846F25870A19B9",
-    "gatewayMinter": "0x0022222ABE238Cc2C7Bb1f21003F0a260052475B",
-    "gatewayDomain": 26,
-    "testnetFacilitator": "https://gateway-api-testnet.circle.com",
-    "demoSeller": "0x25E7D4287eCDCFA04BF59aBEd594e51dc3DabaF3",
-    "note": "Keeper: scripts/x402-price.mjs --gateway --push; seller: scripts/x402-seller.mjs"
   },
   "subgraph": {
     "network": "arc-testnet",
@@ -192,12 +200,6 @@
   "abis": [
     "docs/abis/NVDAPriceOracle.json",
     "docs/abis/DemoRouter.json",
-    "docs/abis/PoolManager.json",
-    "docs/abis/PositionManager.json",
-    "docs/abis/PositionDescriptor.json",
-    "docs/abis/StateView.json",
-    "docs/abis/V4Quoter.json",
-    "docs/abis/ReservesLens.json",
     "docs/abis/TestToken.json",
     "docs/abis/TestWETH9.json",
     "docs/abis/SmokeHook.json",

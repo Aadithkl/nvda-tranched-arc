@@ -237,7 +237,6 @@ contract TrancheJITHookTest is Test {
         return HookParams.Params({
             quotingEnabled: true,
             baseFee: 3000,
-            maxSurgeFee: 30_000,
             maxDeviationBps: 300,
             toxicityMultiplierBps: 1000,
             minEvBps: 0,
@@ -328,11 +327,15 @@ contract TrancheJITHookTest is Test {
         assertEq(sellFee, 3000);
     }
 
-    function test_quote_surgeCappedAtMaxSurgeFee() public {
+    function test_quote_surgeUncappedByFeeCeiling() public {
+        // The surge premium is only capped by the 100% protocol maximum, so toxic flow
+        // pays baseFee + deviation × multiplier above the old 30k ceiling.
         _setOraclePrice(201e8);
         bool equityIsToken1 = usdcIsToken0;
-        (uint24 buyFee,,,) = hook.previewQuote(equityIsToken1);
-        assertEq(buyFee, 30_000);
+        (uint24 buyFee, bool toxic, uint16 devBps,) = hook.previewQuote(equityIsToken1);
+        assertTrue(toxic);
+        assertEq(buyFee, uint24(3000 + uint256(devBps) * 1000));
+        assertGt(buyFee, 30_000);
     }
 
     function test_quote_hardBand_reverts() public {
@@ -414,10 +417,6 @@ contract TrancheJITHookTest is Test {
     }
 
     function test_controller_bounds() public {
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(StrategyController.BaseFeeTooHigh.selector, 20_000, 10_000));
-        agent.submitBaseFee(20_000);
-
         HookParams.Params memory p = _defaultParams();
         p.ttl = 7200;
         vm.prank(operator);
@@ -837,8 +836,6 @@ contract TrancheJITHookTest is Test {
         usdc.mint(address(hook), 1_000e6);
         controller.setBounds(
             StrategyController.Bounds({
-                maxBaseFee: 10_000,
-                maxSurgeFee: 100_000,
                 maxDeviationBps: 500,
                 maxToxicityMultiplierBps: 2_500,
                 maxTtl: 3_600,
@@ -921,8 +918,6 @@ contract TrancheJITHookTest is Test {
 
     function test_setBounds_invalid_reverts() public {
         StrategyController.Bounds memory b = StrategyController.Bounds({
-            maxBaseFee: 10_000,
-            maxSurgeFee: 100_000,
             maxDeviationBps: 500,
             maxToxicityMultiplierBps: 2_500,
             maxTtl: 3_600,
@@ -932,11 +927,11 @@ contract TrancheJITHookTest is Test {
             rebalanceCooldown: 0
         });
 
-        b.maxSurgeFee = b.maxBaseFee - 1;
+        b.maxDeviationBps = 5_001;
         vm.expectRevert(StrategyController.InvalidBounds.selector);
         controller.setBounds(b);
 
-        b.maxSurgeFee = 100_000;
+        b.maxDeviationBps = 500;
         b.maxTtl = 0;
         vm.expectRevert(StrategyController.InvalidBounds.selector);
         controller.setBounds(b);
@@ -948,6 +943,19 @@ contract TrancheJITHookTest is Test {
 
         b.maxDeployPerSwap = 100_000e6;
         controller.setBounds(b);
+    }
+
+    function test_baseFee_highFeeAllowed() public {
+        // No fee ceiling beyond the 100% protocol maximum: extreme markets may justify ~70%.
+        vm.prank(operator);
+        agent.submitBaseFee(700_000);
+        assertEq(hook.params().baseFee, 700_000);
+
+        HookParams.Params memory p = _defaultParams();
+        p.baseFee = 900_000;
+        vm.prank(operator);
+        agent.submitParams(p);
+        assertEq(hook.params().baseFee, 900_000);
     }
 
     // ---------------------------------------------------------------- expiry / settlement

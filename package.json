@@ -6,10 +6,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "fetch-report": "node scripts/fetch-report.mjs",
-    "x402:price": "node scripts/x402-price.mjs",
-    "x402:seller": "node scripts/x402-seller.mjs",
-    "x402:probe": "node scripts/x402-price.mjs --probe",
     "seed:nvda": "node scripts/seed-usdc-nvda.mjs",
     "lending:status": "node scripts/lending-admin.mjs",
     "lending:set-price": "node scripts/lending-admin.mjs --set-price",
@@ -17,7 +13,9 @@
     "hook:demo": "node scripts/hook-demo.mjs",
     "agent:keygen": "node scripts/agent-keygen.mjs",
     "agent:tick": "node agent/index.mjs --once",
+    "agent:serve": "node agent/serve.mjs",
     "agent:refresh": "node agent/refresh.mjs",
+    "oracle:refresh": "node agent/price.mjs",
     "market": "node agent/market.mjs",
     "market:json": "node agent/market.mjs --json",
     "ai:reason": "node scripts/x402-ai.mjs",
@@ -26,7 +24,7 @@
     "circle:inspect": "node scripts/agent-market.mjs --inspect",
     "circle:reason": "node scripts/agent-market.mjs",
     "circle:stock": "node scripts/circle-stock.mjs",
-    "test:agent": "node --test agent/test/model.test.mjs",
+    "test:agent": "node --test agent/test/model.test.mjs agent/test/price.test.mjs",
     "export:pack": "node scripts/export-frontend-pack.mjs",
     "diagrams:export": "node scripts/export-diagrams.mjs",
     "subgraph:sync": "node scripts/sync-subgraph-addresses.mjs",
@@ -36,7 +34,6 @@
     "@circle-fin/x402-batching": "3.4.0",
     "@x402/evm": "2.25.0",
     "@x402/fetch": "2.25.0",
-    "express": "^5.2.1",
     "viem": "2.56.3"
   }
 }

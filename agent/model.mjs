@@ -564,6 +564,18 @@ export function economicAudit({
   };
 }
 
+// ---------- venue blending (Arc own pool + Base pools) ----------
+
+// Blend venue fee/IL estimates in daily bps. w is the Arc weight; Base gets 1-w.
+// Used to average realized fees from our Arc venue with the Base market fee run-rate.
+export function blendVenueEdge({ arcFeeBpsPerDay, arcIlBpsPerDay, baseFeeBpsPerDay, baseIlBpsPerDay, arcWeight = 0.5 }) {
+  const w = Math.min(Math.max(Number(arcWeight) || 0, 0), 1);
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const feeBpsPerDay = w * num(arcFeeBpsPerDay) + (1 - w) * num(baseFeeBpsPerDay);
+  const ilBpsPerDay = w * num(arcIlBpsPerDay) + (1 - w) * num(baseIlBpsPerDay);
+  return { feeBpsPerDay, ilBpsPerDay, netEdgeBpsPerDay: feeBpsPerDay - ilBpsPerDay, arcWeight: w };
+}
+
 // ---------- dual-asset (USDC/equity) rebalancing ----------
 
 // Portfolio USD value from unit amounts.
@@ -626,7 +638,6 @@ export function clampAuditOverrides(defaults = {}, overrides = {}) {
 // (read at perceive time); each clamp is the tighter of the protocol max and the controller bound.
 export const PARAM_CLAMPS = {
   baseFee: [100, 1_000_000],
-  maxSurgeFee: [100, 1_000_000],
   maxDeviationBps: [10, 5_000],
   toxicityMultiplierBps: [0, 10_000],
   minEvBps: [0, 1_000],
@@ -641,10 +652,6 @@ function paramCeiling(key, protocolCap, bounds) {
   const fromBounds = (() => {
     if (!bounds) return null;
     switch (key) {
-      case "baseFee":
-        return bounds.maxBaseFee;
-      case "maxSurgeFee":
-        return bounds.maxSurgeFee;
       case "maxDeviationBps":
         return bounds.maxDeviationBps;
       case "toxicityMultiplierBps":
@@ -681,9 +688,6 @@ export function clampParamOverrides(params, overrides = {}, bounds = null) {
     if (isBig ? !Number.isFinite(Number(value)) : !Number.isFinite(value)) continue;
     const hiBound = paramCeiling(key, hi, bounds);
     next[key] = value < lo ? lo : value > hiBound ? hiBound : value;
-  }
-  if (next.maxSurgeFee != null && next.baseFee != null && next.maxSurgeFee < next.baseFee) {
-    next.maxSurgeFee = next.baseFee;
   }
   return next;
 }

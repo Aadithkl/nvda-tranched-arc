@@ -82,15 +82,20 @@ Example cross-protocol query (identical against our subgraph and e.g. Yearn v2):
 
 ## Data sources
 
-| Source | Address | Status |
-|---|---|---|
-| `NVDAPriceOracle` | `0x2D58…738A` | live |
-| `PoolManager` | `0xFc41…Ae67` | live |
-| `TrancheJITHook` | `0xceb3…ac0` (demo) | update on JIT redeploy |
-| `StrategyController` | `0x6ea1…edD` | update on redeploy |
-| `StrategyAgent` | `0x636b…E8c` | update on redeploy |
-| `SeniorVault` / `JuniorVault` | placeholder `0x0` | set at vault deploy |
-| `TrancheAccountant` | placeholder `0x0` | set at accountant deploy |
+Synced from `deployments/arc-testnet.json` by `npm run subgraph:sync` (per-source start blocks):
+
+| Source | Address | Start block | Status |
+|---|---|---|---|
+| `NVDAPriceOracle` | `0x2D58dE768ABff2da0e4a00BE92f63DFB6CE0738A` | 61,455,183 | live |
+| `PoolManager` | `0xFc4146c0de93B518Ce60158e2eD0943697c3Ae67` | 61,459,445 | live |
+| `TrancheJITHook` | `0xB229976cB5F64C6f747033c26217299AeCD42Ac0` | 61,779,373 | live (v2 stack) |
+| `StrategyController` | `0x6ea148829E32BA3051869F73092c015D34661edD` | 61,779,373 | live |
+| `StrategyAgent` | `0x636bfd9e072C9ba93453a2d798Cb7D09b8Fe1E8c` | 61,779,373 | live |
+| `SeniorVault` / `JuniorVault` | `0x708C2FF1d6829cf1980da8Ad4f6A1f14F958018e` / `0x19858E406Eb262CdD899AF8Dc2aa866521b3135c` | 61,779,373 | live |
+| `TrancheAccountant` | `0x3903C50fB7066C9a2d473d772e4dA48cfb4563a4` | 61,779,373 | live |
+
+Addresses are never hand-edited: the v3 redeploy updates them via `npm run export:pack` →
+`npm run subgraph:sync`.
 
 ## Entities
 
@@ -100,7 +105,7 @@ Example cross-protocol query (identical against our subgraph and e.g. Yearn v2):
 | `PriceUpdate` | one row per x402 push: values, session, writer, paymentRef, tx |
 | `Pool` | pool key, current `sqrtPriceX96` / `tick` / `liquidity`, volume, swap count |
 | `PoolSwap` | per-swap amounts, price after swap, fee, sender, tx |
-| `HookState` (one per hook) | params snapshot (base/surge fee, deviation band, TTL, bucket ticks), flags (`quotingEnabled`, `jitEnabled`, `liquidityGuard`, `paused`), wiring, totals (`totalQuotes`, `totalJitDeployments`, wraps/unwraps, Aave flows) |
+| `HookState` (one per hook) | params snapshot (base fee, deviation band, TTL, bucket ticks), flags (`quotingEnabled`, `jitEnabled`, `liquidityGuard`, `paused`), wiring, totals (`totalQuotes`, `totalJitDeployments`, wraps/unwraps, Aave flows) |
 | `Quote` | per-quote `deviationBps`, `fee`, `toxic`, TTL state, tx |
 | `JitDeployment` / `JitRemoval` | JIT range (`tickLower`/`tickUpper`), `liquidity`, seed, claim deltas, tx |
 | `ClaimRedemption` | ERC-6909 claim redemption per asset |
@@ -178,7 +183,6 @@ Hook state + fee/toxicity history (agent perception input):
 {
   hookStates {
     baseFee
-    maxSurgeFee
     maxDeviationBps
     quotingEnabled
     jitEnabled

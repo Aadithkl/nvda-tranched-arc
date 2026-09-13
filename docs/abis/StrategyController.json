@@ -38,19 +38,6 @@
   },
   {
     "type": "function",
-    "name": "MAX_LP_FEE",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "MAX_TOXICITY_MULTIPLIER_BPS",
     "inputs": [],
     "outputs": [
@@ -106,16 +93,6 @@
     "name": "bounds",
     "inputs": [],
     "outputs": [
-      {
-        "name": "maxBaseFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "maxSurgeFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
       {
         "name": "maxDeviationBps",
         "type": "uint16",
@@ -286,16 +263,6 @@
         "internalType": "struct StrategyController.Bounds",
         "components": [
           {
-            "name": "maxBaseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
             "name": "maxDeviationBps",
             "type": "uint16",
             "internalType": "uint16"
@@ -378,11 +345,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -561,16 +523,6 @@
         "internalType": "struct StrategyController.Bounds",
         "components": [
           {
-            "name": "maxBaseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
             "name": "maxDeviationBps",
             "type": "uint16",
             "internalType": "uint16"
@@ -691,11 +643,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -825,22 +772,6 @@
       }
     ],
     "anonymous": false
-  },
-  {
-    "type": "error",
-    "name": "BaseFeeTooHigh",
-    "inputs": [
-      {
-        "name": "baseFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "maxBaseFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      }
-    ]
   },
   {
     "type": "error",
@@ -1005,22 +936,6 @@
         "name": "maxAmountIn",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SurgeFeeTooHigh",
-    "inputs": [
-      {
-        "name": "maxSurgeFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "bound",
-        "type": "uint24",
-        "internalType": "uint24"
       }
     ]
   },

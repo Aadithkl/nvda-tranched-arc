@@ -768,7 +768,6 @@ type HookState @entity(immutable: false) {
   paused: Boolean!
   maxPriceAge: BigInt!
   baseFee: BigInt!
-  maxSurgeFee: BigInt!
   maxDeviationBps: Int!
   toxicityMultiplierBps: Int!
   minEvBps: Int!
@@ -855,7 +854,6 @@ type ParamChange @entity(immutable: true) {
   agent: Bytes
   quotingEnabled: Boolean
   baseFee: BigInt
-  maxSurgeFee: BigInt
   maxDeviationBps: Int
   toxicityMultiplierBps: Int
   minEvBps: Int
@@ -935,7 +933,6 @@ type AgentAction @entity(immutable: true) {
   kind: String!
   quotingEnabled: Boolean
   baseFee: BigInt
-  maxSurgeFee: BigInt
   maxDeviationBps: Int
   toxicityMultiplierBps: Int
   minEvBps: Int

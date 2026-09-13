@@ -29,7 +29,8 @@ scaled (no hard-coded 8); `wrapUSDC`/`unwrapUSDC`/`seedInventory`/`unwindClaims`
    by the oracle's own `decimals`)
 4. `deviationBps = |pool − oracle| / oracle`; `> maxDeviationBps` → `DeviationTooHigh`
 5. `toxic` = trade pushes pool price **toward** oracle; non-toxic → `baseFee`; toxic →
-   `min(baseFee + deviationBps × toxicityMultiplierBps, maxSurgeFee)`
+   `min(baseFee + deviationBps × toxicityMultiplierBps, 1_000_000)` (100% protocol cap — no
+   per-pool fee ceiling, extreme markets may price fees up to seven figures)
 6. `fee < minEvBps × 100` → `NotEvPositive`; else sets `lastQuotedAt` and returns
    `fee | OVERRIDE_FEE_FLAG`
 
@@ -123,6 +124,6 @@ deposits at expiry.
 
 ## Next
 
-- M3/M4: escrow-targeting fee floor, EV-tracking buckets; M6: onchain vol estimator
-- Offchain agent (`agent/`, GitHub Actions loop) writes params through `StrategyAgent`
-- Live exercise: deploy + swap with JIT enabled on Arc (after the current demo deployment)
+- M6: full E2E on Arc against the v3 USDC/NVDA book (deploy → seed → JIT swap → redeem → expiry settlement)
+- v3 redeploy once `NVDA_ADDRESS` / venue env lands (`docs/DEPLOYMENTS.md` checklist)
+- Onchain volatility estimator for bucket widths; escrow-targeting fee floor

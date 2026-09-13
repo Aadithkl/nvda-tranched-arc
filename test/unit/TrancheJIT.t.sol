@@ -188,7 +188,6 @@ contract TrancheJITTest is Test {
         HookParams.Params memory params = HookParams.Params({
             quotingEnabled: true,
             baseFee: 3000,
-            maxSurgeFee: 30_000,
             maxDeviationBps: 300,
             toxicityMultiplierBps: 1000,
             minEvBps: 0,
@@ -328,7 +327,6 @@ contract TrancheJITTest is Test {
         HookParams.Params memory params = HookParams.Params({
             quotingEnabled: true,
             baseFee: 3000,
-            maxSurgeFee: 30_000,
             maxDeviationBps: 300,
             toxicityMultiplierBps: 1000,
             minEvBps: 0,

@@ -1437,11 +1437,6 @@
             "internalType": "uint24"
           },
           {
-            "name": "maxSurgeFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
             "name": "maxDeviationBps",
             "type": "uint16",
             "internalType": "uint16"
@@ -1828,11 +1823,6 @@
           },
           {
             "name": "baseFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
-            "name": "maxSurgeFee",
             "type": "uint24",
             "internalType": "uint24"
           },
@@ -2428,11 +2418,6 @@
             "internalType": "uint24"
           },
           {
-            "name": "maxSurgeFee",
-            "type": "uint24",
-            "internalType": "uint24"
-          },
-          {
             "name": "maxDeviationBps",
             "type": "uint16",
             "internalType": "uint16"
@@ -2830,22 +2815,6 @@
     "type": "error",
     "name": "InvalidPoolKey",
     "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidSurgeFee",
-    "inputs": [
-      {
-        "name": "maxSurgeFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      },
-      {
-        "name": "baseFee",
-        "type": "uint24",
-        "internalType": "uint24"
-      }
-    ]
   },
   {
     "type": "error",
