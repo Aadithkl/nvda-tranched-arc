@@ -141,6 +141,17 @@ The Graph is load-bearing, live, and in the decision path:
   subgraph and any live yield subgraph — [`docs/MCP.md`](docs/MCP.md).
 - **Verify live data:** `npm run graph:query` and `npm run market`.
 
+## Hosting (GitHub Actions)
+
+- **Frontend:** every push to `main` builds `frontend/` (root `.env` receives `VITE_GRAPH_API_KEY`
+  from repository secrets) and deploys `frontend/dist` to GitHub Pages —
+  https://aadithkl.github.io/nvda-tranched-arc/ — workflow:
+  [`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+- **Agent heartbeat:** cron every 10 minutes refreshes the Graph market snapshot, runs one tick
+  (`--submit` when the regime changes or the params TTL lapses) and refreshes the paid LLM verdict
+  every 6h — workflow:
+  [`.github/workflows/agent-heartbeat.yml`](.github/workflows/agent-heartbeat.yml).
+
 
 
 ## Integrations

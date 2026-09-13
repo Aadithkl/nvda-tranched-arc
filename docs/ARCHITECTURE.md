@@ -19,6 +19,7 @@ Addresses are never embedded in this document. Read them from `deployments/arc-t
 | Apps | Agent daemon | Tick loop: perceive → economic audit → submit params / rebalance; owns the oracle price rail | `agent/index.mjs`, `agent/model.mjs` |
 | Apps | Agent HTTP bridge | `POST /tick`, `GET /health` for the frontend "Run agent check" button | `agent/serve.mjs` |
 | Apps | Heartbeat | GitHub Actions cron (every 10 min) runs the tick and refreshes the paid verdict | `.github/workflows/agent-heartbeat.yml` |
+| Apps | Static site | GitHub Pages deploy of `frontend/dist` on every push to `main` | `.github/workflows/pages.yml` |
 | Tranche core | `TrancheJITHook` | Dynamic fee, quote gates, bucket-exact JIT, Aave rest state, one-shot expiry | `src/hook/TrancheJITHook.sol` |
 | Tranche core | `HookShareToken` | ERC-7575 share for the hook strategy receipt (mint/burn by hook only) | `src/core/HookShareToken.sol` |
 | Tranche core | `TranchePipeModule` | Dual-token exits, venue rebalancing, maturity settlement waterfall | `src/periphery/TranchePipeModule.sol` |
