@@ -25,15 +25,15 @@ jobs:
       PARAMS_TTL_SECONDS: "3600"
       AGENT_LLM_REFRESH_SECONDS: "21600"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - name: Install
         run: npm ci
       - name: Restore agent cache (market snapshot + LLM verdict)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: agent/.cache
           key: agent-cache-${{ github.run_id }}
@@ -45,7 +45,7 @@ jobs:
         run: node agent/index.mjs --once --submit
       - name: Save agent cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: agent/.cache
           key: agent-cache-${{ github.run_id }}
