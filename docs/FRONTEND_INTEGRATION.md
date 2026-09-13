@@ -206,7 +206,8 @@ const clientKey = import.meta.env.VITE_CLIENT_KEY as string;
 const passkeyTransport = toPasskeyTransport(clientUrl, clientKey);
 const credential = await toWebAuthnCredential({
   transport: passkeyTransport,
-  mode: WebAuthnMode.Register, // or Login for returning users
+  // Register creates a passkey (username required); Login unlocks an existing one (username optional)
+  mode: WebAuthnMode.Register,
   username: "user@example.com",
 });
 
@@ -222,8 +223,9 @@ const userOpHash = await bundlerClient.sendUserOperation({
 });
 ```
 
-Requirements: Circle Console **Client Key** + a **passkey domain** matching its web
-domain. Use `encodeFunctionData` from viem to build `calls[].data`.
+Requirements: Circle Console **Client Key** exposed as `VITE_CLIENT_KEY` (the repo app reads the
+root `.env` via Vite `envDir`) + a **passkey domain** matching the app origin — passkeys are
+domain-bound, so create once per domain. Use `encodeFunctionData` from viem to build `calls[].data`.
 
 ## Oracle freshness
 

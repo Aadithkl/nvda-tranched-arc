@@ -57,13 +57,24 @@ export async function connectInjected(): Promise<Session> {
 
 export async function connectPasskey(username: string, mode: "register" | "login"): Promise<Session> {
   if (!CLIENT_KEY) throw new Error("VITE_CLIENT_KEY is not set (Circle Console client key)");
-  if (!username.trim()) throw new Error("Enter a passkey username first");
+
+  const trimmed = username.trim();
+  if (mode === "register" && !trimmed) throw new Error("Enter a username to create a passkey wallet");
 
   const passkeyTransport = toPasskeyTransport(CLIENT_URL, CLIENT_KEY);
   const credential = await toWebAuthnCredential({
     transport: passkeyTransport,
     mode: mode === "register" ? WebAuthnMode.Register : WebAuthnMode.Login,
-    username: username.trim(),
+    ...(trimmed ? { username: trimmed } : {}),
+  }).catch((error: unknown) => {
+    if ((error as { name?: string })?.name === "NotAllowedError") {
+      throw new Error(
+        mode === "login"
+          ? "No passkey found for this site (or the prompt was cancelled) — use Create once, or a browser wallet"
+          : "Passkey creation was cancelled",
+      );
+    }
+    throw error;
   });
 
   const modularTransport = toModularTransport(`${CLIENT_URL}/arcTestnet`, CLIENT_KEY);
