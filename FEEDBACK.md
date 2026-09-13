@@ -15,11 +15,7 @@ One or two paragraphs. Suggested content:
 
 ## What worked well
 
-<!--
-What was good about v4 / hooks / periphery / docs / testing? Be specific.
-Examples: PoolManager delta accounting (sync/settle/take), beforeSwap/afterSwap lifecycle,
-dynamic fee flag, HookMiner permissions, periphery lens contracts, v4-template.
--->
+The Uniswap docs were detailed, and I used the publicly available hooks and samples to understand more — the resources are vast and helpful.
 
 ## Friction, bugs, and surprises
 
@@ -31,9 +27,7 @@ redeploying v4 on a new chain, tooling friction.
 
 ## Suggestions
 
-<!--
-What would you change? Rank the top 3 if you can.
--->
+From an agentic point of view, it would have been better if there was at least a community tool/library with historical data and fees (or other things) — agent-ready aggregated data — to make more predictive and responsive agents.
 
 ## Links
 
