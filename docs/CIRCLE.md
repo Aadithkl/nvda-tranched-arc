@@ -109,6 +109,19 @@ Transfers from the agent wallet need the ERC-20 explicitly:
   session; hook quote state and strategy bounds reads; contract registry. See
   `docs/FRONTEND_INTEGRATION.md`.
 
+### Passkey troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Cannot find the entity config in the system` | Passkey domain not configured | Console → **Wallets → Modular Wallets → Passkey** → set it to this site's hostname (`localhost` for dev) |
+| `Invalid credentials` (HTTP 401) | Client key isn't linked to this origin | Console → **Keys** → the key's allowed domain must match the origin. Keys are domain-scoped — create a separate key for the Pages domain (`aadithkl.github.io`) |
+| `NotAllowedError` / prompt never appears | No passkey for this site, or the user cancelled | Create once per domain — passkeys are RP-ID bound (a `localhost` passkey will not work on Pages) |
+| `SecurityError` | Passkey belongs to a different origin | Create a passkey on this domain instead |
+| `InvalidStateError` / already registered | Passkey already exists for that username | Use **Unlock** |
+
+These messages surface verbatim from Circle's RPC (`modular-sdk.circle.com`); the app maps them to
+actionable toasts in `frontend/src/wallet.ts`.
+
 ## Notes / risks
 
 - Circle Agent Marketplace has **no Arc listings** (`network=eip155:5042002` → 0), so the paid
