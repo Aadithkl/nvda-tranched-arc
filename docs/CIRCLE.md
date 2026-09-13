@@ -3,7 +3,8 @@
 Everything below is used *because it does a job in the product*, not for coverage.
 
 **Payment rail policy:** every paid call in the product settles through **Circle Gateway batched
-settlement (nanopayments)**. Raw x402 paths are legacy (`x402-ai.mjs`) and are not used in production flows.
+settlement (nanopayments)**. Raw x402 paths are legacy (`x402-ai.mjs`) and are not used in
+production flows.
 
 ## Tranche stack deployment (Arc testnet, 2026-09-12)
 
