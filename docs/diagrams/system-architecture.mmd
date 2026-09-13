@@ -36,17 +36,19 @@ flowchart TB
         OR["NVDAPriceOracle<br/>writer = agent operator"]
     end
 
-    subgraph External["External services"]
+    subgraph External["External services — the four integrations"]
         GR["The Graph<br/>tranch-stock subgraph · Gateway · MCP"]
-        GW["Circle Gateway<br/>nanopayments — x402"]
-        LLM["agent402 / BlockRun<br/>metered LLM reasoning"]
-        SELL["BlockRun nanoprice<br/>NVDA stock quotes"]
+        GW["Circle Gateway<br/>batched nanopayments — x402 rail"]
+        LLM["x402 LLM sellers<br/>Agent Marketplace reasoning"]
+        SELL["x402 price sellers<br/>NVDA stock quotes"]
+        CW["Circle Wallets<br/>passkey smart account · paymaster"]
     end
 
     SD -->|"depositUSDC · requestRedeem · claimAndUnwrap*"| SR
     JD -->|"depositUSDC · requestRedeem · claimAndUnwrap*"| JR
     FE -->|"user ops + reads"| Arc
     FE -->|"POST /tick"| SRV
+    FE -->|"Create / Unlock userOps"| CW
     SRV --> AG
     SR <-->|"wrap / unwrap"| PP
     JR <-->|"wrap / unwrap"| PP
@@ -56,7 +58,7 @@ flowchart TB
     AC -->|"moveShares"| JR
     AC -->|"escrowFunded · juniorClaim"| HK
     PP <-->|"wrap · unwrap · moduleBurn · modulePull"| HK
-    HS <-->|"mint / burn"| HK
+    HS <-->|"mint / burn — ERC-7575"| HK
     HK <-->|"supply / withdraw"| LP
     SW -->|"swapExactIn"| PER
     PER --> PM
@@ -69,10 +71,19 @@ flowchart TB
     PX -->|"updatePrice"| OR
     OR -->|"getPrice gates"| HK
     OR -.->|"pegged reference"| PEG
-    AG <-->|"market data"| GR
-    PX -->|"x402 nanopayment"| GW
-    GW --> SELL
+    AG <-->|"market model queries"| GR
+    PX -->|"402 → Gateway payment"| GW
+    GW -->|"settlement"| SELL
     SELL -->|"quote + paymentRef"| PX
     AG -->|"paid verdict refresh"| LLM
     GR -.->|"indexes events"| Arc
     GHA -->|"cron tick"| AG
+
+    classDef hookPillar fill:#ffe8cc,stroke:#e8590c,stroke-width:3px
+    classDef sharePillar fill:#e7f5ff,stroke:#1971c2,stroke-width:3px
+    classDef graphPillar fill:#f3f0ff,stroke:#7048e8,stroke-width:3px
+    classDef circlePillar fill:#e6fcf5,stroke:#0ca678,stroke-width:3px
+    class HK hookPillar
+    class HS sharePillar
+    class GR graphPillar
+    class GW,LLM,SELL,CW circlePillar

@@ -2,7 +2,7 @@ sequenceDiagram
     participant PX as agent/price.mjs
     participant OR as NVDAPriceOracle
     participant GW as Circle Gateway
-    participant S as BlockRun nanoprice sellers
+    participant S as x402 price sellers
     participant G as The Graph
     participant H as TrancheJITHook
 
@@ -12,7 +12,7 @@ sequenceDiagram
     else stale and market open
         PX->>S: GET NVDA quote — x402
         S-->>PX: 402 payment required
-        PX->>GW: nanopayment on Arc testnet
+        PX->>GW: Gateway batched nanopayment — chain from seller accepts
         GW-->>S: settlement
         S-->>PX: quote + paymentRef
         PX->>PX: map US/Eastern session to marketStatus
@@ -21,4 +21,4 @@ sequenceDiagram
         OR-->>G: PriceUpdated indexed into OracleState / PriceUpdates
         OR-->>H: getPrice().valid gates swaps — freshness + open market
     end
-    Note over PX,S: manual override ORACLE_PRICE_USD skips the network · ORACLE_PRICE_FALLBACK_URL is an optional last resort
+    Note over PX,S: sellers are tried in order · only Circle Gateway batched settlement is accepted · manual override ORACLE_PRICE_USD skips the network · ORACLE_PRICE_FALLBACK_URL is an explicit opt-in

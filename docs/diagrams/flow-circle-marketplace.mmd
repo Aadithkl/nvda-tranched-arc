@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant AG as agent daemon — refresh.mjs
+    participant MK as agent/market.mjs
+    participant DISC as Circle Agent Marketplace<br/>Discovery API
+    participant LLM as x402 LLM sellers<br/>Agent Marketplace
+    participant GW as Circle Gateway<br/>batched nanopayments
+    participant CACHE as agent/.cache/reasoning.json
+
+    AG->>MK: compose the market snapshot from The Graph
+    AG->>DISC: discovery — query llm, filter network + supportsCircleGateway
+    DISC-->>AG: services + accepts[] + price
+    AG->>LLM: POST completions with the snapshot
+    LLM-->>AG: 402 payment required
+    AG->>GW: batched settlement from the agent wallet
+    GW-->>LLM: settlement
+    LLM-->>AG: verdict JSON — params · audit · rebalance
+    AG->>CACHE: store with snapshotHash — 6h freshness, hash-bound
+    Note over AG,GW: every paid call settles through Circle Gateway nanopayments only — raw EOA x402 paths are not used
+    Note over AG,LLM: no Arc listings in the marketplace today — reasoning settles on Base/Polygon, Arc stays the execution chain
