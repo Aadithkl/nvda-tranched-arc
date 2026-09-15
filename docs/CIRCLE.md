@@ -20,7 +20,7 @@ production flows.
 
 Deployed in two steps (`--slow`) to avoid a solc pragma clash between v4-core (0.8.26) and ERC-7540
 (^0.8.27): `DeployTrancheHookV3` (fresh controller+agent, pipe, pool init) then `DeployTrancheStack`
-with `HOOK_ADDRESS` + `PIPE_ADDRESS`. Wiring verified onchain; five hook-routed swaps produced JIT
+with `HOOK_ADDRESS` + `PIPE_ADDRESS`. Wiring verified onchain; 23 hook-routed swaps produced JIT
 episodes with toxic surge fees. Manifest: `deployments/arc-testnet.json` → `stack`; see
 `docs/DEPLOYMENTS.md`.
 

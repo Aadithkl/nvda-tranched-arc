@@ -97,9 +97,9 @@ accountant `0x8c0FACD06b0bB540F82817ee5731eDA9D8E75Ce3` · senior `0x2b9Bc484b5D
 junior `0xdBEAaAc8281459510E871aBdE4bf88C8AC530F8a` — full tables in
 [`docs/DEPLOYMENTS.md`](docs/DEPLOYMENTS.md).
 
-**JIT exercised on Arc:** 21 hook swaps → 21 JIT episodes (all returned to rest), **$39.49 gross
-volume, $2.38 fees captured** (11 toxic surge quotes up to 14.1%); hook managed assets grew
-35.00 → 47.87 USDC. **Circle verified:** passkey + paymaster live on the hosted app, Agent
+**JIT exercised on Arc:** 23 hook swaps → 23 JIT episodes (all returned to rest), **$42.91 gross
+volume, $3.06 fees captured** (13 toxic surge quotes up to 29.5%); hook managed assets grew
+35.00 → 51.74 USDC. **Circle verified:** passkey + paymaster live on the hosted app, Agent
 Marketplace discovery working, and a nanopayment run settled end-to-end (BlockRun, $0.003/call via
 Gateway — verdict `reduce` @ 0.7, bucket 488, max deploy $9,600).
 

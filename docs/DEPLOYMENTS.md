@@ -122,13 +122,15 @@ Never hardcode these in app code; read them from the manifest / `.env`.
   `DeployTrancheStack` with `HOOK_ADDRESS` + `PIPE_ADDRESS`. Blocks `61893891…61894101`.
 - Funded + JIT exercised: senior 10 USDC / junior 5 USDC; inventory seeded 20 USDC + 0.02 NVDA
   (later topped up +0.03 NVDA); params baseFee `3000`, band `300`, TTL/grace `3600`, maxDeploy `4` USDC,
-  bucketTicks `60`. **21 swaps routed through the hook** (2 USDC / 0.01 NVDA sizes) produced 21 JIT
-  episodes — all returning to rest — with **$39.49 gross volume and $2.38 fees captured** (11 toxic
-  surge quotes up to 14.1%); hook managed assets grew `35.00 → 47.87` USDC and JIT net realized
-  (claims − seeds) ≈ **+$2.87**. Txs: seed USDC `0xd000e0e9…`, seed NVDA `0xd112e32c…` (+top-up
-  `0xbb7be3bc…`), params `0x270c22f2…`, swaps starting `0x760329ae…` / `0xf8ecaa56…`.
+  bucketTicks `60`. **23 swaps routed through the hook** (2 USDC / 0.01 NVDA sizes) produced 23 JIT
+  episodes — all returning to rest — with **$42.91 gross volume and $3.06 fees captured** (13 toxic
+  surge quotes up to 29.5%); hook managed assets grew `35.00 → 51.74` USDC and JIT net realized
+  (claims − seeds) ≈ **+$3.73**. Txs: seed USDC `0xd000e0e9…`, seed NVDA `0xd112e32c…` (+top-up
+  `0xbb7be3bc…`), params `0x270c22f2…`, swaps `0x760329ae…` / `0xf8ecaa56…` / `0xc79e4049…`
+  (13.2% toxic) / `0x806816e6…` (29.5% toxic).
 - Subgraph v3b (`tranch-stock/v3b-20260913`, start block `61891077`) indexes the hook pool, JIT
-  episodes/claims, quotes and vault flows; `hookStates` reports `totalQuotes = 5, totalJitRemovals = 5`.
+  episodes/claims, quotes and vault flows; `hookStates` reports `totalQuotes = 23`,
+  `totalJitDeployments = 23`, `totalJitRemovals = 23`.
 - The v2 stack (hook `0xB229…2Ac0`, EURC-era test pair) is deprecated; it never expires (`expiry()`
   reverts), while the v3 vaults inherit the hook's `EXPIRY_TIMESTAMP` (`1789862400`, ~6 days out).
 

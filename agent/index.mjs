@@ -53,6 +53,7 @@ const abi = parseAbi([
   "function hardMaxEquityBps() view returns (uint16)",
   "function usdcDecimals() view returns (uint8)",
   "function equityDecimals() view returns (uint8)",
+  "function activePool() view returns ((address,address,uint24,int24,address))",
 ]);
 
 const oracleAbi = parseAbi([
@@ -287,14 +288,17 @@ async function maybeRefreshReasoning(force) {
 }
 
 async function perceive() {
-  const [oracle, params, state, maxDeploy, accountant, expired] = await Promise.all([
+  const [oracle, params, state, maxDeploy, accountant, expired, poolKey] = await Promise.all([
     publicClient.readContract({ address: config.oracle, abi: oracleAbi, functionName: "getPrice" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "params" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "quoteState" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "effectiveMaxDeploy" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "accountant" }),
     publicClient.readContract({ address: config.hook, abi, functionName: "expired" }).catch(() => false),
+    publicClient.readContract({ address: config.hook, abi, functionName: "activePool" }).catch(() => null),
   ]);
+  // The hook requires bucketTicks to be a multiple of the pool's tickSpacing.
+  const tickSpacing = poolKey ? Number(poolKey[3]) || 1 : 1;
 
   let deviationBps = 0n;
   try {
@@ -379,6 +383,7 @@ async function perceive() {
     params,
     maxDeploy,
     accountant,
+    tickSpacing,
     risk,
     composition,
     decimals,
@@ -680,6 +685,13 @@ async function act(state) {
     decision.params.quotingEnabled = false;
   } else if (audit.cappedDeployUsd > 0 && audit.cappedDeployUsd < Number(decision.params.maxDeployPerSwap) / 1_000_000) {
     decision.params.maxDeployPerSwap = BigInt(Math.round(audit.cappedDeployUsd)) * 1_000_000n;
+  }
+  // Hook-side gate: JIT reverts InvalidBucketWidth unless bucketTicks is a multiple of the pool tick spacing.
+  const spacing = Number(state.tickSpacing) > 0 ? Number(state.tickSpacing) : 1;
+  if (Number(decision.params.bucketTicks) % spacing !== 0) {
+    const aligned = Math.max(spacing, Math.round(Number(decision.params.bucketTicks) / spacing) * spacing);
+    console.log(`[agent] bucketTicks ${decision.params.bucketTicks} not aligned to tickSpacing ${spacing}; using ${aligned}`);
+    decision.params.bucketTicks = aligned;
   }
   const upToDate = sameParams(state.params, decision.params);
   const market = state.market?.aggregate;
