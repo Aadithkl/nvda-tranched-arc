@@ -37,9 +37,10 @@ are displayed separately in the UI (see below).
 1. reads `getPrice()`; if the price is fresh (<80% of `maxStaleness`) or the market is
    closed (US/Eastern session 5), it skips — no payment, no gas.
 2. otherwise walks the seller list (`ORACLE_PRICE_SELLERS`, tried in order). Every paid
-   call settles **only through Circle Gateway nanopayments** (`GatewayWalletBatched`);
-   sellers without Gateway batching are skipped. If one seller fails (upstream outage,
-   payment issue), the next seller is tried.
+   call is x402; **Circle Gateway nanopayments** (`GatewayWalletBatched`) are preferred, and
+   sellers without Gateway batching are paid with a **plain x402 exact** authorization
+   (`@x402/fetch` + `ExactEvmScheme`, Base USDC by default) as the fallback rail. If one
+   seller fails (upstream outage, payment issue), the next seller is tried.
 3. an optional free last-resort URL (`ORACLE_PRICE_FALLBACK_URL`, empty by default) and a
    manual override (`ORACLE_PRICE_USD`) are available for offline runs.
 4. derives the session from US/Eastern time and calls `updatePrice(...)` with the agent
@@ -59,7 +60,8 @@ deviation band is what ties them together.
 ## Env
 
 `AGENT_ORACLE`, `ORACLE_OWNER`, `ORACLE_WRITER`, `ORACLE_WRITER_PRIVATE_KEY`,
-`AGENT_PRICE_PUSH`, `ORACLE_PRICE_SELLERS`, `ORACLE_PRICE_FALLBACK_URL`, `ORACLE_PRICE_USD`,
+`ORACLE_PRICE_PAYER_PRIVATE_KEY`, `AGENT_PRICE_PUSH`, `ORACLE_PRICE_SELLERS`,
+`ORACLE_PRICE_FALLBACK_URL`, `ORACLE_PRICE_USD`,
 `X402_MAX_STALENESS`, `GRAPH_API_KEY` (agent + Base market reads). The frontend uses
 `VITE_GRAPH_API_KEY` / `VITE_GRAPH_GATEWAY`. See `.env.example`.
 

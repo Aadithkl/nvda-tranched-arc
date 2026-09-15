@@ -105,7 +105,7 @@ Gateway — verdict `reduce` @ 0.7, bucket 488, max deploy $9,600).
 
 | Piece | Source |
 |---|---|
-| Oracle rail — x402 quote bought with USDC, paid via Gateway, pushed onchain | [`price.mjs:136`](agent/price.mjs#L136) / [`170`](agent/price.mjs#L170) |
+| Oracle rail — x402 quote bought with USDC (Gateway preferred, plain x402 fallback), pushed onchain | [`price.mjs:144`](agent/price.mjs#L144) / [`167`](agent/price.mjs#L167) |
 | Paid LLM verdict (every 6h) settled from the payer key | [`refresh.mjs:62`](agent/refresh.mjs#L62) |
 | Agent Marketplace discovery + per-call nanopayment | [`agent-market.mjs:50`](scripts/agent-market.mjs#L50) / [`177`](scripts/agent-market.mjs#L177) |
 | Passkey smart account + gasless userOps (`paymaster: true`) | [`wallet.ts:124`](frontend/src/wallet.ts#L124) |

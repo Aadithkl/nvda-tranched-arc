@@ -1,10 +1,13 @@
 // Automatic oracle price rail, owned by the agent. The agent pushes a fresh NVDA/USD quote on
 // load and on every tick when the onchain price is stale; the oracle only accepts the
 // owner-authorized writer (the agent operator), so nobody else can publish a price.
-// Payments for the quote go exclusively through Circle Gateway nanopayments: if a seller fails
-// (upstream outage, no Gateway support), the next seller in the list is tried.
+// Payments for the quote go through x402: Circle Gateway nanopayments (GatewayWalletBatched)
+// are preferred, with a plain x402 exact fallback for sellers that do not offer Gateway
+// batching. If a seller fails (upstream outage, payment issue), the next seller is tried.
 import fs from "node:fs";
 import { isBatchPayment } from "@circle-fin/x402-batching";
+import { decodePaymentResponseHeader, wrapFetchWithPaymentFromConfig } from "@x402/fetch";
+import { ExactEvmScheme } from "@x402/evm";
 import { createPublicClient, createWalletClient, defineChain, http, keccak256, parseAbi, stringToHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -27,11 +30,13 @@ export const oracleAbi = parseAbi([
 const DEFAULT_SELLERS = [
   "https://nano.blockrun.ai/api/v1/usstock/price/NVDA",
   "https://nano.blockrun.ai/api/v1/stocks/us/price/NVDA",
+  "https://x402.ottoai.services/tradfi-data?symbol=NVDA",
 ];
 const DEFAULT_MAX_PAYMENT_USDC = "0.01";
 
 // Seller list for the stock quote. Override with a comma-separated ORACLE_PRICE_SELLERS; every
-// seller is tried in order until one returns a quote (paid only via Circle Gateway nanopayments).
+// seller is tried in order until one returns a quote (Circle Gateway nanopayments preferred,
+// plain x402 exact as the fallback rail).
 export function parseSellers(value = process.env.ORACLE_PRICE_SELLERS) {
   const list = String(value ?? "")
     .split(",")
@@ -115,9 +120,12 @@ function selectWithinCap(accepts, capUsdc) {
     (option) => typeof option.network === "string" && option.network.startsWith("eip155:"),
   );
   if (evmOptions.length === 0) throw new Error("no EVM payment options available");
+  // Circle Gateway batched settlement is the preferred rail; plain x402 exact is the fallback.
+  const batchOptions = evmOptions.filter((option) => isBatchPayment(option));
+  const railOptions = batchOptions.length > 0 ? batchOptions : evmOptions;
   const preferred = process.env.X402_PREFERRED_NETWORK ?? "eip155:8453";
-  const preferredOptions = evmOptions.filter((option) => option.network === preferred);
-  const pool = preferredOptions.length > 0 ? preferredOptions : evmOptions;
+  const preferredOptions = railOptions.filter((option) => option.network === preferred);
+  const pool = preferredOptions.length > 0 ? preferredOptions : railOptions;
   const priced = pool
     .map((option) => ({ option, value: BigInt(option.maxAmountRequired ?? option.value ?? option.amount ?? "0") }))
     .sort((a, b) => (a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
@@ -154,6 +162,34 @@ async function fetchGatewayBatched(url, option, payerKey, accepts) {
   return { payload, paymentRef, source: "gateway" };
 }
 
+// Plain x402 (exact scheme) fallback for sellers that do not offer Gateway batching: signs an
+// EIP-3009 authorization with the payer key and reads the settled response.
+async function fetchPlainX402(url, payerKey, maxPaymentUsdc) {
+  if (!payerKey) throw new Error("seller requires payment but no payer key is configured");
+  const account = privateKeyToAccount(payerKey.startsWith("0x") ? payerKey : `0x${payerKey}`);
+  const fetchWithPayment = wrapFetchWithPaymentFromConfig(fetch, {
+    schemes: [{ network: "eip155:*", client: new ExactEvmScheme(account) }],
+    spendControls: false,
+    paymentRequirementsSelector: (_version, accepts) => selectWithinCap(accepts, maxPaymentUsdc),
+  });
+  const response = await fetchWithPayment(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  }
+  const payload = await response.json();
+  const header =
+    response.headers.get("x-payment-response") ?? response.headers.get("X-PAYMENT-RESPONSE");
+  let paymentRef = keccak256(stringToHex(`${url}:${Date.now()}`));
+  try {
+    const decoded = header ? decodePaymentResponseHeader(header) : null;
+    const tx = decoded?.transaction ?? decoded?.transactionHash ?? decoded?.txHash;
+    if (tx) paymentRef = keccak256(stringToHex(String(tx)));
+  } catch {
+    // keep the synthetic reference when the header is absent or unparseable
+  }
+  return { payload, paymentRef, source: "x402" };
+}
+
 // Seller errors can name their internal data backends (Pyth, ...). Our stack only uses x402
 // sellers and The Graph, so surface a generic message instead of third-party provider names.
 const THIRD_PARTY_NAMES = /\b(pyth|chainlink|redstone|chronicle)\b/gi;
@@ -180,10 +216,8 @@ async function fetchFromSeller(url, payerKey, maxPaymentUsdc) {
   const challenge = await plain.json().catch(() => null);
   const accepts = challenge?.x402?.accepts ?? challenge?.accepts ?? [];
   const option = selectWithinCap(accepts, maxPaymentUsdc);
-  if (!isBatchPayment(option)) {
-    throw new Error("seller does not accept Circle Gateway nanopayments");
-  }
-  return fetchGatewayBatched(url, option, payerKey, accepts);
+  if (isBatchPayment(option)) return fetchGatewayBatched(url, option, payerKey, accepts);
+  return fetchPlainX402(url, payerKey, maxPaymentUsdc);
 }
 
 export async function refreshOraclePrice({ log = console.log, force = false, dryRun = false } = {}) {

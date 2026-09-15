@@ -17,7 +17,7 @@ test("parseSellers splits env lists and falls back to defaults", () => {
     "https://a.example",
     "https://b.example",
   ]);
-  assert.equal(parseSellers("").length, 2);
+  assert.equal(parseSellers("").length, 3);
   assert.equal(parseSellers("https://only.example").length, 1);
 });
 
