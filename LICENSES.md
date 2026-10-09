@@ -12,16 +12,17 @@ its own `LICENSE` file.
 | `OpenZeppelin/openzeppelin-community-contracts` | `92f252851c41449bd8417a6ebdcc8db95c8f66c9` | MIT | Vendored for ERC-7540 (`ERC7540` base + sync deposit + admin redeem). |
 | `OpenZeppelin/uniswap-hooks` | `2ae32be4906d300fc49b4384842ef6bc3e902d73` | MIT | Hook plumbing (`BaseHook`, fee-module patterns). |
 | `foundry-rs/forge-std` | pinned via `forge init` | MIT | |
-| `Uniswap/v4-hooks-public` (DualPoolHook reference) | not vendored | MIT | Reference only for the JIT design; MIT permits reuse with attribution. |
+| `Uniswap/v4-hooks-public` (DualPoolHook) | not vendored | MIT | Reference only (zero-TVL hook routing precedent); MIT permits reuse with attribution. |
 | Aave V2 semi-fork (`src/lending/`) | independent implementation | MIT (ours) | Written from scratch; no upstream code copied. |
 
 ## Scope notes
 
-- **Uniswap v4 core (BUSL-1.1).** The canonical code is used unmodified and redeployed on **Arc
-  testnet only** — non-production use, which the license permits. A production/mainnet deployment
-  before the Change Date (`2027-06-15`) requires a commercial license or the Additional Use Grant
-  published at `v4-core-license-grants.uniswap.eth`. After the Change Date the license converts to
-  MIT.
+- **Uniswap v4 core (BUSL-1.1).** The canonical code is used unmodified. Robinhood Chain mainnet
+  (4663) uses the **canonical v4 deployment**; chain 46630 (testnet, no canonical v4) self-deploys
+  the pinned core for development/testing — non-production use, which the license permits. A
+  production deployment of the core code before the Change Date (`2027-06-15`) requires a
+  commercial license or the Additional Use Grant published at
+  `v4-core-license-grants.uniswap.eth`. After the Change Date the license converts to MIT.
 - **Aave V2 semi-fork.** `src/lending/` is an independent implementation; the upstream
   `aave/protocol-v2` repository carries no clear open-source license (NOASSERTION), so no upstream
   source is copied or redistributed here.

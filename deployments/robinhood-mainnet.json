@@ -1,0 +1,104 @@
+{
+  "generatedAt": "2026-10-09",
+  "network": {
+    "name": "Robinhood Chain",
+    "chainId": 4663,
+    "caip2": "eip155:4663",
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "explorer": "https://robinhoodchain.blockscout.com",
+    "nativeCurrency": {
+      "name": "Ether",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "note": "Arbitrum Orbit L2 (mainnet live 2026-07-01). ETH gas. Uniswap v2/v3/v4 + UniswapX live; canonical v4 addresses below resolved from Uniswap docs + on-chain checks (nirholas/robinhood-toolkit 2026-07-21). Re-verify before relying."
+  },
+  "contracts": {
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "universalRouter": "0x8876789976dEcBfCbBbe364623C63652db8C0904",
+    "v4PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "v4PositionManager": "0x58daec3116aae6d93017baaea7749052e8a04fa7",
+    "v4Quoter": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
+    "v4StateView": "0xf3334192d15450cdd385c8b70e03f9a6bd9e673b",
+    "v4PositionDescriptor": "0x9639443158e8c5efa35bd45287bf2effd3d8dc06",
+    "v3Factory": "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+    "v3SwapRouter02": "0xCaf681a66D020601342297493863E78C959E5cb2",
+    "weth": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "morphoBlue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "morphoBlueOwner": "0x060595638692de6CcD47Ca04094f1772d3D39728",
+    "nvdaStockToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+    "nvdaChainlinkFeed": "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15",
+    "note": "Verified on-chain 2026-10-09 (scripts/verify-robinhood.mjs): all bytecode present, USDG 6 decimals, NVDA 18 decimals + ERC-8056 uiMultiplier, feed \"RHNVDA / USD\" 8 decimals, Morpho market id/params match. NOTE: the public RPC sits behind a Cloudflare challenge — use browser-like headers (script does) or a provider RPC (Alchemy/Chainstack/QuickNode) via ROBINHOOD_RPC_URL for anything sustained."
+  },
+  "tokens": {
+    "USDG": {
+      "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "decimals": 6,
+      "verified": true,
+      "note": "Quote stable of the Robinhood book; 6 decimals confirmed on-chain 2026-10-09"
+    },
+    "NVDA": {
+      "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "decimals": 18,
+      "standard": "ERC-20 + ERC-8056 (uiMultiplier); Chainlink feed includes corporate actions",
+      "verified": true,
+      "uiMultiplier": "1000775159164630595",
+      "note": "18 decimals + uiMultiplier() confirmed on-chain 2026-10-09"
+    },
+    "WETH": {
+      "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+      "decimals": 18
+    }
+  },
+  "morpho": {
+    "blue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "note": "Era-2 deployment (NOT the canonical 0xBBBB mainnet address). 27 markets, 22 with USDG as loan asset (stock-token collateral). Morpho Vault V2s gate deposits (maxDeposit==0 for unwhitelisted), so the vault uses Blue direct supply/borrow. The deployment exposes idToMarketParams but NOT id(MarketParams); market ids are keccak256(abi.encode(params)) (canonical scheme, cross-checked against the Morpho API and on-chain market state).",
+    "markets": [
+      {
+        "id": "0xf5ff7d546af5e72f3912d2aa723088fd0bf66fddc158714995637714d9db6e4c",
+        "loanToken": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "collateralToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "oracle": "0x37CF511fA79B8446f1C23D6a81Df117F28240bE0",
+        "irm": "0x2BD3d5965B26B51814AC95127B2b80dD6CcC0fa1",
+        "lltv": "625000000000000000",
+        "verified": true,
+        "note": "Primary NVDA/USDG market (lltv 62.5%); id/params cross-checked on-chain 2026-10-09"
+      },
+      {
+        "id": "0xf54d700dd3fe889872bfc868788de849e8a5b1adfd73bb3d983c8e264e970604",
+        "loanToken": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "collateralToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "oracle": "0xfA6e814Ab26b459C909F86C9650D433D5330B86D",
+        "irm": "0x2BD3d5965B26B51814AC95127B2b80dD6CcC0fa1",
+        "lltv": "385000000000000000",
+        "verified": false,
+        "note": "Secondary NVDA/USDG market (lltv 38.5%), empty — params from Morpho API 2026-10-09; re-verify on-chain before use"
+      },
+      {
+        "id": "0x8b16891f032a93b771347c9cb470a780e6699dd701553d3402aa3cdba6189c3e",
+        "loanToken": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "collateralToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "oracle": "0xED29D310cfa91778A5850538DA28ed42234Cb78c",
+        "irm": "0x2BD3d5965B26B51814AC95127B2b80dD6CcC0fa1",
+        "lltv": "625000000000000000",
+        "verified": false,
+        "note": "Deepest market (supply ~687.4k USDG, borrow ~687.4k — ~100% utilized). AVOID for the lending adapter: withdraws can fail at high utilization; listed as the example of what not to park in."
+      }
+    ]
+  },
+  "stack": {
+    "status": "not deployed",
+    "note": "Deploy via script/DeployStaticStack.s.sol with USDC_ADDRESS->USDG_ADDRESS, NVDA_ADDRESS->NVDA stock token, V4_POOL_MANAGER->canonical v4, ETH gas funding. Pre-mine gate: verify the canonical PoolManager ABI/flags against the pinned v4-core submodule."
+  },
+  "oracle": {
+    "design": "ChainlinkSessionOracle (Chainlink stock feed mid incl. ERC-8056 multiplier + pushed session/status layer)",
+    "sessionSource": null,
+    "note": "Deploy ChainlinkSessionOracle(chainlinkFeed, sessionSource, maxPriceAge); sessionSource is the keeper session/status pusher exposing marketStatus()."
+  },
+  "subgraph": {
+    "network": "robinhood",
+    "url": null
+  }
+}
+

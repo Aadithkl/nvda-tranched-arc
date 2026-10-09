@@ -170,13 +170,16 @@ contract TrancheExpiryTest is Test {
         senior.redeemAtExpiry(1e18, alice, type(uint256).max, 0);
     }
 
-    function test_maturedBlocksRequestsAndUnwraps() public {
+    function test_maturedAllowsWithdrawRequestsButBlocksUnwraps() public {
         vm.prank(address(hs));
         senior.creditSettlement(0, 0);
 
         vm.startPrank(alice);
-        vm.expectRevert(TrancheVault.Matured.selector);
-        senior.requestRedeem(1e18, alice, alice);
+        uint256 shares = senior.balanceOf(alice);
+        // Post-settlement the user pulls a withdraw request on the vault (new exit journey).
+        senior.requestRedeem(shares, alice, alice);
+        assertEq(senior.pendingRedeemRequest(0, alice), shares);
+        // The pipe/unwrap shortcuts stay closed after maturity.
         vm.expectRevert(TrancheVault.Matured.selector);
         senior.claimAndUnwrapUSDC(1e18, alice, alice, 0);
         vm.stopPrank();

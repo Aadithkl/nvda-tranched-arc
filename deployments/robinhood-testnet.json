@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-10-09",
+  "network": {
+    "name": "Robinhood Chain Testnet",
+    "chainId": 46630,
+    "caip2": "eip155:46630",
+    "rpc": "https://rpc.testnet.chain.robinhood.com",
+    "explorer": "https://robinhoodchain.blockscout.com",
+    "nativeCurrency": {
+      "name": "Ether",
+      "symbol": "ETH",
+      "decimals": 18
+    },
+    "note": "Arbitrum Orbit testnet. Uniswap publishes NO deployment for chain 46630 (as of 2026-07): integration tests deploy the repo's vendored canonical v4 stack (script/DeployV4Stack.s.sol) plus mock Chainlink feeds. Morpho is mainnet-only: the loop sleeve is rehearsed on a 4663 fork."
+  },
+  "contracts": {
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "v4PoolManager": null,
+    "v4PositionManager": null,
+    "v4Quoter": null,
+    "v4StateView": null,
+    "usdg": null,
+    "nvdaStockToken": null,
+    "nvdaChainlinkFeed": null,
+    "note": "Testnet stock tokens + mock feeds come from the faucet / local mocks; v4 is self-deployed. Fill after the first testnet deploy."
+  },
+  "stack": {
+    "status": "not deployed",
+    "note": "Same DeployStaticStack flow as mainnet; lending adapter uses the in-repo Aave semi-fork (src/lending) on testnet since Morpho is absent."
+  }
+}

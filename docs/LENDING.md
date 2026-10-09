@@ -1,11 +1,11 @@
-# Lending Layer (Aave V2 semi-fork) — `src/lending/`
+# Lending Layer (Aave V2 semi-fork) â€” `src/lending/`
 
 Purpose: the yield-bearing **rest state** for the tranche hook. Idle capital is supplied to a
 lending market and earns interest; the hook withdraws on demand to fund JIT liquidity.
 
 This is a **semi-fork**: the pool / addresses-provider / configurator architecture and the
 `IAaveV2Pool` interface subset follow Aave V2, but it is an independent implementation
-(no upstream code copied). No WETH market, no Chainlink — reserve prices are owner-pegged.
+(no upstream code copied). No WETH market, no Chainlink â€” reserve prices are owner-pegged.
 
 ## Contracts
 
@@ -15,8 +15,8 @@ This is a **semi-fork**: the pool / addresses-provider / configurator architectu
 | `PeggedPriceOracle` | `getAssetPrice(asset)` in USD (8 decimals), owner-set pegs |
 | `LendingPool` | `deposit`, `withdraw`, `borrow` (variable), `repay`, `getReserveData`, `getUserAccountData`, `updateState`, pause |
 | `LendingPoolConfigurator` | `initReserve` (deploys aToken + variable debt token), collateral config, borrowing toggle, reserve factor, active/freeze, rate strategy swap |
-| `AToken` | Rebasing receipt token (scaled balances × liquidity index); `transferUnderlyingTo` for pool withdrawals |
-| `VariableDebtToken` | Scaled variable debt (× variable borrow index) |
+| `AToken` | Rebasing receipt token (scaled balances Ã— liquidity index); `transferUnderlyingTo` for pool withdrawals |
+| `VariableDebtToken` | Scaled variable debt (Ã— variable borrow index) |
 | `DefaultReserveInterestRateStrategy` | Utilization-based rates: base + slope1 (to 80%) + slope2 above optimal |
 | `libraries/WadRayMath`, `libraries/ReserveConfiguration`, `libraries/DataTypes` | Ray/Wad math, Aave-style config bitfield, reserve structs |
 
@@ -26,11 +26,11 @@ Pegs: USDC `1e8`, NVDA `200e8` (reference mid; owner-settable via `NVDA_PEGGED_P
 ## Model
 
 - `liquidityIndex` / `variableBorrowIndex` are Ray (`1e27`) indexes, updated linearly per second
-  on every pool interaction via `updateState`: `index *= (1 + rate × elapsed / 365d)`.
-- `aToken.balanceOf` = scaled balance × `liquidityIndex`; debt = scaled debt × `variableBorrowIndex`.
-- Utilization = debt / (available liquidity + debt). Borrow rate = base + slope1 × U / U_opt
-  (or base + slope1 + slope2 × (U − U_opt)/(1 − U_opt) above optimal). Supply rate =
-  borrow rate × U × (1 − reserveFactor).
+  on every pool interaction via `updateState`: `index *= (1 + rate Ã— elapsed / 365d)`.
+- `aToken.balanceOf` = scaled balance Ã— `liquidityIndex`; debt = scaled debt Ã— `variableBorrowIndex`.
+- Utilization = debt / (available liquidity + debt). Borrow rate = base + slope1 Ã— U / U_opt
+  (or base + slope1 + slope2 Ã— (U âˆ’ U_opt)/(1 âˆ’ U_opt) above optimal). Supply rate =
+  borrow rate Ã— U Ã— (1 âˆ’ reserveFactor).
 - Reserve factor is retained in the aToken contract as surplus (no treasury mint yet).
 
 ## Implemented vs not
@@ -52,12 +52,12 @@ eMode/isolation, treasury accrual, protocol data provider.
 
 Reserve prices are **owner-set pegs**, not hardcoded in the pool:
 
-- USDC `1e8`, NVDA `200e8` (USD, 8 decimals) — reference mid; keep close to the x402 oracle.
+- USDC `1e8`, NVDA `200e8` (USD, 8 decimals) â€” reference mid; keep close to the oracle mid.
 - Update any time (owner = deployer): `npm run lending:set-price -- --nvda-price 20000000000`
   (or set `USDC_PEGGED_PRICE` / `NVDA_PEGGED_PRICE` in `.env`).
 - Swap the source later without touching the pool: deploy an oracle implementing
   `getAssetPrice(address)` and call `provider.setAddress(keccak256("PRICE_ORACLE"), newOracle)`.
-  A v4-pool-derived oracle is possible, but v4 core has no TWAP and the FX pool is thin —
+  A v4-pool-derived oracle is possible, but v4 core has no TWAP and the FX pool is thin â€”
   prefer a keeper-pushed value with a deviation clamp over a raw spot read.
 
 ## Ops
@@ -81,9 +81,9 @@ node scripts/lending-admin.mjs --borrow-nvda <wei18>  # variable-rate borrow of 
 
 Live markets on Arc (2026-09-13 redeploy): **USDC + NVDA**, strategy base `0`, slope1 `9%`, slope2 `60%`,
 optimal `80%`.
-- USDC: supplied 230, borrowed 160 → utilization 69.6%, supply 4.90% / borrow 7.83%.
-- NVDA: supplied 2, borrowed 1.2 → utilization 60.0%, supply 3.64% / borrow 6.75%.
-`borrow` now values the requested amount in USD base (`amount × price / 10^decimals`) before the LTV check,
+- USDC: supplied 230, borrowed 160 â†’ utilization 69.6%, supply 4.90% / borrow 7.83%.
+- NVDA: supplied 2, borrowed 1.2 â†’ utilization 60.0%, supply 3.64% / borrow 6.75%.
+`borrow` now values the requested amount in USD base (`amount Ã— price / 10^decimals`) before the LTV check,
 so 18-dec debt markets work; addresses and txs are in `docs/DEPLOYMENTS.md`.
 
 ## Deploy
@@ -91,7 +91,8 @@ so 18-dec debt markets work; addresses and txs are in `docs/DEPLOYMENTS.md`.
 ```shell
 # .env: DEPLOYER_PRIVATE_KEY, USDC_ADDRESS, NVDA_ADDRESS (optional LENDING_* overrides)
 # then: npm run lending:seed  (deposits 10 USDC + 1 NVDA)
-forge script script/DeployLending.s.sol --rpc-url $ARC_RPC_URL --broadcast
+forge script script/DeployLending.s.sol --rpc-url $ROBINHOOD_TESTNET_RPC_URL --broadcast
 ```
 
 Live addresses: see `docs/DEPLOYMENTS.md`.
+

@@ -10,7 +10,7 @@ contract NVDAPriceOracleTest is Test {
     uint32 internal constant STALENESS = 300;
     address internal constant WRITER = address(0xA11CE);
     address internal constant STRANGER = address(0xBAD);
-    bytes32 internal constant PAYMENT_REF = keccak256("x402-payment-receipt");
+    bytes32 internal constant PAYMENT_REF = keccak256("session-status-ref");
 
     function setUp() public {
         oracle = new NVDAPriceOracle(8, address(this));
@@ -179,3 +179,4 @@ contract NVDAPriceOracleTest is Test {
         oracle.transferOwnership(address(0));
     }
 }
+

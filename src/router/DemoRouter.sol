@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
 import { IUnlockCallback } from "v4-core/src/interfaces/callback/IUnlockCallback.sol";
@@ -264,3 +264,4 @@ contract DemoRouter is IUnlockCallback {
         poolManager.settle();
     }
 }
+

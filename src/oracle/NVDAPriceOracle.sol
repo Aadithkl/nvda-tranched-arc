@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 contract NVDAPriceOracle {
     enum Session {
@@ -154,6 +154,7 @@ contract NVDAPriceOracle {
     }
 
     function description() external pure returns (string memory) {
-        return "NVDA/USD (x402 push)";
+        return "NVDA/USD (session/status writer)";
     }
 }
+

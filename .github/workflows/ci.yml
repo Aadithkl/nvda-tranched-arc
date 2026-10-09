@@ -20,25 +20,6 @@ jobs:
       - name: Test
         run: forge test -vv
 
-  subgraph:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: subgraph
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: subgraph/package-lock.json
-      - name: Install
-        run: npm ci
-      - name: Codegen
-        run: npm run codegen
-      - name: Build
-        run: npm run build
-
   agent:
     runs-on: ubuntu-latest
     steps:

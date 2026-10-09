@@ -57,6 +57,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     event MaturedRedeem(
         address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount, uint256 equityAmount
     );
+    event MaturedRedeemFulfilled(address indexed user, uint256 shares);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -73,6 +74,8 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     error NotMatured();
     error SettlementAlreadyCredited();
     error SlippageExceeded(uint256 usdcAmount, uint256 equityAmount, uint256 minUsdcOut, uint256 minEquityOut);
+    error NothingPendingRedeem();
+    error NothingToClaim();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -250,7 +253,9 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (isSenior && equityAmount != 0) revert SeniorUsdcOnly();
         matured = true;
         settledAt = block.timestamp;
-        uint256 supply = totalSupply();
+        // Denominates the frozen rates across held + pending/claimable shares: redeem requests burn
+        // shares at request time, so `totalSupply` alone would strand pending holders at rate zero.
+        uint256 supply = totalSupply() + totalPendingRedeemShares();
         if (supply != 0) {
             usdcPerShare1e18 = usdcAmount.mulDiv(1e18, supply);
             equityPerShare1e18 = equityAmount.mulDiv(1e18, supply);
@@ -349,6 +354,30 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         emit ProportionalUnwrapped(msg.sender, receiver, assets, usdcAmount, equityAmount);
     }
 
+    /// @notice Post-settlement: transitions a pending withdraw request into a matured claim at the
+    ///         frozen settlement rates. Permissionless — it only moves the user's own entitlement.
+    function fulfillRedeemMatured(address user) external nonReentrant {
+        if (!matured) revert NotMatured();
+        if (user == address(0)) revert ZeroAddress();
+        uint256 shares = pendingRedeemRequest(0, user);
+        if (shares == 0) revert NothingPendingRedeem();
+        _fulfillRedeem(shares, 0, user);
+        emit MaturedRedeemFulfilled(user, shares);
+    }
+
+    /// @notice Post-settlement claim: pays the frozen settlement rates for all claimable shares of
+    ///         the caller (requests fulfilled before or after settlement). Senior pays USDC only.
+    function claimMatured(address receiver) external nonReentrant returns (uint256 usdcAmount, uint256 equityAmount) {
+        if (!matured) revert NotMatured();
+        if (receiver == address(0)) revert ZeroAddress();
+        uint256 shares = maxRedeem(msg.sender);
+        if (shares == 0) revert NothingToClaim();
+        usdcAmount = shares.mulDiv(usdcPerShare1e18, 1e18, Math.Rounding.Floor);
+        equityAmount = shares.mulDiv(equityPerShare1e18, 1e18, Math.Rounding.Floor);
+        redeem(shares, receiver, msg.sender);
+        emit MaturedRedeem(msg.sender, receiver, shares, usdcAmount, equityAmount);
+    }
+
     function maxDeposit(address) public view virtual override returns (uint256) {
         if (expired() || depositsPaused) return 0;
         uint256 cap = maxTotalAssets;
@@ -361,16 +390,6 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         uint256 maxAssets = maxDeposit(receiver);
         if (maxAssets == type(uint256).max) return type(uint256).max;
         return _convertToShares(maxAssets, Math.Rounding.Floor);
-    }
-
-    function requestRedeem(uint256 shares, address controller, address sharesOwner)
-        public
-        virtual
-        override
-        returns (uint256)
-    {
-        if (matured) revert Matured();
-        return super.requestRedeem(shares, controller, sharesOwner);
     }
 
     function _requestRedeem(uint256 shares, address controller, address sharesOwner, uint256 requestId)

@@ -1,7 +1,6 @@
 # Foundry
 out/
 cache/
-broadcast/**/dry-run/
 
 # Secrets - never commit
 .env
@@ -11,11 +10,12 @@ broadcast/**/dry-run/
 # Node
 node_modules/
 agent/.cache/
-frontend/dist/
+
+# Audit raw outputs (summary + text report are committed)
+slither-static.json
 
 # OS
 .DS_Store
 Thumbs.db
 
 .wake/
-slither-report.*
