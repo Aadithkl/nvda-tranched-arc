@@ -414,9 +414,20 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     // Yield venue
     // ---------------------------------------------------------------------
 
+    /// @notice Sweeps the entire idle balance into the venue. Medium: to keep a
+    ///         redemption buffer, prefer `supplyIdleAmount`; this zero-arg form is
+    ///         retained for the agent's existing call plan.
     function supplyIdle() external onlyKeeper returns (uint256 supplied) {
+        return supplyIdleAmount(quote.balanceOf(address(this)));
+    }
+
+    /// @notice Supplies an explicit amount to the venue (clamped to the balance),
+    ///         leaving the remainder as the redemption buffer.
+    function supplyIdleAmount(uint256 amount) public onlyKeeper returns (uint256 supplied) {
         if (address(venue) == address(0)) revert VenueUnset();
-        supplied = quote.balanceOf(address(this));
+        if (amount == 0) revert ZeroAmount();
+        uint256 balance = quote.balanceOf(address(this));
+        supplied = amount < balance ? amount : balance;
         if (supplied == 0) revert ZeroAmount();
         quote.forceApprove(address(venue), supplied);
         venue.deposit(address(quote), supplied, address(this), 0);

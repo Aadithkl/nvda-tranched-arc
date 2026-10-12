@@ -342,7 +342,12 @@ contract ExpiryWithdrawalsTest is Test {
         vault.haltIfExpired();
         vault.finalizeSettlement();
 
-        // Frozen rates cover pending shares too (supply + pending denominator).
+        // Frozen rates cover pending shares too. C1 regression lock: the payout must
+        // distribute the FULL settlement leg the senior vault received. The pre-fix
+        // denominator double-counted pending shares (ERC7540.totalSupply already
+        // includes them) and paid ~half, stranding the rest in the vault.
+        uint256 seniorLeg = quote.balanceOf(address(senior));
+        assertGt(seniorLeg, 1_000e6, "senior leg covers the principal");
         assertGt(senior.quotePerShare1e18(), 0);
         vm.prank(makeAddr("anyone"));
         senior.fulfillRedeemMatured(address(this));
@@ -352,6 +357,7 @@ contract ExpiryWithdrawalsTest is Test {
         (uint256 usdcOut,) = senior.claimMatured(address(this));
         assertApproxEqAbs(usdcOut, expected, 2);
         assertEq(quote.balanceOf(address(this)) - before, usdcOut);
+        assertApproxEqAbs(usdcOut, seniorLeg, 2, "full leg distributed across pending shares");
     }
 
     function test_claimMatured_withoutClaimable_reverts() public {

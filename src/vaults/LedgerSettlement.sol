@@ -62,7 +62,18 @@ library LedgerSettlement {
         hook.unwindClaims();
         if (!hook.exited()) hook.pullAll();
 
-        if (strategyModule != address(0)) IStrategyModule(strategyModule).exitAll();
+        if (strategyModule != address(0)) {
+            // C3 completes here: `exitAll` funds loop-debt repayment by pulling from
+            // the vault, and the vault carries NO standing allowance (if it did, a
+            // swapped module could drain it). Approve the exact upper bound (all
+            // loop debt), unwind, then reset to zero — no residual allowance
+            // survives settlement either way, since a mid-flight revert rolls the
+            // whole transaction back.
+            uint256 loopNeed = IStrategyModule(strategyModule).totalLoopDebt();
+            quote.forceApprove(strategyModule, loopNeed);
+            IStrategyModule(strategyModule).exitAll();
+            quote.forceApprove(strategyModule, 0);
+        }
 
         if (venue != address(0)) {
             uint256 venueUnits = aToken.balanceOf(address(this));

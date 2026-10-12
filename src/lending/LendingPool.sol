@@ -352,10 +352,11 @@ contract LendingPool is IAaveV2Pool {
         uint256 collUnit = 10 ** collCfg.getDecimals();
         uint256 debtUnit = 10 ** debtCfg.getDecimals();
         uint256 debtValueBase = debtToCover * debtPrice / debtUnit;
-        uint256 bonus = collCfg.getLiquidationBonus(); // bps over 100%? Aave-style: 10500 = 5% bonus
-        uint256 seizeValueBase = bonus > BPS ? debtValueBase * bonus / BPS : debtValueBase * 10_500 / BPS;
-        // Default 5% bonus when unset so liquidators are paid.
-        if (bonus <= BPS) seizeValueBase = debtValueBase * 10_500 / BPS;
+        uint256 bonus = collCfg.getLiquidationBonus();
+        // Aave-style bonus bps over 100% (10500 = 5% bonus); default 5% when unset
+        // so liquidators are always paid.
+        uint256 bonusBps = bonus > BPS ? bonus : 10_500;
+        uint256 seizeValueBase = debtValueBase * bonusBps / BPS;
         uint256 seizeAmount = seizeValueBase * collUnit / collPrice;
 
         IAToken aToken = IAToken(collReserve.aTokenAddress);
