@@ -96,7 +96,7 @@ contract StaticBookE2ETest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setGuardParams(_defaultParams());
+        vault.setGuardParams(_openParams());
         vault.setKeeper(keeper);
 
         accountant = new TrancheAccountant(address(this));
@@ -131,6 +131,9 @@ contract StaticBookE2ETest is Test {
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         _alignOracle();
+        // Arm the deviation band now that init price and oracle agree.
+        vm.prank(keeper);
+        vault.setGuardParams(_defaultParams());
 
         quote.approve(address(senior), type(uint256).max);
         quote.approve(address(junior), type(uint256).max);
@@ -159,6 +162,14 @@ contract StaticBookE2ETest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _defaultParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     function _alignOracle() internal {
@@ -190,7 +201,7 @@ contract StaticBookE2ETest is Test {
         quote.mint(address(this), 100e6);
 
         // 2. EV+ swap: simulate then execute; the guard must stay (equivalence)
-        (bool ok, int256 ev, uint256 notional) = hook.simulateEv(
+        (bool ok, int256 ev, uint256 notional,,) = hook.simulateEv(
             SwapParams({
                 zeroForOne: quoteIsToken0,
                 amountSpecified: -int256(1e4),
@@ -203,7 +214,7 @@ contract StaticBookE2ETest is Test {
 
         // 3. Toxic swap: simulate shows negative EV, execution pulls mid-swap (thin to base)
         _setOracleMultiple(3);
-        (ok, ev,) = hook.simulateEv(
+        (ok, ev,,,) = hook.simulateEv(
             SwapParams({
                 zeroForOne: quoteIsToken0,
                 amountSpecified: -int256(1e4),
@@ -273,7 +284,7 @@ contract StaticBookE2ETest is Test {
             amountSpecified: -int256(5e5),
             sqrtPriceLimitX96: quoteIsToken0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
-        (bool ok, int256 ev,) = hook.simulateEv(params);
+        (bool ok, int256 ev,,,) = hook.simulateEv(params);
         assertTrue(ok);
         assertLt(ev, int256(0));
 
@@ -291,7 +302,7 @@ contract StaticBookE2ETest is Test {
             amountSpecified: -int256(5e5),
             sqrtPriceLimitX96: quoteIsToken0 ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
-        (bool ok, int256 ev, uint256 notional) = hook.simulateEv(params);
+        (bool ok, int256 ev, uint256 notional,,) = hook.simulateEv(params);
         assertTrue(ok);
         assertGe(ev, int256(0));
         assertGt(notional, 0);

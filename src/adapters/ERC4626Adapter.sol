@@ -46,8 +46,12 @@ contract ERC4626Adapter is IStrategyAdapter {
         if (amount == 0) revert ZeroAmount();
         IERC20(asset).safeTransferFrom(authority, address(this), amount);
         IERC20(asset).forceApprove(address(target), amount);
-        deployed = target.deposit(amount, address(this));
+        // H10: `target.deposit` returns SHARES, not assets. Accounting it as assets
+        // double-counts when pps>1 and underflows when pps<1.
+        uint256 shares = target.deposit(amount, address(this));
         IERC20(asset).forceApprove(address(target), 0);
+        deployed = shares == 0 ? 0 : target.convertToAssets(shares);
+        if (deployed > amount) deployed = amount;
     }
 
     function withdraw(uint256 amount, address to) external onlyAuthority returns (uint256 withdrawn) {

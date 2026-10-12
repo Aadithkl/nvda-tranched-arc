@@ -80,6 +80,10 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     Position public guardPosition;
     bool public guardPresent;
     uint256 public pulledAt;
+    /// @notice H3: last failed-recheck timestamp. Failed rechecks must NOT touch
+    ///         `pulledAt`, or a griefer can keep the guard out forever by pushing
+    ///         price outside the band once per interval.
+    uint256 public lastRecheckAttempt;
     bool public deployEnabled;
     bool public exited;
 
@@ -119,6 +123,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     error OracleInvalid();
     error OracleStale(uint256 updatedAt);
     error SessionNotAllowed(uint8 session);
+    error InitPriceOffMarket(uint256 deviationBps, uint16 maxDeviationBps);
 
     constructor(
         IPoolManager poolManager_,
@@ -213,6 +218,11 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         if (quoteDecimals > 18) revert InvalidQuoteDecimals(quoteDecimals);
 
         _key = key;
+        // Medium: `initializeBook(sqrtPriceX96)` took any price — an off-market init
+        // before `vault.initializeHook` lets the first observer dust-LP the real tick
+        // (audit §5-min #1). When the oracle is live, the init price must sit inside
+        // the recheck band (zero max = band check disabled, docs).
+        _requireInitPriceInBand(sqrtPriceX96);
         activePoolId = key.toId();
         poolInitialized = true;
         deployEnabled = true;
@@ -297,6 +307,8 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
 
     /// @notice Permissionless time-based recheck: after `recheckInterval` with no EV+ swap, the
     ///         guard re-arms if the market still makes sense (oracle valid, deviation in band).
+    ///         H3: a skipped recheck records `lastRecheckAttempt` only — `pulledAt` is
+    ///         untouched so grief-pushes cannot extend the outage.
     function recheckGuard() external {
         _requireLive();
         if (!deployEnabled) revert DeploymentsDisabled();
@@ -304,11 +316,15 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         if (pulledAt == 0) revert NothingPulled();
         if (block.timestamp < pulledAt + _params.recheckInterval) revert RecheckNotDue();
 
-        (bool ok, uint256 deviationBps) = oracleDeviationBps();
-        if (!ok || deviationBps > _params.recheckMaxDeviationBps) {
-            pulledAt = block.timestamp;
-            emit RecheckSkipped(deviationBps);
-            return;
+        // A zero max disables the band check (docs); otherwise enforce it.
+        uint16 maxDev = _params.recheckMaxDeviationBps;
+        if (maxDev != 0) {
+            (bool ok, uint256 deviationBps) = oracleDeviationBps();
+            if (!ok || deviationBps > maxDev) {
+                lastRecheckAttempt = block.timestamp;
+                emit RecheckSkipped(deviationBps);
+                return;
+            }
         }
         poolManager.unlock(abi.encode(ACTION_DEPLOY_GUARD));
     }
@@ -334,18 +350,39 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         _requireActivePool(key);
+        // H4: after `pullAll()` the book is out — swaps must not brick on a dead
+        // oracle/session. Exit mode skips the oracle gate and guard logic entirely.
+        if (exited) {
+            emit SwapGuarded(PoolId.unwrap(key.toId()), sender, block.timestamp);
+            return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        }
         _requireOracle();
 
         if (!exited && (guardPresent || deployEnabled)) {
-            (bool ok, int256 ev, uint256 notional) = _simulateEv(swapParams);
+            (bool ok, int256 ev, uint256 notional, int256 totalEv, uint256 totalNotional) = _simulateEv(swapParams);
             if (!ok) {
                 if (guardPresent) _pullGuard(true);
-            } else if (notional != 0) {
-                bool positive = ev * 10_000 >= int256(notional) * int256(uint256(_params.minEvBps));
-                if (positive) {
-                    if (!guardPresent && deployEnabled) _tryDeployGuardInSwap();
-                } else if (guardPresent) {
-                    _pullGuard(true);
+            } else {
+                // H1: whale-LP dilution — a flash-minted 100x position shrinks our
+                // share to ~0, so pro-rata EV reads ~0 (no-op) while the flow is
+                // deeply toxic. Gate on the UNSCALED total-flow edge too: pull when
+                // the whole swap is deeply negative regardless of share.
+                bool totalToxic =
+                    totalNotional != 0 && totalEv * 10_000 < -int256(totalNotional) * int256(uint256(_params.minEvBps));
+                if (totalToxic) {
+                    if (guardPresent) _pullGuard(true);
+                } else if (notional != 0) {
+                    bool positive = ev * 10_000 >= int256(notional) * int256(uint256(_params.minEvBps));
+                    if (positive) {
+                        if (!guardPresent && deployEnabled) _tryDeployGuardInSwap();
+                    } else if (guardPresent) {
+                        _pullGuard(true);
+                    }
+                } else if (totalNotional != 0) {
+                    // Our share is zero but the flow has edge: only ever deploy on
+                    // clearly positive total flow, never on ~zero/negative.
+                    bool totalPositive = totalEv * 10_000 >= int256(totalNotional) * int256(uint256(_params.minEvBps));
+                    if (totalPositive && !guardPresent && deployEnabled) _tryDeployGuardInSwap();
                 }
             }
         }
@@ -391,11 +428,19 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
 
     /// @notice External view twin of the EV simulation so `beforeSwap` can fail safe on reverts.
     ///         Also serves as the integrator/test preview of the IL-guard decision.
-    function simulateEv(SwapParams calldata params) external view returns (bool, int256, uint256) {
+    function simulateEv(SwapParams calldata params)
+        external
+        view
+        returns (bool ok, int256 ev, uint256 ourNotional, int256 totalEv, uint256 totalNotional)
+    {
         return _simulateEv(params);
     }
 
-    function _simulateEv(SwapParams calldata params) internal view returns (bool, int256, uint256) {
+    function _simulateEv(SwapParams calldata params)
+        internal
+        view
+        returns (bool ok, int256 ev, uint256 notional, int256 totalEv, uint256 totalNotional)
+    {
         (uint160 sqrtPrice, int24 tick,,) = poolManager.getSlot0(activePoolId);
 
         IPoolGuardSimulator.Input memory input;
@@ -418,18 +463,27 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         input.equityDecimals = equityDecimals;
 
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
-        if (data.mid <= 0 || oracleDecimals > 18) return (false, int256(0), uint256(0));
+        if (data.mid <= 0 || oracleDecimals > 18) return (false, int256(0), uint256(0), int256(0), uint256(0));
         input.mid1e18 = uint256(uint192(data.mid)) * (10 ** (18 - oracleDecimals));
-        if (sqrtPrice == 0) return (false, int256(0), uint256(0));
+        if (sqrtPrice == 0) return (false, int256(0), uint256(0), int256(0), uint256(0));
 
         try simulator.simulate(poolManager, _key, params, input) returns (IPoolGuardSimulator.Result memory result) {
-            return (result.ok, result.ev, result.ourNotional);
+            return (result.ok, result.ev, result.ourNotional, result.totalEv, result.totalNotional);
         } catch {
-            return (false, int256(0), uint256(0));
+            return (false, int256(0), uint256(0), int256(0), uint256(0));
         }
     }
 
+    /// @notice H2: in-swap redeploys center on the spot tick with no deviation check
+    ///         (unlike `recheckGuard`), so a manipulated tick gets the full guard.
+    ///         Enforce the same `recheckMaxDeviationBps` band here — manipulated
+    ///         ticks deploy nothing. A zero max disables the band check (docs).
     function _tryDeployGuardInSwap() internal {
+        uint16 maxDev = _params.recheckMaxDeviationBps;
+        if (maxDev != 0) {
+            (bool ok, uint256 deviationBps) = oracleDeviationBps();
+            if (!ok || deviationBps > maxDev) return;
+        }
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
         if (!_openBand(GUARD_SALT, lo, hi, liquidity, false)) return;
@@ -606,14 +660,41 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     function _requireOracle() internal view {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) revert OracleInvalid();
+        if (data.updatedAt > block.timestamp) revert OracleStale(data.updatedAt);
         if (block.timestamp > data.updatedAt + _params.maxPriceAge) revert OracleStale(data.updatedAt);
         uint8 mask = _params.allowedSessionsMask;
         if (mask != 0 && ((mask >> data.session) & 1) == 0) revert SessionNotAllowed(data.session);
     }
 
+    /// @notice Init-time band check against a candidate `sqrtPriceX96` (pool has no
+    ///         slot0 yet). Skips when the oracle is not live or the band is disabled.
+    function _requireInitPriceInBand(uint160 sqrtPriceX96) internal view {
+        uint16 maxDev = _params.recheckMaxDeviationBps;
+        if (maxDev == 0) return;
+        if (sqrtPriceX96 < TickMath.MIN_SQRT_PRICE || sqrtPriceX96 > TickMath.MAX_SQRT_PRICE) {
+            revert InitPriceOffMarket(10_000, maxDev);
+        }
+        INVDAPriceOracle.PriceData memory data;
+        try INVDAPriceOracle(priceOracle).getPrice() returns (INVDAPriceOracle.PriceData memory d) {
+            data = d;
+        } catch {
+            return;
+        }
+        if (!data.valid || data.mid <= 0 || oracleDecimals > 18) return;
+        if (data.updatedAt == 0 || data.updatedAt > block.timestamp) return;
+        if (block.timestamp > data.updatedAt + _params.maxPriceAge) return;
+        uint256 poolUsd = _poolPrice1e18(sqrtPriceX96);
+        uint256 oracleUsd = uint256(uint192(data.mid)) * (10 ** (18 - oracleDecimals));
+        if (poolUsd == 0 || oracleUsd == 0) return;
+        uint256 diff = poolUsd > oracleUsd ? poolUsd - oracleUsd : oracleUsd - poolUsd;
+        uint256 deviationBps = Math.mulDiv(diff, 10_000, oracleUsd);
+        if (deviationBps > maxDev) revert InitPriceOffMarket(deviationBps, maxDev);
+    }
+
     function oracleStatus() external view returns (bool ok, uint256 updatedAt, uint8 session) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
-        ok = data.valid && data.mid > 0 && block.timestamp <= data.updatedAt + _params.maxPriceAge;
+        ok = data.valid && data.mid > 0 && data.updatedAt != 0 && data.updatedAt <= block.timestamp
+            && block.timestamp <= data.updatedAt + _params.maxPriceAge;
         uint8 mask = _params.allowedSessionsMask;
         if (ok && mask != 0 && ((mask >> data.session) & 1) == 0) ok = false;
         updatedAt = data.updatedAt;
@@ -623,6 +704,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     function oracleDeviationBps() public view returns (bool ok, uint256 deviationBps) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) return (false, 0);
+        if (data.updatedAt == 0 || data.updatedAt > block.timestamp) return (false, 0);
         if (block.timestamp > data.updatedAt + _params.maxPriceAge) return (false, 0);
         uint8 mask = _params.allowedSessionsMask;
         if (mask != 0 && ((mask >> data.session) & 1) == 0) return (false, 0);

@@ -28,18 +28,21 @@ import { HookShareToken } from "../src/core/HookShareToken.sol";
 import { IHookSharePipe } from "../src/interfaces/IHookSharePipe.sol";
 import { IBookHook } from "../src/interfaces/IBookHook.sol";
 
-/// @notice Mines + deploys a hook from a non-script address so a second valid hook
-///         slot exists (CREATE2 address commits to the deployer).
+/// @notice Mines + deploys arbitrary initcode from a non-script address so a second
+///         valid hook slot exists (CREATE2 address commits to the deployer).
+///         Takes full initcode (never embeds hook bytecode itself) so this helper
+///         stays far inside EIP-170 no matter how big the hook grows.
 contract DualBookHookFactory {
-    function deployHook(
-        bytes32 salt,
-        IPoolManager manager,
-        IPoolGuardSimulator simulator,
-        address priceOracle,
-        address equity,
-        address owner
-    ) external returns (address hook) {
-        hook = address(new PoolGuardHook{ salt: salt }(manager, simulator, priceOracle, equity, address(0), owner));
+    error DeployFailed();
+
+    function deployHook(bytes32 salt, bytes calldata initcode) external returns (address hook) {
+        // Copy to memory first: CREATE2 reads initcode from memory, and plain
+        // `mload` on a calldata offset would read the wrong space.
+        bytes memory code = initcode;
+        assembly {
+            hook := create2(0, add(code, 32), mload(code), salt)
+        }
+        if (hook == address(0)) revert DeployFailed();
     }
 }
 
@@ -135,6 +138,7 @@ contract DeployDualBookStack is Script {
         _fundAndInit(vault, hub, keyA, keyB, quote, nvda, deployer);
 
         hub.transferOwnership(address(vault));
+        vault.acceptHubOwnership(address(hub));
 
         _deployTranches(address(vault), deployer, expiry);
         vault.setExitFees(
@@ -170,8 +174,7 @@ contract DeployDualBookStack is Script {
         if (create2Wallet == CREATE2_DEPLOYER) {
             hook = _create2(salt, initcode);
         } else {
-            hook = DualBookHookFactory(create2Wallet)
-                .deployHook(salt, manager, IPoolGuardSimulator(simulator), priceOracle, nvda, deployer);
+            hook = DualBookHookFactory(create2Wallet).deployHook(salt, initcode);
         }
         require(hook == expectedHook, "hook address mismatch");
         require((uint160(hook) >> 152) != uint160(0x91), "hook prefix 0x91");
@@ -188,7 +191,12 @@ contract DeployDualBookStack is Script {
 
     function _envOracle() internal view returns (address priceOracle) {
         priceOracle = vm.envOr("NVDA_ORACLE", address(0));
-        if (priceOracle == address(0)) priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
+        // Audit: on Robinhood Chain the demo-oracle fallback is forbidden (H4).
+        if (block.chainid == 4663) {
+            require(priceOracle != address(0), "NVDA_ORACLE required on Robinhood Chain");
+        } else if (priceOracle == address(0)) {
+            priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
+        }
     }
 
     function _guardParams(string memory prefix) internal view returns (GuardParams.Params memory params) {

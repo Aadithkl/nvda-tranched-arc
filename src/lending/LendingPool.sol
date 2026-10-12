@@ -40,6 +40,14 @@ contract LendingPool is IAaveV2Pool {
     event ReserveActiveSet(address indexed asset, bool active);
     event ReserveFrozenSet(address indexed asset, bool frozen);
     event ReserveInterestRateStrategyChanged(address indexed asset, address strategy);
+    event LiquidationCall(
+        address indexed collateralAsset,
+        address indexed debtAsset,
+        address indexed user,
+        uint256 debtToCover,
+        uint256 liquidatedCollateralAmount,
+        address liquidator
+    );
 
     error NotConfigurator(address caller);
     error NotPoolAdmin(address caller);
@@ -56,6 +64,9 @@ contract LendingPool is IAaveV2Pool {
     error HealthFactorTooLow(uint256 healthFactor);
     error SelfBorrowOnly();
     error ZeroAddress();
+    error HealthyPosition(uint256 healthFactor);
+    error CloseFactorExceeded(uint256 debtToCover, uint256 maxCover);
+    error InsufficientCollateral(uint256 seized, uint256 balance);
 
     modifier onlyConfigurator() {
         if (msg.sender != ILendingPoolAddressesProvider(ADDRESSES_PROVIDER).getLendingPoolConfigurator()) {
@@ -235,6 +246,14 @@ contract LendingPool is IAaveV2Pool {
         aToken.burn(msg.sender, amountToWithdraw);
         aToken.transferUnderlyingTo(to, amountToWithdraw);
 
+        // C4: withdrawals must not leave debt unbacked. `borrow` gates on HF but
+        // `withdraw` did not — deposit 100, borrow 75, withdraw 100 walked with 175.
+        // Enforce the same post-action HF gate (no-op when the user holds no debt).
+        (uint256 cBase, uint256 dBase,,,, uint256 hf) = getUserAccountData(msg.sender);
+        if (dBase != 0 && hf < 1e18) revert HealthFactorTooLow(hf);
+        // Silence unused warnings without extra sloads.
+        cBase;
+
         emit Withdraw(asset, msg.sender, to, amountToWithdraw);
         return amountToWithdraw;
     }
@@ -295,6 +314,64 @@ contract LendingPool is IAaveV2Pool {
 
         emit Repay(asset, onBehalfOf, msg.sender, repayAmount);
         return repayAmount;
+    }
+
+    /// @notice C5: basic liquidation — clears undercollateralized debt (the fork
+    ///         shipped with NO `liquidationCall`, so C4/C5 debt was uncollectable).
+    ///         Close factor 50%: one call covers at most half the user's debt.
+    ///         Collateral seized = debt value × (1 + liquidationBonus) in collateral
+    ///         units, capped at the user's aToken balance.
+    function liquidationCall(address collateralAsset, address debtAsset, address user, uint256 debtToCover)
+        external
+        whenNotPaused
+    {
+        if (debtToCover == 0) revert InvalidAmount();
+        _updateState(collateralAsset);
+        _updateState(debtAsset);
+        if (!_reserveInitialized[collateralAsset]) revert ReserveNotInitialized(collateralAsset);
+        if (!_reserveInitialized[debtAsset]) revert ReserveNotInitialized(debtAsset);
+
+        (,,,,, uint256 hf) = getUserAccountData(user);
+        if (hf >= 1e18) revert HealthyPosition(hf);
+
+        DataTypes.ReserveData storage debtReserve = _reserves[debtAsset];
+        DataTypes.ReserveData storage collReserve = _reserves[collateralAsset];
+        IVariableDebtToken debtToken = IVariableDebtToken(debtReserve.variableDebtTokenAddress);
+        uint256 debtBalance = debtToken.balanceOf(user);
+        uint256 maxCover = debtBalance * 5_000 / BPS;
+        if (debtToCover > maxCover) revert CloseFactorExceeded(debtToCover, maxCover);
+        if (debtToCover > debtBalance) debtToCover = debtBalance;
+
+        address oracle = ILendingPoolAddressesProvider(ADDRESSES_PROVIDER).getPriceOracle();
+        DataTypes.ReserveConfigurationMap memory collCfg;
+        collCfg.data = collReserve.configuration;
+        DataTypes.ReserveConfigurationMap memory debtCfg;
+        debtCfg.data = debtReserve.configuration;
+        uint256 collPrice = IPriceOracleGetter(oracle).getAssetPrice(collateralAsset);
+        uint256 debtPrice = IPriceOracleGetter(oracle).getAssetPrice(debtAsset);
+        uint256 collUnit = 10 ** collCfg.getDecimals();
+        uint256 debtUnit = 10 ** debtCfg.getDecimals();
+        uint256 debtValueBase = debtToCover * debtPrice / debtUnit;
+        uint256 bonus = collCfg.getLiquidationBonus(); // bps over 100%? Aave-style: 10500 = 5% bonus
+        uint256 seizeValueBase = bonus > BPS ? debtValueBase * bonus / BPS : debtValueBase * 10_500 / BPS;
+        // Default 5% bonus when unset so liquidators are paid.
+        if (bonus <= BPS) seizeValueBase = debtValueBase * 10_500 / BPS;
+        uint256 seizeAmount = seizeValueBase * collUnit / collPrice;
+
+        IAToken aToken = IAToken(collReserve.aTokenAddress);
+        uint256 userColl = aToken.balanceOf(user);
+        if (seizeAmount > userColl) seizeAmount = userColl;
+        if (seizeAmount == 0) revert InsufficientCollateral(0, userColl);
+        uint256 liquidity = IERC20(collateralAsset).balanceOf(collReserve.aTokenAddress);
+        if (seizeAmount > liquidity) revert InsufficientLiquidity();
+
+        // Effects: take debt funds, burn debt, burn collateral claim, pay liquidator.
+        IERC20(debtAsset).safeTransferFrom(msg.sender, debtReserve.aTokenAddress, debtToCover);
+        debtToken.burn(user, debtToCover);
+        aToken.burn(user, seizeAmount);
+        aToken.transferUnderlyingTo(msg.sender, seizeAmount);
+
+        emit LiquidationCall(collateralAsset, debtAsset, user, debtToCover, seizeAmount, msg.sender);
     }
 
     function getUserAccountData(address user)

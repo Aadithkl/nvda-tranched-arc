@@ -19,6 +19,7 @@ interface IVaultStrategy {
     function recallFromHook() external;
     function fundHook(uint256 quoteAmount, uint256 equityAmount) external;
     function pullForRebalance(address token, uint256 amount) external;
+    function approveStrategy(address token, uint256 amount) external;
     function equityToQuote(uint256 equityAmount) external view returns (uint256);
     function quoteToEquity(uint256 quoteAmount) external view returns (uint256);
     function quote() external view returns (IERC20);
@@ -60,6 +61,12 @@ contract VaultStrategyController is ReentrancyGuard {
     uint16 public constant MAX_BPS = 10_000;
     uint32 public constant MAX_RECHECK_INTERVAL = 86_400;
     uint32 public constant MAX_PRICE_AGE = 86_400;
+    /// @notice H11: bottom-layer rebalance swaps are sandwichable to the `minOut`
+    ///         floor with no cooldown — require at least 1h between swaps so each
+    ///         sandwich needs its own block window.
+    uint32 public constant MIN_REBALANCE_COOLDOWN = 1 hours;
+    /// @notice H11: rolling 24h volume cap window for rebalance swaps.
+    uint256 public constant REBALANCE_DAY = 24 hours;
 
     struct Bounds {
         int24 maxGuardTickWidth;
@@ -79,6 +86,8 @@ contract VaultStrategyController is ReentrancyGuard {
         uint256 maxBorrowPerCall;
         uint32 recenterCooldown;
         uint32 rebalanceCooldown;
+        /// @notice H11: rolling-24h cap on rebalance-swap quote volume (0 = uncapped).
+        uint256 maxRebalanceQuotePerDay;
     }
 
     /// @notice Target mix across venues in bps (must sum to 10_000). Guides the offchain
@@ -99,6 +108,9 @@ contract VaultStrategyController is ReentrancyGuard {
     bool public paused;
     uint256 public lastRecenterAt;
     uint256 public lastRebalanceAt;
+    /// @notice H11: rolling-24h rebalance-swap spend (quote units) + window start.
+    uint256 public rebalanceDayStart;
+    uint256 public rebalanceDaySpent;
 
     PoolKey internal _rebalanceKey;
     address public rebalanceRouter;
@@ -151,6 +163,7 @@ contract VaultStrategyController is ReentrancyGuard {
     event SwitchFrozenSet(bool frozen);
     event SwitchStaged(address indexed agent, uint8 indexed fromBook, uint8 indexed toBook);
     event TargetsUpdated(uint16 hookBps, uint16 morphoQuoteBps, uint16 morphoEquityBps, uint16 idleBps);
+    event ApproveStrategySubmitted(address indexed agent, address indexed token, uint256 amount);
     event AllocateSubmitted(address indexed agent, address indexed adapter, uint256 amount);
     event DeallocateSubmitted(address indexed agent, address indexed adapter, uint256 withdrawn);
     event RepaySubmitted(address indexed agent, address indexed adapter, uint256 repaid);
@@ -250,7 +263,8 @@ contract VaultStrategyController is ReentrancyGuard {
             maxCollateralPerCall: 1_000e18,
             maxBorrowPerCall: 10_000e6,
             recenterCooldown: 60,
-            rebalanceCooldown: 0
+            rebalanceCooldown: 3_600,
+            maxRebalanceQuotePerDay: 50_000e6
         });
         _validateBounds(bounds);
         targets = Targets({ hookBps: 7_000, morphoQuoteBps: 2_000, morphoEquityBps: 0, idleBps: 1_000 });
@@ -391,7 +405,10 @@ contract VaultStrategyController is ReentrancyGuard {
     }
 
     function setMaxRebalanceSlippageBps(uint16 bps) external onlySelf {
-        if (bps > 1_000) revert ConversionFeeTooHigh(bps);
+        // H11: the old 10% cap let every rebalance be sandwiched to a 10%-off floor,
+        // unlimited per block. Cap the operator floor at 1% — deep moves go through
+        // governance-quorum repricing, not per-block swaps.
+        if (bps > 100) revert ConversionFeeTooHigh(bps);
         maxRebalanceSlippageBps = bps;
     }
 
@@ -424,7 +441,9 @@ contract VaultStrategyController is ReentrancyGuard {
 
     /// @notice Tightens/loosens the per-call strategy caps without rewriting the whole
     ///         Bounds struct. Zero disables that path (deallocate/repay stay open).
+    ///         Validates against overflow-scale values (audit: previously unvalidated).
     function setAllocateCaps(uint256 maxAllocate_, uint256 maxCollateral_, uint256 maxBorrow_) external onlySelf {
+        if (maxAllocate_ > 1e36 || maxCollateral_ > 1e36 || maxBorrow_ > 1e36) revert InvalidBounds();
         bounds.maxAllocatePerCall = maxAllocate_;
         bounds.maxCollateralPerCall = maxCollateral_;
         bounds.maxBorrowPerCall = maxBorrow_;
@@ -488,6 +507,20 @@ contract VaultStrategyController is ReentrancyGuard {
         if (equityAmount > b.maxFundEquityPerCall) revert FundTooLarge(equityAmount, b.maxFundEquityPerCall);
         _vault().fundHook(quoteAmount, equityAmount);
         emit FundSubmitted(msg.sender, quoteAmount, equityAmount);
+    }
+
+    /// @notice One-shot exact approval for the strategy module's next pull (C3).
+    ///         The vault holds NO standing allowance; every `allocate` /
+    ///         `allocateCollateral` / `repay` must be preceded by this (agent-gated,
+    ///         per-call bounded below by the module's own absolute + relative caps).
+    ///         De-risking-adjacent: allowed while paused so wind-down allocations can
+    ///         still be funded (it moves no funds by itself).
+    function submitApproveStrategy(address token, uint256 amount) external onlyAgent nonReentrant {
+        if (switchFrozen) revert SwitchFrozen();
+        if (amount == 0) revert ZeroAmount();
+        if (amount > 1e36) revert AllocateTooLarge(amount, 1e36);
+        _vault().approveStrategy(token, amount);
+        emit ApproveStrategySubmitted(msg.sender, token, amount);
     }
 
     /// @notice Moves vault capital into a Morpho adapter (WETH lend sleeve). Bounded per
@@ -662,6 +695,19 @@ contract VaultStrategyController is ReentrancyGuard {
         if (oracleOut == 0) revert OracleInvalid();
         uint256 floor = Math.mulDiv(oracleOut, MAX_BPS - maxRebalanceSlippageBps, MAX_BPS);
         if (minOut < floor) revert SlippageBoundUnmet(minOut, floor);
+        // H11: per-epoch (rolling 24h) volume cap — bounds the repeated-drain loop
+        // even if each individual swap respects the per-call cap + cooldown.
+        if (b.maxRebalanceQuotePerDay != 0) {
+            if (rebalanceDayStart == 0 || block.timestamp >= rebalanceDayStart + REBALANCE_DAY) {
+                rebalanceDayStart = block.timestamp;
+                rebalanceDaySpent = quoteValue;
+            } else {
+                rebalanceDaySpent += quoteValue;
+            }
+            if (rebalanceDaySpent > b.maxRebalanceQuotePerDay) {
+                revert RebalanceTooLarge(rebalanceDaySpent, b.maxRebalanceQuotePerDay);
+            }
+        }
         lastRebalanceAt = block.timestamp;
 
         IERC20 tokenIn = equityOut ? vault_.equity() : vault_.quote();
@@ -708,7 +754,11 @@ contract VaultStrategyController is ReentrancyGuard {
                 || b.maxMaxPriceAge == 0 || b.maxMaxPriceAge > MAX_PRICE_AGE || b.maxFundQuotePerCall == 0
                 || b.maxRebalanceSwapQuote == 0 || b.maxAllocatePerCall == 0 || b.maxCollateralPerCall == 0
                 || b.maxBorrowPerCall == 0
-        ) revert InvalidBounds();
+                // H11: rebalance swaps need a real cooldown — 0 means unlimited/block.
+                || b.rebalanceCooldown < MIN_REBALANCE_COOLDOWN
+        ) {
+            revert InvalidBounds();
+        }
     }
 
     function _checkBounds(GuardParams.Params calldata p) internal view {

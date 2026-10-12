@@ -4,8 +4,8 @@ pragma solidity ^0.8.26;
 import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 
 contract MockRiskAccountant is ITrancheAccountant {
-    address public immutable override seniorVault;
-    address public immutable override juniorVault;
+    address public override seniorVault;
+    address public override juniorVault;
 
     uint256 public override seniorClaim;
     uint256 public override juniorClaim;
@@ -14,6 +14,12 @@ contract MockRiskAccountant is ITrancheAccountant {
     constructor() {
         seniorVault = address(0);
         juniorVault = address(0);
+    }
+
+    /// @notice Wires the sibling vaults so `TrancheVault.moveShares` sibling checks pass.
+    function setVaults(address seniorVault_, address juniorVault_) external {
+        seniorVault = seniorVault_;
+        juniorVault = juniorVault_;
     }
 
     function setClaims(uint256 seniorClaim_, uint256 juniorClaim_) external {

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
@@ -24,7 +25,7 @@ import { IBookHook } from "../interfaces/IBookHook.sol";
 ///         Book sweeps land here (each book's recorded vault is this hub), so every
 ///         mutating path ends with a sweep to the real vault — the hub never holds
 ///         between transactions and the box stays fully counted.
-contract DualBookHub is Ownable, IBookHook {
+contract DualBookHub is Ownable2Step, IBookHook {
     using SafeERC20 for IERC20;
     using CurrencyLibrary for Currency;
 
@@ -197,15 +198,20 @@ contract DualBookHub is Ownable, IBookHook {
     /// @notice Pulls the from-book fully out, sweeps everything to the vault (counted),
     ///         and flips the pointer. Fund + arm the new book afterwards (vault funds hub,
     ///         pushToActive forwards, activateAndDeploy arms). Both pools stay initialized.
+    ///         Medium: the old code flipped first then called `pullAll()` on a possibly
+    ///         never-initialized from-book (`BookNotInitialized`, stuck pointer).
+    ///         Now skips uninitialized/exited from-books and requires the target book
+    ///         to be initialized.
     function pullInactiveAndActivate(uint8 to) external onlyOwnerOrKeeper {
         if (to > 1) revert UnknownBook(to);
         uint8 from = activeBook;
         if (to == from) revert SameBook(to);
+        if (!_book(to).poolInitialized()) revert InvalidBookKey();
         // Flip first (checks-effects-interactions): the pull below calls out to the
         // book/pool, and no reentrant path may observe the stale pointer.
         activeBook = to;
         emit ActiveBookSet(from, to);
-        _book(from).pullAll();
+        if (_book(from).poolInitialized() && !_book(from).exited()) _book(from).pullAll();
         _sweepToVault();
     }
 
@@ -260,11 +266,11 @@ contract DualBookHub is Ownable, IBookHook {
     }
 
     function quoteIdle() external view override returns (uint256) {
-        return _idleOf(bookA).quoteIdle + _idleOf(bookB).quoteIdle;
+        return _idleOf(bookA).quoteIdle + _idleOf(bookB).quoteIdle + quote.balanceOf(address(this));
     }
 
     function equityIdle() external view override returns (uint256) {
-        return _idleOf(bookA).equityIdle + _idleOf(bookB).equityIdle;
+        return _idleOf(bookA).equityIdle + _idleOf(bookB).equityIdle + equity.balanceOf(address(this));
     }
 
     function claims(address token) external view override returns (uint256) {
@@ -272,9 +278,31 @@ contract DualBookHub is Ownable, IBookHook {
             + poolManager.balanceOf(address(bookB), Currency.wrap(token).toId());
     }
 
+    /// @notice H6: deviation of the ACTIVE book (the only one with positions —
+    ///         migration pulls the from-book fully before flipping).
+    function oracleDeviationBps() external view override returns (bool ok, uint256 deviationBps) {
+        return _active().oracleDeviationBps();
+    }
+
     function inventory() external view returns (uint256 quoteUnits, uint256 equityUnits) {
-        quoteUnits = quote.balanceOf(address(bookA)) + quote.balanceOf(address(bookB));
-        equityUnits = equity.balanceOf(address(bookA)) + equity.balanceOf(address(bookB));
+        // Medium: the old view missed hub balances — transient migration funding
+        // (fundHub -> pushToActive) was uncounted. Include `address(this)`.
+        quoteUnits = quote.balanceOf(address(bookA)) + quote.balanceOf(address(bookB)) + quote.balanceOf(address(this));
+        equityUnits =
+            equity.balanceOf(address(bookA)) + equity.balanceOf(address(bookB)) + equity.balanceOf(address(this));
+    }
+
+    /// @notice Per-book liveness views (medium: active-only views hid the inactive book).
+    function bookExited(uint8 book) external view returns (bool) {
+        return _book(book).exited();
+    }
+
+    function bookGuardPresent(uint8 book) external view returns (bool) {
+        return _book(book).guardPresent();
+    }
+
+    function bookPoolInitialized(uint8 book) external view returns (bool) {
+        return _book(book).poolInitialized();
     }
 
     // ---------------------------------------------------------------------

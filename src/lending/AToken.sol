@@ -25,6 +25,7 @@ contract AToken is IAToken {
     error InsufficientBalance(address user, uint256 amount);
     error InsufficientAllowance(address owner, address spender, uint256 amount);
     error InvalidAddress();
+    error HealthFactorTooLow(uint256 healthFactor);
 
     modifier onlyPool() {
         if (msg.sender != POOL) revert NotPool(msg.sender);
@@ -122,6 +123,19 @@ contract AToken is IAToken {
         _scaledBalances[from] = balance - scaled;
         _scaledBalances[to] += scaled;
         emit Transfer(from, to, amount);
+        // C4: aToken transfers move collateral. With no liquidation engine, a
+        // collateral transfer that leaves debt unbacked must revert (same HF gate
+        // as `borrow`/`withdraw`). Self-transfers and debt-free senders skip it.
+        if (from != to) _requireHealthy(from);
+    }
+
+    /// @notice Post-transfer HF gate for the sender (no-op when debt-free).
+    function _requireHealthy(address user) internal view {
+        (,,,,, uint256 hf) = IAaveV2Pool(POOL).getUserAccountData(user);
+        // getUserAccountData returns max HF when debt == 0; gate only indebted users.
+        // Note: totalDebtBase is return #2 — re-query cheaply via HF sentinel:
+        // HF == max means no debt (see LendingPool.getUserAccountData).
+        if (hf != type(uint256).max && hf < 1e18) revert HealthFactorTooLow(hf);
     }
 
     function _index() internal view returns (uint256) {

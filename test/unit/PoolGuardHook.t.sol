@@ -73,12 +73,14 @@ contract PoolGuardHookTest is Test {
         });
         poolId = key.toId();
 
-        hook.setGuardParams(_defaultParams());
+        hook.setGuardParams(_openParams());
         quote.mint(address(hook), 1_000_000e6);
         nvda.mint(address(hook), 10_000e18);
 
         hook.initializeBook(key, TickMath.getSqrtPriceAtTick(initialTick));
         _alignOracle();
+        // Init band check runs on live-oracle inits: stage open, then arm the band.
+        hook.setGuardParams(_defaultParams());
 
         quote.mint(address(this), 10_000_000e6);
         nvda.mint(address(this), 10_000e18);
@@ -102,6 +104,14 @@ contract PoolGuardHookTest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _defaultParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     function _mineAndDeploy(address oracle_, address equity_, address vault_)
@@ -196,6 +206,19 @@ contract PoolGuardHookTest is Test {
         fresh.initializeBook(dynKey, TickMath.getSqrtPriceAtTick(initialTick));
     }
 
+    function test_initializeBook_offMarket_reverts() public {
+        PoolGuardHook fresh = _mineAndDeploy(address(oracle), address(nvda), vault);
+        fresh.setGuardParams(_defaultParams());
+        quote.mint(address(fresh), 1_000_000e6);
+        nvda.mint(address(fresh), 10_000e18);
+        // Oracle is live and 3x off the init tick: deviation is 2/3 = 6666bps.
+        _pushMid(hook.poolPrice1e18() / 1e10 * 3);
+        PoolKey memory freshKey = key;
+        freshKey.hooks = IHooks(address(fresh));
+        vm.expectRevert(abi.encodeWithSelector(PoolGuardHook.InitPriceOffMarket.selector, 6666, 50));
+        fresh.initializeBook(freshKey, TickMath.getSqrtPriceAtTick(initialTick));
+    }
+
     function test_initializeBook_strayCaller_reverts() public {
         PoolKey memory strayKey = key;
         strayKey.fee = 500;
@@ -238,7 +261,7 @@ contract PoolGuardHookTest is Test {
     function test_evPull_onToxicSwap() public {
         _pushMid(hook.poolPrice1e18() / 1e10 * 3);
 
-        (bool ok, int256 ev, uint256 notional) = hook.simulateEv(_swapParams(_buyEquityZeroForOne(), 1e6));
+        (bool ok, int256 ev, uint256 notional,,) = hook.simulateEv(_swapParams(_buyEquityZeroForOne(), 1e6));
         assertTrue(ok);
         assertGt(notional, 0);
         assertLt(ev, int256(0));
@@ -255,7 +278,7 @@ contract PoolGuardHookTest is Test {
         assertFalse(_guardPresent());
 
         _alignOracle();
-        (bool ok, int256 ev, uint256 notional) = hook.simulateEv(_swapParams(_buyEquityZeroForOne(), 1e6));
+        (bool ok, int256 ev, uint256 notional,,) = hook.simulateEv(_swapParams(_buyEquityZeroForOne(), 1e6));
         assertTrue(ok);
         assertGt(notional, 0);
         assertGe(ev, int256(0));

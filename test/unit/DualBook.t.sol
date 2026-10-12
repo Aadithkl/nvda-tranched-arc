@@ -23,17 +23,19 @@ import { IBookHook } from "../../src/interfaces/IBookHook.sol";
 import { VaultStrategyController } from "../../src/strategy/VaultStrategyController.sol";
 
 /// @notice Deploys a hook from a non-test address so HookMiner finds a second valid slot.
+///         Takes full initcode (never embeds hook bytecode itself) so this helper
+///         stays far inside EIP-170 no matter how big the hook grows.
 contract DualBookHookDeployer {
-    function deploy(
-        bytes32 salt,
-        IPoolManager manager,
-        IPoolGuardSimulator simulator,
-        address oracle,
-        address equity,
-        address vault,
-        address owner
-    ) external returns (PoolGuardHook) {
-        return new PoolGuardHook{ salt: salt }(manager, simulator, oracle, equity, vault, owner);
+    error DeployFailed();
+
+    function deploy(bytes32 salt, bytes calldata initcode) external returns (address hook) {
+        // Copy to memory first: CREATE2 reads initcode from memory, and plain
+        // `mload` on a calldata offset would read the wrong space.
+        bytes memory code = initcode;
+        assembly {
+            hook := create2(0, add(code, 32), mload(code), salt)
+        }
+        if (hook == address(0)) revert DeployFailed();
     }
 }
 
@@ -83,17 +85,10 @@ contract DualBookTest is Test {
         assertEq(address(bookA), expectedA);
 
         deployer = new DualBookHookDeployer();
+        bytes memory initcodeB = abi.encodePacked(type(PoolGuardHook).creationCode, args);
         (address expectedB, bytes32 saltB) =
             HookMiner.find(address(deployer), flags, type(PoolGuardHook).creationCode, args);
-        bookB = deployer.deploy(
-            saltB,
-            manager,
-            IPoolGuardSimulator(address(simulator)),
-            address(oracle),
-            address(nvda),
-            address(0),
-            address(this)
-        );
+        bookB = PoolGuardHook(deployer.deploy(saltB, initcodeB));
         assertEq(address(bookB), expectedB);
         assertTrue(address(bookA) != address(bookB));
 
@@ -113,8 +108,10 @@ contract DualBookTest is Test {
         });
 
         // Stage guard params on EACH book before handing ownership to the hub (deploy flow).
-        bookA.setGuardParams(_defaultParams());
-        bookB.setGuardParams(_defaultParams());
+        // Band-open for init (`initializeBook` enforces the band on live-oracle inits);
+        // the band is armed on both books after alignment below.
+        bookA.setGuardParams(_openParams());
+        bookB.setGuardParams(_openParams());
 
         hub = new DualBookHub(
             manager,
@@ -152,6 +149,7 @@ contract DualBookTest is Test {
         hub.setKeeper(address(controller));
         hub.setVault(address(vault));
         hub.transferOwnership(address(vault));
+        vault.acceptHubOwnership(address(hub));
 
         // Both books are initialized armed (base + guard) at deploy: the active book
         // from vault funding via the hub, the inactive book from direct staging funds
@@ -166,6 +164,12 @@ contract DualBookTest is Test {
         vault.initializeHook(keyA, TickMath.getSqrtPriceAtTick(initialTick));
         vault.initializeHook(keyB, TickMath.getSqrtPriceAtTick(initialTick));
         oracle.updatePrice(int192(int256(bookA.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Arm the deviation band on both books now that init prices and oracle agree
+        // (hub forwards to the active book only; the inactive book is hub-owned).
+        vm.prank(address(vault));
+        hub.setGuardParams(_defaultParams());
+        vm.prank(address(hub));
+        bookB.setGuardParams(_defaultParams());
 
         vault.setKeeper(address(controller));
     }
@@ -182,6 +186,14 @@ contract DualBookTest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _defaultParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     function _refreshOracle() internal {

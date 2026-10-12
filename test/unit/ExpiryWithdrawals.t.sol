@@ -94,7 +94,7 @@ contract ExpiryWithdrawalsTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setGuardParams(_guardParams());
+        vault.setGuardParams(_openParams());
 
         // Zero-NAV bootstrap, then fund the hook and initialize the book.
         // (Tranches are wired below; seeding goes through senior — wrap doors are gated.)
@@ -104,6 +104,8 @@ contract ExpiryWithdrawalsTest is Test {
         vault.fundHook(150e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Arm the deviation band now that init price and oracle agree.
+        vault.setGuardParams(_guardParams());
 
         accountant = new TrancheAccountant(address(this));
         accountant.setHook(address(vault));
@@ -167,6 +169,14 @@ contract ExpiryWithdrawalsTest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _guardParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     function _depositSenior(uint256 amount) internal {
@@ -396,14 +406,23 @@ contract ExpiryWithdrawalsTest is Test {
         vault.recallFromHook();
 
         // Re-fund and redeploy the guard; the leftover hook idle becomes the ladder's step-2 source.
-        vault.fundHook(30e6, 1e18);
+        // NOTE: the guard is (re)deployed at 3x liquidity for the prime so its quote leg
+        // (~28e6) comfortably covers the primed shortfall below. Share granularity is
+        // ~NAV/1000 (virtual offset, ~6e6/share here), so the shortfall must exceed a
+        // couple of shares of rounding either way — hence 20e6, not 2e6.
+        vault.fundHook(100e6, 1e18);
+        GuardParams.Params memory bigGuard = _guardParams();
+        bigGuard.guardLiquidity = 15e12;
+        vault.setGuardParams(bigGuard);
         vault.deployGuard();
         assertTrue(hook.guardPresent());
 
         (uint256 idleUsdc,) = hook.inventory();
-        uint256 payout = idleUsdc + 2e6; // shortfall the guard must cover
+        uint256 payout = idleUsdc + 20e6; // shortfall the guard must cover
 
         // Drain the vault into the strategy, then disable the adapter so it cannot fund redemptions.
+        // C3: no standing allowance — one-shot keeper approval per pull.
+        vault.approveStrategy(address(quote), quote.balanceOf(address(vault)));
         module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
         module.disableAdapter(address(lendAdapter));
 
@@ -411,6 +430,7 @@ contract ExpiryWithdrawalsTest is Test {
         shares = _wrapAsSenior(payout, address(this));
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
+        vault.approveStrategy(address(quote), quote.balanceOf(address(vault)));
         module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
         module.disableAdapter(address(lendAdapter));
 
@@ -444,6 +464,7 @@ contract ExpiryWithdrawalsTest is Test {
 
     function test_strategyModule_blocksNewAllocationsAfterExpiry() public {
         quote.mint(address(vault), 100e6);
+        vault.approveStrategy(address(quote), 50e6);
         module.allocate(address(lendAdapter), 50e6);
 
         _warpToExpiry();

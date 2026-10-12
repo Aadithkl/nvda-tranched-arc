@@ -23,6 +23,7 @@ contract VaultStrategyAgent {
     event RecallSubmitted();
     event FundSubmitted(uint256 quoteAmount, uint256 equityAmount);
     event RebalanceSubmitted(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline);
+    event ApproveStrategySubmitted(address token, uint256 amount);
     event AllocateSubmitted(address adapter, uint256 amount);
     event DeallocateSubmitted(address adapter, uint256 withdrawn);
     event RepaySubmitted(address adapter, uint256 amount);
@@ -117,6 +118,12 @@ contract VaultStrategyAgent {
     function submitAllocate(address adapter, uint256 amount) external onlyOperator {
         controller.submitAllocate(adapter, amount);
         emit AllocateSubmitted(adapter, amount);
+    }
+
+    /// @notice One-shot exact approval for the strategy module's next pull (C3 relay).
+    function submitApproveStrategy(address token, uint256 amount) external onlyOperator {
+        controller.submitApproveStrategy(token, amount);
+        emit ApproveStrategySubmitted(token, amount);
     }
 
     function submitDeallocate(address adapter, uint256 amount) external onlyOperator returns (uint256 withdrawn) {

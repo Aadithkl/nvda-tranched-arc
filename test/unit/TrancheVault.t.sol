@@ -54,6 +54,8 @@ contract TrancheVaultTest is Test {
             accountant,
             0
         );
+        // C2 sibling check: wire the mock accountant to the real tranche vaults.
+        MockRiskAccountant(accountant).setVaults(address(senior), address(junior));
 
         quote.mint(address(hs), 1_000_000e6);
         nvda.mint(address(hs), 1_000_000e18);
@@ -282,9 +284,18 @@ contract TrancheVaultTest is Test {
         assertEq(senior.accountant(), accountant);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(TrancheVault.NotOwner.selector, alice));
+        senior.submitAccountant(bob);
+
+        // C2: live rotations are timelocked — instant `setAccountant` is closed.
+        vm.expectRevert(abi.encodeWithSelector(TrancheVault.TimelockActive.selector, senior.accountantExecutableAt()));
         senior.setAccountant(bob);
 
-        senior.setAccountant(bob);
+        senior.submitAccountant(bob);
+        vm.expectRevert(abi.encodeWithSelector(TrancheVault.TimelockActive.selector, senior.accountantExecutableAt()));
+        senior.executeAccountant();
+
+        vm.warp(block.timestamp + 24 hours + 1);
+        senior.executeAccountant();
         assertEq(senior.accountant(), bob);
     }
 

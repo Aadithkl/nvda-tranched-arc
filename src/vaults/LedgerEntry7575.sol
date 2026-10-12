@@ -67,6 +67,7 @@ contract LedgerEntry7575 is IERC7575 {
     error ZeroAmount();
     error ZeroAddress();
     error OracleInvalid();
+    error SlippageExceeded(uint256 received, uint256 minOut);
 
     constructor(address vault_) {
         if (vault_ == address(0)) revert ZeroAddress();
@@ -217,11 +218,20 @@ contract LedgerEntry7575 is IERC7575 {
         if (assets == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
+        // Medium (fee-blind previews): the vault deducts exit fees/fines on unwrap,
+        // so `previewWithdraw` (gross) shares can unwrap to LESS than `assets` and
+        // the old `safeTransfer(receiver, assets)` reverted on any fee. Forward the
+        // ACTUAL unwrapped amount and fail closed when it misses the request.
         shares = previewWithdraw(assets);
         shareToken.transferFrom(owner, address(this), shares);
-        ILedgerVaultPipe(vault).unwrapQuote(shares, address(this), 0);
-        quote.safeTransfer(receiver, assets);
-        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+        uint256 got = ILedgerVaultPipe(vault).unwrapQuote(shares, address(this), 0);
+        if (got < assets) revert SlippageExceeded(got, assets);
+        quote.safeTransfer(receiver, got);
+        // Refund any rounding dust (shares were rounded up in the vault's favor).
+        uint256 dust = quote.balanceOf(address(this));
+        if (dust != 0) quote.safeTransfer(receiver, dust);
+        emit Withdraw(msg.sender, receiver, owner, got, shares);
+        return shares;
     }
 
     function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets) {
@@ -231,6 +241,14 @@ contract LedgerEntry7575 is IERC7575 {
         shareToken.transferFrom(owner, address(this), shares);
         assets = ILedgerVaultPipe(vault).unwrapQuote(shares, receiver, 0);
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
+    }
+
+    /// @notice Medium: `mint` pulls ceiling-rounded assets, so a dust remainder can
+    ///         strand here across many mints. Anyone may sweep dust to the vault.
+    function sweepDust() external {
+        uint256 dust = quote.balanceOf(address(this));
+        if (dust == 0) revert ZeroAmount();
+        quote.safeTransfer(vault, dust);
     }
 
     // ---------------------------------------------------------------------

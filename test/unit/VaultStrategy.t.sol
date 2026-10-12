@@ -84,13 +84,15 @@ contract VaultStrategyTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setGuardParams(_defaultParams());
+        vault.setGuardParams(_openParams());
 
         quote.mint(address(vault), 1_000_000e6);
         nvda.mint(address(vault), 100e18);
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Arm the deviation band now that init price and oracle agree.
+        vault.setGuardParams(_defaultParams());
 
         controller = new VaultStrategyController(address(this));
         controller.setVault(address(vault));
@@ -122,6 +124,14 @@ contract VaultStrategyTest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _defaultParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     // ------------------------------------------------------------------
@@ -301,6 +311,9 @@ contract VaultStrategyTest is Test {
 
     function test_controllerAllocate_movesToModule() public {
         (, ERC4626Adapter adapter) = _wireModule();
+        // C3: no standing allowance — each pull needs a one-shot keeper approval.
+        vm.prank(agent);
+        controller.submitApproveStrategy(address(quote), 500e6);
         vm.prank(agent);
         controller.submitAllocate(address(adapter), 500e6);
         assertEq(adapter.realAssets(), 500e6);
@@ -327,7 +340,8 @@ contract VaultStrategyTest is Test {
                     maxCollateralPerCall: 1_000e18,
                     maxBorrowPerCall: 10_000e6,
                     recenterCooldown: 60,
-                    rebalanceCooldown: 0
+                    rebalanceCooldown: 3_600,
+                    maxRebalanceQuotePerDay: 0
                 })
             )
         );
@@ -347,6 +361,8 @@ contract VaultStrategyTest is Test {
 
     function test_controllerDeallocate_pausedAllowed() public {
         (, ERC4626Adapter adapter) = _wireModule();
+        vm.prank(agent);
+        controller.submitApproveStrategy(address(quote), 500e6);
         vm.prank(agent);
         controller.submitAllocate(address(adapter), 500e6);
 
@@ -394,6 +410,8 @@ contract VaultStrategyTest is Test {
         (, MorphoLoopAdapter loop) = _wireLoop();
 
         vm.prank(agent);
+        controller.submitApproveStrategy(address(nvda), 1e18);
+        vm.prank(agent);
         controller.submitAllocateCollateral(address(loop), 1e18);
         assertGt(loop.exposure(), 0);
         assertEq(loop.debt(), 0);
@@ -404,6 +422,8 @@ contract VaultStrategyTest is Test {
         assertEq(quote.balanceOf(address(vault)) - vaultBefore, 500e6);
         assertGt(loop.debt(), 0);
 
+        vm.prank(agent);
+        controller.submitApproveStrategy(address(quote), 200e6);
         vm.prank(agent);
         controller.submitDeleverage(address(loop), 200e6, 0);
         assertLt(loop.debt(), 500e6 + 2e6);
@@ -433,6 +453,8 @@ contract VaultStrategyTest is Test {
     function test_controllerSentinel_pausedAllowed() public {
         (StrategyModule module, ERC4626Adapter adapter) = _wireModule();
         module.setSentinel(address(controller));
+        vm.prank(agent);
+        controller.submitApproveStrategy(address(quote), 500e6);
         vm.prank(agent);
         controller.submitAllocate(address(adapter), 500e6);
 

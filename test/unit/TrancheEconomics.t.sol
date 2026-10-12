@@ -76,6 +76,8 @@ contract TrancheEconomicsTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
+        // Band-open for init (`initializeBook` enforces the band on live-oracle
+        // inits); the band is armed after alignment below.
         vault.setGuardParams(
             GuardParams.Params({
                 guardTickWidth: 600,
@@ -83,7 +85,7 @@ contract TrancheEconomicsTest is Test {
                 guardLiquidity: 5e11,
                 baseLiquidity: 1e11,
                 minEvBps: 0,
-                recheckMaxDeviationBps: 50,
+                recheckMaxDeviationBps: 0,
                 recheckInterval: 300,
                 maxPriceAge: 300,
                 allowedSessionsMask: 0
@@ -131,6 +133,20 @@ contract TrancheEconomicsTest is Test {
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Arm the deviation band now that init price and oracle agree.
+        vault.setGuardParams(
+            GuardParams.Params({
+                guardTickWidth: 600,
+                baseTickWidth: 6000,
+                guardLiquidity: 5e11,
+                baseLiquidity: 1e11,
+                minEvBps: 0,
+                recheckMaxDeviationBps: 50,
+                recheckInterval: 300,
+                maxPriceAge: 300,
+                allowedSessionsMask: 0
+            })
+        );
 
         quote.mint(user, 100_000e6);
         vm.prank(user);
@@ -206,6 +222,10 @@ contract TrancheEconomicsTest is Test {
 
     /// @notice Underwater book: senior shares the loss, no top-up mid-life.
     function test_seniorUnderwater_paysNAV() public {
+        // H6 spot band models dislocation protection: this scenario crashes the
+        // oracle with no arbitrageur to realign spot, so exits open via band-off
+        // (production: arb realigns spot in seconds, then exits flow).
+        vault.setMaxUnwrapDeviationBps(0);
         vm.prank(user);
         junior.depositQuote(400e6, user);
         vm.prank(user);

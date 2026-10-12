@@ -210,7 +210,19 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         return effectivePool() >= seniorPrincipal + _escrowTarget();
     }
 
-    function rebalance() public override returns (uint256 movedToSenior, uint256 movedToJunior) {
+    /// @notice H13: senior dust (1 wei) must not lock juniors forever. Priority
+    ///         applies only above the dust threshold; frozen wind-down skips it.
+    uint256 public constant SENIOR_PRIORITY_DUST = 1e6;
+
+    /// @notice H7: permissionless `rebalance()` on oracle NAV let anyone pump spot,
+    ///         move shares to the attacker tranche, then let the price revert.
+    ///         Now keeper-only; epoch/fulfill paths use the internal `_rebalance()`.
+    function rebalance() external override returns (uint256 movedToSenior, uint256 movedToJunior) {
+        if (msg.sender != keeper) revert NotKeeper(msg.sender);
+        return _rebalance();
+    }
+
+    function _rebalance() internal returns (uint256 movedToSenior, uint256 movedToJunior) {
         IERC20 share = _hookShare();
         if (address(share) == address(0)) return (0, 0);
 
@@ -244,13 +256,17 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     function fulfillRedeem(bool senior, address user) external {
         if (msg.sender != keeper && !_expired()) revert NotKeeper(msg.sender);
         if (seniorVault == address(0)) revert VaultsNotSet();
-        if (!senior && TrancheVault(seniorVault).totalPendingRedeemShares() > 0) revert SeniorPriority();
+        // H13: dust + frozen bypass — 1 wei of senior pending no longer bricks juniors.
+        if (!senior && !frozen) {
+            uint256 seniorPending = TrancheVault(seniorVault).totalPendingRedeemShares();
+            if (seniorPending > SENIOR_PRIORITY_DUST) revert SeniorPriority();
+        }
 
         TrancheVault vault = TrancheVault(senior ? seniorVault : juniorVault);
         uint256 shares = vault.pendingRedeemRequest(0, user);
         if (shares == 0) revert NothingToFulfill();
 
-        rebalance();
+        _rebalance();
         uint256 assets = vault.convertToAssets(shares);
         _applyFill(senior, vault, user, shares, assets);
     }
@@ -289,7 +305,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         id = block.timestamp / EPOCH_LENGTH;
         if (id <= lastExecutedEpoch) revert EpochNotReady(id);
 
-        rebalance();
+        _rebalance();
 
         TrancheVault senior = TrancheVault(seniorVault);
         TrancheVault junior = TrancheVault(juniorVault);
@@ -314,20 +330,26 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     /// @notice Senior side: fill up to demand and backing; rate is hook-per-tranche at the boundary.
+    ///         C10: a zero-rate epoch (stale oracle / zeroed NAV) must roll (fBps=0),
+    ///         never burn shares for ~nothing.
     function _seniorFill(TrancheVault senior, uint256 reqT, uint256 avail)
         internal
         view
         returns (uint256 fBps, uint256 rate, uint256 demA, uint256 fillA)
     {
-        fBps = 10_000;
-        if (reqT == 0) return (fBps, 0, 0, 0);
+        if (reqT == 0) return (10_000, 0, 0, 0);
         demA = senior.convertToAssets(reqT);
-        fillA = demA < avail ? demA : avail;
-        fBps = demA == 0 ? 10_000 : fillA * 10_000 / demA;
+        // Zero demand value or zero rate => no fill this epoch (roll, don't burn).
+        if (demA == 0) return (0, 0, 0, 0);
         rate = demA * 1e18 / reqT;
+        if (rate == 0) return (0, 0, demA, 0);
+        fillA = demA < avail ? demA : avail;
+        if (fillA == 0) return (0, rate, demA, 0);
+        fBps = fillA * 10_000 / demA;
     }
 
     /// @notice Junior side: demand, backing, floor (lifted when frozen), then equal-ratio.
+    ///         C10: zero-rate epochs roll (fBps=0), never burn.
     function _juniorFill(
         TrancheVault junior,
         uint256 reqT,
@@ -337,9 +359,11 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         uint256 fsA,
         uint256 srAvail
     ) internal view returns (uint256 fBps, uint256 rate) {
-        fBps = 10_000;
-        if (reqT == 0) return (fBps, 0);
+        if (reqT == 0) return (10_000, 0);
         uint256 demA = junior.convertToAssets(reqT);
+        if (demA == 0) return (0, 0);
+        rate = demA * 1e18 / reqT;
+        if (rate == 0) return (0, 0);
         uint256 maxA = demA < avail ? demA : avail;
         if (!frozen) {
             // Keep post-fill junior backing fraction >= floor:
@@ -358,13 +382,14 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
                 if (maxA > ratioMax) maxA = ratioMax;
             }
         }
-        rate = demA * 1e18 / reqT;
-        fBps = demA == 0 ? 10_000 : maxA * 10_000 / demA;
+        if (maxA == 0) return (0, rate);
+        fBps = maxA * 10_000 / demA;
     }
 
     /// @notice Claims the caller's pending exit at the latest snapshot (permissionless): fills
     ///         their fraction at the epoch rate through the same caps as keeper fulfills.
     ///         Refuses once expired — matured paths own exits after that.
+    ///         C10: zero-rate / zero-fill snapshots roll (revert), never burn for ~nothing.
     function claimEpoch(bool senior, address user) external {
         if (_expired()) revert Expired();
         if (seniorVault == address(0)) revert VaultsNotSet();
@@ -375,9 +400,11 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         if (pending == 0) revert NothingToFulfill();
         uint256 fBps = senior ? snap.fSeniorBps : snap.fJuniorBps;
         uint256 rate = senior ? snap.rateSenior : snap.rateJunior;
+        if (fBps == 0 || rate == 0) revert NothingToFulfill();
         uint256 fillT = pending * fBps / 10_000;
         if (fillT == 0) revert NothingToFulfill();
         uint256 fillA = fillT * rate / 1e18;
+        if (fillA == 0) revert NothingToFulfill();
         _applyFill(senior, vault, user, fillT, fillA);
     }
 

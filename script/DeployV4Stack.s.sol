@@ -28,6 +28,9 @@ contract DeployV4Stack is Script {
     uint256 internal constant LIQUIDITY = 1e12;
 
     function run() external {
+        // Audit: test-only stack (open-mint TestTokens, DemoRouter) must never deploy
+        // to Robinhood Chain mainnet.
+        require(block.chainid != 4663, "DeployV4Stack: test stack only, refusing 4663");
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address permit2 = vm.envOr("PERMIT2", address(0x000000000022D473030F116dDEE9F6B43aC78BA3));
         uint256 unsubscribeGasLimit = vm.envOr("POSM_UNSUBSCRIBE_GAS_LIMIT", uint256(300_000));

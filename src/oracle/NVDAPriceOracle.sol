@@ -81,6 +81,9 @@ contract NVDAPriceOracle {
     }
 
     function setMaxStaleness(uint32 maxStaleness_) external onlyOwner {
+        // Medium: `maxStaleness=0` default meant every price read `invalid` until
+        // set — and a zero reset bricks the book the same way. Require non-zero.
+        if (maxStaleness_ == 0) revert InvalidMarketStatus(0);
         maxStaleness = maxStaleness_;
         emit MaxStalenessUpdated(maxStaleness_);
     }
@@ -140,8 +143,10 @@ contract NVDAPriceOracle {
         data.sourceTimestamp = _sourceTimestamp;
         data.updatedAt = _updatedAt;
         data.paymentRef = _paymentRef;
-        data.valid =
-            _mid > 0 && session != Session.None && _updatedAt != 0 && block.timestamp - _updatedAt <= maxStaleness;
+        // H5: `updatedAt` in the future (misconfigured feed) must read invalid,
+        // not underflow-revert (which bricks every swap via H4).
+        bool fresh = _updatedAt != 0 && _updatedAt <= block.timestamp && block.timestamp - _updatedAt <= maxStaleness;
+        data.valid = _mid > 0 && session != Session.None && fresh;
     }
 
     function latestRoundData()

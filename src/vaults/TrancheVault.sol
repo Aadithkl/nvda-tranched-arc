@@ -30,6 +30,12 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     address public accountant;
     bool public depositsPaused;
     uint256 public maxTotalAssets;
+    /// @notice Timelocked accountant rotation (C2): instant swaps let a malicious
+    ///         accountant drain both tranches via `moveShares`. Non-zero -> non-zero
+    ///         rotations must wait ACCOUNTANT_TIMELOCK.
+    address public pendingAccountant;
+    uint64 public accountantExecutableAt;
+    uint64 public constant ACCOUNTANT_TIMELOCK = 24 hours;
 
     bool public matured;
     uint256 public settledAt;
@@ -41,6 +47,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     event OwnershipTransferStarted(address indexed currentOwner, address indexed pendingOwner);
     event GuardianUpdated(address indexed guardian);
     event AccountantUpdated(address indexed accountant);
+    event AccountantSubmitted(address indexed pendingAccountant, uint64 executableAt);
     event DepositsPausedSet(bool paused);
     event MaxTotalAssetsUpdated(uint256 maxTotalAssets);
     event SharesMoved(address indexed to, uint256 amount);
@@ -77,6 +84,9 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     error SlippageExceeded(uint256 quoteAmount, uint256 equityAmount, uint256 minQuoteOut, uint256 minEquityOut);
     error NothingPendingRedeem();
     error NothingToClaim();
+    error InvalidSibling(address to);
+    error NothingPending();
+    error TimelockActive(uint64 executableAt);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -139,8 +149,38 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     function setAccountant(address newAccountant) external onlyOwner {
         if (newAccountant == address(0)) revert ZeroAddress();
+        // Initial wiring (zero -> non-zero) is immediate so deploys don't brick.
+        // Every live rotation goes through the timelock queue below.
+        if (accountant != address(0)) revert TimelockActive(accountantExecutableAt);
         accountant = newAccountant;
         emit AccountantUpdated(newAccountant);
+    }
+
+    /// @notice Schedules an accountant rotation (C2). Executable after 24h.
+    function submitAccountant(address newAccountant) external onlyOwner {
+        if (newAccountant == address(0)) revert ZeroAddress();
+        if (accountant == address(0)) revert NothingPending();
+        pendingAccountant = newAccountant;
+        accountantExecutableAt = uint64(block.timestamp) + ACCOUNTANT_TIMELOCK;
+        emit AccountantSubmitted(newAccountant, accountantExecutableAt);
+    }
+
+    /// @notice Executes a scheduled accountant rotation (permissionless post-timelock).
+    function executeAccountant() external {
+        address pending = pendingAccountant;
+        if (pending == address(0)) revert NothingPending();
+        if (block.timestamp < accountantExecutableAt) revert TimelockActive(accountantExecutableAt);
+        delete pendingAccountant;
+        accountantExecutableAt = 0;
+        accountant = pending;
+        emit AccountantUpdated(pending);
+    }
+
+    function cancelAccountant() external onlyOwner {
+        if (pendingAccountant == address(0)) revert NothingPending();
+        delete pendingAccountant;
+        accountantExecutableAt = 0;
+        emit AccountantSubmitted(address(0), 0);
     }
 
     function setDepositsPaused(bool paused_) external {
@@ -163,6 +203,11 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (matured) revert Matured();
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
+        // C2: sibling-only — an evil accountant must not send shares to anyone.
+        // The sibling is the other tranche vault registered in the accountant.
+        address sibling =
+            isSenior ? ITrancheAccountant(accountant).juniorVault() : ITrancheAccountant(accountant).seniorVault();
+        if (to != sibling) revert InvalidSibling(to);
         IERC20(address(hookShare)).safeTransfer(to, amount);
         emit SharesMoved(to, amount);
     }
@@ -171,6 +216,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (quoteAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
         if (expired()) revert Expired();
+        if (matured) revert Matured();
         if (depositsPaused) revert DepositsPaused();
 
         uint256 cap = maxTotalAssets;
@@ -197,6 +243,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     function deposit(uint256 assets, address receiver) public virtual override nonReentrant returns (uint256 shares) {
         if (expired()) revert Expired();
+        if (matured) revert Matured();
         shares = super.deposit(assets, receiver);
         if (isSenior) _checkDepositFloor();
         _notifyDeposit(assets);
@@ -277,9 +324,10 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (isSenior && equityAmount != 0) revert SeniorQuoteOnly();
         matured = true;
         settledAt = block.timestamp;
-        // Denominates the frozen rates across held + pending/claimable shares: redeem requests burn
-        // shares at request time, so `totalSupply` alone would strand pending holders at rate zero.
-        uint256 supply = totalSupply() + totalPendingRedeemShares();
+        // `totalSupply()` already includes pending redeem shares (ERC7540:
+        // totalSupply = superSupply + pending). Do NOT add pending again —
+        // that would halve every payout (C1).
+        uint256 supply = totalSupply();
         if (supply != 0) {
             quotePerShare1e18 = quoteAmount.mulDiv(1e18, supply);
             equityPerShare1e18 = equityAmount.mulDiv(1e18, supply);

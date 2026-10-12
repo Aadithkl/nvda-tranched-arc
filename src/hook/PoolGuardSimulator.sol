@@ -52,6 +52,8 @@ contract PoolGuardSimulator is IPoolGuardSimulator {
 
         int256 ev;
         uint256 notional;
+        int256 totalEv;
+        uint256 totalNotional;
         uint8 steps;
 
         while (remaining != 0 && sqrtPrice != limit) {
@@ -88,6 +90,20 @@ contract PoolGuardSimulator is IPoolGuardSimulator {
                     uint256 shareE18 = Math.mulDiv(ourL, 1e18, liquidity);
                     ev += (int256(inValue) - int256(outValue)) * int256(shareE18) / 1e18;
                     notional += Math.mulDiv(inValue, shareE18, 1e18);
+                    // H1: unscaled totals — toxic flow is toxic even if our share is ~0.
+                    totalEv += int256(inValue) - int256(outValue);
+                    totalNotional += inValue;
+                } else if (amountIn != 0 || amountOut != 0) {
+                    // No hook liquidity on this step — still count the total edge so a
+                    // whale-diluted step cannot hide adverse selection.
+                    uint256 grossIn = amountIn + feeAmount;
+                    (address inAsset, address outAsset) = zeroForOne
+                        ? (Currency.unwrap(key.currency0), Currency.unwrap(key.currency1))
+                        : (Currency.unwrap(key.currency1), Currency.unwrap(key.currency0));
+                    uint256 inValue = _value(grossIn, inAsset, input);
+                    uint256 outValue = _value(amountOut, outAsset, input);
+                    totalEv += int256(inValue) - int256(outValue);
+                    totalNotional += inValue;
                 }
 
                 if (params.amountSpecified > 0) {
@@ -120,6 +136,8 @@ contract PoolGuardSimulator is IPoolGuardSimulator {
         result.ok = true;
         result.ev = ev;
         result.ourNotional = notional;
+        result.totalEv = totalEv;
+        result.totalNotional = totalNotional;
     }
 
     function _value(uint256 amount, address asset, Input memory input) private pure returns (uint256) {

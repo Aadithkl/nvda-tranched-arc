@@ -342,6 +342,7 @@ contract StrategyModuleTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
+        // Band-open for init (`initializeBook` enforces the band on live-oracle inits).
         vault.setGuardParams(
             GuardParams.Params({
                 guardTickWidth: 600,
@@ -349,7 +350,7 @@ contract StrategyModuleTest is Test {
                 guardLiquidity: 5e11,
                 baseLiquidity: 1e11,
                 minEvBps: 0,
-                recheckMaxDeviationBps: 50,
+                recheckMaxDeviationBps: 0,
                 recheckInterval: 300,
                 maxPriceAge: 300,
                 allowedSessionsMask: 0
@@ -367,6 +368,20 @@ contract StrategyModuleTest is Test {
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Arm the deviation band now that init price and oracle agree.
+        vault.setGuardParams(
+            GuardParams.Params({
+                guardTickWidth: 600,
+                baseTickWidth: 6000,
+                guardLiquidity: 5e11,
+                baseLiquidity: 1e11,
+                minEvBps: 0,
+                recheckMaxDeviationBps: 50,
+                recheckInterval: 300,
+                maxPriceAge: 300,
+                allowedSessionsMask: 0
+            })
+        );
     }
 
     function test_realVault_navRoutingAndSettlementExit() public {
@@ -380,6 +395,8 @@ contract StrategyModuleTest is Test {
         quote.mint(address(vault), 1_000e6);
         uint256 baseBefore = vault.baseManagedAssets();
 
+        // C3: no standing allowance — one-shot keeper approval per pull.
+        vault.approveStrategy(address(quote), 400e6);
         vm.prank(allocator);
         module.allocate(address(lendAdapter), 400e6);
         // NAV is conserved by allocation: value moves from base assets into the adapter.
@@ -393,6 +410,7 @@ contract StrategyModuleTest is Test {
         uint256 shares = vault.wrapQuote(1_000e6, address(this));
 
         uint256 toDrain = quote.balanceOf(address(vault));
+        vault.approveStrategy(address(quote), toDrain);
         vm.prank(allocator);
         module.allocate(address(lendAdapter), toDrain);
         assertEq(quote.balanceOf(address(vault)), 0);

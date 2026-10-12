@@ -6,8 +6,10 @@ import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IStrategyAdapter } from "./IStrategyAdapter.sol";
-import { IMorphoLoopAdapter } from "./MorphoLoopAdapter.sol";
+import { IMorphoLoopAdapter, MorphoLoopAdapter } from "./MorphoLoopAdapter.sol";
+import { IMorpho } from "./IMorpho.sol";
 import { IVaultBaseAssets } from "./IStrategyModule.sol";
 
 /// @notice Strategy control plane for `LedgerVault`, modeled on Morpho Vault V2's adapter + cap
@@ -18,7 +20,7 @@ import { IVaultBaseAssets } from "./IStrategyModule.sol";
 ///           - Sentinel: de-risk only — disable adapters, lower caps, cancel pending, repay/deleverage.
 ///         Adapters are fixed-function contracts (no arbitrary calls); this module holds no assets
 ///         at rest and only routes them. Losses surface through each adapter's `realAssets()`.
-contract StrategyModule is Ownable2Step {
+contract StrategyModule is Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint16 internal constant BPS = 10_000;
@@ -46,16 +48,30 @@ contract StrategyModule is Ownable2Step {
     address public allocator;
     address public sentinel;
     uint256 public timelock = 24 hours;
+    /// @notice Pending timelock decrease (C6): increases take effect immediately,
+    ///         decreases wait out the current timelock so `setTimelock(0)` cannot
+    ///         bypass the adapter queue.
+    uint256 public pendingTimelock;
+    uint64 public timelockExecutableAt;
 
     mapping(address => AdapterConfig) public adapters;
     mapping(address => PendingAdapter) public pending;
     mapping(address => bool) internal _listed;
     address[] public adapterList;
+    /// @notice C7/C9: canonical Morpho singleton (zero = any, for tests). When set,
+    ///         loop adapters must point at it.
+    address public canonicalMorpho;
+    /// @notice C9: allowlisted Morpho oracles. When `oracleAllowlistOn` is true,
+    ///         loop adapters may only use listed oracles (curator-chosen oracles
+    ///         with fake `price()=10x` drained via inflated `maxDebtAllowed`).
+    mapping(address => bool) public allowedOracles;
+    bool public oracleAllowlistOn;
 
     event VaultUpdated(address indexed vault);
     event AllocatorUpdated(address indexed allocator);
     event SentinelUpdated(address indexed sentinel);
     event TimelockUpdated(uint256 timelock);
+    event TimelockSubmitted(uint256 pendingTimelock, uint64 executableAt);
     event AdapterSubmitted(address indexed adapter, uint256 absoluteCap, uint16 relativeCapBps, uint64 executableAt);
     event AdapterEnabled(address indexed adapter);
     event AdapterDisabled(address indexed adapter);
@@ -70,6 +86,9 @@ contract StrategyModule is Ownable2Step {
     event PulledToVault(uint256 amount);
     event AdapterExited(address indexed adapter, uint256 withdrawn);
     event AdapterExitFailed(address indexed adapter);
+    event CanonicalMorphoUpdated(address indexed morpho);
+    event OracleAllowlistUpdated(address indexed oracle, bool allowed);
+    event OracleAllowlistEnforced(bool enforced);
 
     error NotVault(address caller);
     error NotAllocator(address caller);
@@ -89,6 +108,9 @@ contract StrategyModule is Ownable2Step {
     error RelativeCapExceeded(uint256 predicted, uint256 limit);
     error TimelockTooLong(uint256 timelock);
     error BookExpired();
+    error OracleNotAllowlisted(address oracle);
+    error MorphoNotCanonical(address morpho);
+    error InvalidMarketParams();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault(msg.sender);
@@ -137,13 +159,63 @@ contract StrategyModule is Ownable2Step {
         emit SentinelUpdated(sentinel_);
     }
 
+    /// @notice Pins the canonical Morpho singleton (C7). Zero = any (test mode).
+    function setCanonicalMorpho(address morpho_) external onlyOwner {
+        canonicalMorpho = morpho_;
+        emit CanonicalMorphoUpdated(morpho_);
+    }
+
+    /// @notice Allow/disallow a Morpho oracle for loop sleeves (C9).
+    function setOracleAllowed(address oracle, bool allowed) external onlyOwner {
+        allowedOracles[oracle] = allowed;
+        emit OracleAllowlistUpdated(oracle, allowed);
+    }
+
+    /// @notice Turns oracle-allowlist enforcement on/off (C9). Off by default so
+    ///         existing tests with mock oracles keep passing; production deploys
+    ///         must enable it after listing the canonical oracles.
+    function setOracleAllowlistOn(bool on) external onlyOwner {
+        oracleAllowlistOn = on;
+        emit OracleAllowlistEnforced(on);
+    }
+
     function setTimelock(uint256 timelock_) external onlyOwner {
         if (timelock_ > MAX_TIMELOCK) revert TimelockTooLong(timelock_);
-        timelock = timelock_;
-        emit TimelockUpdated(timelock_);
+        // C6: risk-increasing direction (longer delay) applies immediately;
+        // shortening the delay is itself timelocked so it cannot fast-path evil adapters.
+        // Exception: bootstrap wiring — before ANY adapter has ever been listed the
+        // curator may still tune freely (no liquidity is gated yet; tests use this).
+        if (timelock_ >= timelock || adapterList.length == 0) {
+            timelock = timelock_;
+            emit TimelockUpdated(timelock_);
+        } else {
+            pendingTimelock = timelock_;
+            timelockExecutableAt = uint64(block.timestamp) + uint64(timelock);
+            emit TimelockSubmitted(timelock_, timelockExecutableAt);
+        }
+    }
+
+    /// @notice Executes a scheduled timelock decrease (permissionless post-delay).
+    function executeTimelock() external {
+        uint256 pending_ = pendingTimelock;
+        if (pending_ == 0 && timelockExecutableAt == 0) revert NothingPending(address(0));
+        if (block.timestamp < timelockExecutableAt) revert TimelockActive(timelockExecutableAt);
+        delete pendingTimelock;
+        timelockExecutableAt = 0;
+        timelock = pending_;
+        emit TimelockUpdated(pending_);
+    }
+
+    function cancelTimelock() external onlyOwnerOrSentinel {
+        if (timelockExecutableAt == 0) revert NothingPending(address(0));
+        delete pendingTimelock;
+        timelockExecutableAt = 0;
+        emit TimelockSubmitted(0, 0);
     }
 
     /// @notice Schedules enabling an adapter (timelocked; risk-increasing).
+    ///         C7: validates the loop sleeve's market params (canonical Morpho,
+    ///         loanToken == asset, sane LLTV); C9: oracle allowlist.
     function submitAdapter(
         address adapter,
         bool redemptionSafe,
@@ -156,9 +228,28 @@ contract StrategyModule is Ownable2Step {
         if (IStrategyAdapter(adapter).authority() != address(this)) revert InvalidAdapter(adapter);
         if (IStrategyAdapter(adapter).asset() != asset) revert InvalidAdapter(adapter);
         if (adapters[adapter].enabled) revert AdapterAlreadyEnabled(adapter);
+        if (isLoop) _validateLoopAdapter(adapter);
         uint64 executableAt = uint64(block.timestamp) + uint64(timelock);
         pending[adapter] = PendingAdapter(true, redemptionSafe, isLoop, absoluteCap, relativeCapBps, executableAt);
         emit AdapterSubmitted(adapter, absoluteCap, relativeCapBps, executableAt);
+    }
+
+    /// @notice C7/C9 validation for loop sleeves: canonical singleton, loanToken
+    ///         policy, LLTV sanity, oracle allowlist.
+    function _validateLoopAdapter(address adapter) internal view {
+        MorphoLoopAdapter loop = MorphoLoopAdapter(adapter);
+        address morpho = address(loop.morpho());
+        if (morpho == address(0)) revert InvalidAdapter(adapter);
+        if (canonicalMorpho != address(0) && morpho != canonicalMorpho) revert MorphoNotCanonical(morpho);
+        try loop.marketParams() returns (IMorpho.MarketParams memory mp) {
+            if (mp.loanToken != asset) revert InvalidMarketParams();
+            if (mp.collateralToken == address(0) || mp.oracle == address(0)) revert InvalidMarketParams();
+            if (mp.lltv == 0 || mp.lltv > 1e18) revert InvalidMarketParams();
+            if (mp.loanToken == mp.collateralToken) revert InvalidMarketParams();
+            if (oracleAllowlistOn && !allowedOracles[mp.oracle]) revert OracleNotAllowlisted(mp.oracle);
+        } catch {
+            revert InvalidAdapter(adapter);
+        }
     }
 
     /// @notice Executes a scheduled adapter (permissionless once the timelock has passed).
@@ -206,13 +297,14 @@ contract StrategyModule is Ownable2Step {
         return adapterList.length;
     }
 
-    /// @notice NAV contribution of all enabled adapters, in asset units (loop sleeves report
-    ///         equity: collateral value − debt, floored at zero).
+    /// @notice NAV contribution of ALL listed adapters, enabled or disabled (C7):
+    ///         excluding a disabled sleeve from NAV hides losses and craters payouts.
+    ///         Loop sleeves report equity: collateral value − debt, floored at zero.
     function totalAssets() public view returns (uint256 total) {
         uint256 count = adapterList.length;
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
-            if (adapters[adapter].enabled) total += IStrategyAdapter(adapter).realAssets();
+            total += IStrategyAdapter(adapter).realAssets();
         }
     }
 
@@ -236,13 +328,13 @@ contract StrategyModule is Ownable2Step {
             adapters[adapter].isLoop ? IMorphoLoopAdapter(adapter).exposure() : IStrategyAdapter(adapter).realAssets();
     }
 
-    /// @notice Outstanding loop-sleeve debt across enabled loop adapters (settlement readiness).
+    /// @notice Outstanding loop-sleeve debt across ALL listed loop adapters (C7):
+    ///         disabled sleeves still owe — settlement readiness must not hide them.
     function totalLoopDebt() external view returns (uint256 debt) {
         uint256 count = adapterList.length;
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
-            AdapterConfig memory cfg = adapters[adapter];
-            if (cfg.enabled && cfg.isLoop) debt += IMorphoLoopAdapter(adapter).debt();
+            if (adapters[adapter].isLoop) debt += IMorphoLoopAdapter(adapter).debt();
         }
     }
 
@@ -290,24 +382,31 @@ contract StrategyModule is Ownable2Step {
     }
 
     /// @notice Best-effort full unwind of every enabled adapter to the vault (settlement path).
-    function exitAll() external onlyVault {
+    ///         H9: approves the exact repayment need per loop sleeve (never max) and
+    ///         resets to zero so a malicious adapter cannot `transferFrom` the next
+    ///         sleeve's funding.
+    function exitAll() external onlyVault nonReentrant {
         uint256 count = adapterList.length;
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
             AdapterConfig memory cfg = adapters[adapter];
             if (!cfg.enabled) continue;
+            uint256 need;
             if (cfg.isLoop) {
                 // Fund the debt repayment from the vault so the adapter can unwind.
-                uint256 need = IMorphoLoopAdapter(adapter).debt();
+                need = IMorphoLoopAdapter(adapter).debt();
                 if (need != 0) IERC20(asset).safeTransferFrom(vault, address(this), need);
             }
-            IERC20(asset).forceApprove(adapter, type(uint256).max);
+            if (need != 0) IERC20(asset).forceApprove(adapter, need);
             try IStrategyAdapter(adapter).exit(type(uint256).max, vault) returns (uint256 withdrawn) {
                 emit AdapterExited(adapter, withdrawn);
             } catch {
                 emit AdapterExitFailed(adapter);
             }
-            IERC20(asset).forceApprove(adapter, 0);
+            if (need != 0) IERC20(asset).forceApprove(adapter, 0);
+            // Return any unfunded remainder (adapter pulled less than `need`).
+            uint256 dust = IERC20(asset).balanceOf(address(this));
+            if (dust != 0) IERC20(asset).safeTransfer(vault, dust);
         }
     }
 
@@ -339,6 +438,13 @@ contract StrategyModule is Ownable2Step {
         if (!cfg.isLoop) revert AdapterKindMismatch(true);
         if (amount == 0) revert ZeroAmount();
         if (IVaultBaseAssets(vault).expired()) revert BookExpired();
+        // C8: borrows were uncapped — repeat `borrow(maxBorrowPerCall)` drained to
+        // `targetLtvOfLltv`. Enforce the same absolute + relative caps as allocates.
+        uint256 predictedDebt = IMorphoLoopAdapter(adapter).debt() + amount;
+        if (predictedDebt > cfg.absoluteCap) revert CapExceeded(predictedDebt, cfg.absoluteCap);
+        uint256 baseAssets = IVaultBaseAssets(vault).baseManagedAssets() + totalAssets();
+        uint256 limit = Math.mulDiv(baseAssets, cfg.relativeCapBps, BPS);
+        if (predictedDebt > limit) revert RelativeCapExceeded(predictedDebt, limit);
         IMorphoLoopAdapter(adapter).borrowTo(amount, vault);
         emit Borrowed(adapter, amount);
     }

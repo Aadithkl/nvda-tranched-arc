@@ -150,10 +150,12 @@ contract RatioSessionOracle {
 
         uint256 updatedAt = nvdaUpdatedAt < ethUpdatedAt ? nvdaUpdatedAt : ethUpdatedAt;
         int192 mid;
-        if (
-            nvdaAnswer > 0 && ethAnswer > 0 && nvdaUpdatedAt != 0 && ethUpdatedAt != 0
-                && block.timestamp - nvdaUpdatedAt <= maxPriceAge && block.timestamp - ethUpdatedAt <= maxPriceAge
-        ) {
+        // H5: either leg dated in the future must fail closed, not underflow-revert.
+        bool nvdaFresh =
+            nvdaUpdatedAt != 0 && nvdaUpdatedAt <= block.timestamp && block.timestamp - nvdaUpdatedAt <= maxPriceAge;
+        bool ethFresh =
+            ethUpdatedAt != 0 && ethUpdatedAt <= block.timestamp && block.timestamp - ethUpdatedAt <= maxPriceAge;
+        if (nvdaAnswer > 0 && ethAnswer > 0 && nvdaFresh && ethFresh) {
             uint256 nvdaUsd18 = uint256(nvdaAnswer) * 10 ** (18 - nvdaDecimals);
             uint256 ethUsd18 = uint256(ethAnswer) * 10 ** (18 - ethDecimals);
             if (ethUsd18 != 0) {

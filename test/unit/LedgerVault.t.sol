@@ -93,7 +93,7 @@ contract LedgerVaultTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setGuardParams(_defaultParams());
+        vault.setGuardParams(_openParams());
         vault.setKeeper(keeper);
 
         accountant = new TrancheAccountant(address(this));
@@ -129,6 +129,9 @@ contract LedgerVaultTest is Test {
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         _alignOracle();
+        // Arm the deviation band now that init price and oracle agree.
+        vm.prank(keeper);
+        vault.setGuardParams(_defaultParams());
 
         quote.approve(address(vault), type(uint256).max);
         quote.approve(address(senior), type(uint256).max);
@@ -162,6 +165,14 @@ contract LedgerVaultTest is Test {
             maxPriceAge: 300,
             allowedSessionsMask: 0
         });
+    }
+
+    /// @notice Band-open staging params: `initializeBook` enforces the deviation band
+    ///         on live-oracle inits, so fixtures init open then arm the band post-align.
+    function _openParams() internal pure returns (GuardParams.Params memory) {
+        GuardParams.Params memory p = _defaultParams();
+        p.recheckMaxDeviationBps = 0;
+        return p;
     }
 
     function _mineAndDeploy() internal returns (PoolGuardHook deployed) {
@@ -367,9 +378,17 @@ contract LedgerVaultTest is Test {
 
         // Destroy quote value TWAP-style: many small swaps into equity (each inside the
         // 1% oracle floor), then crash equity. Must clear ~1400e6 of quote leg.
+        // H11: rebalance swaps carry a 1h cooldown — step a local clock forward
+        // between chunks (NB: `block.timestamp + x` inside a loop is hoisted by the
+        // optimizer, so the clock is threaded manually) and re-stamp the oracle.
+        int192 midBefore = oracle.getPrice().mid;
+        uint256 t = block.timestamp;
         for (uint256 i = 0; i < 14; ++i) {
             uint256 chunkOut = vault.quoteToEquity(100e6);
-            controller.submitRebalance(false, 100e6, chunkOut * 99 / 100, block.timestamp + 60);
+            controller.submitRebalance(false, 100e6, chunkOut * 99 / 100, t + 60);
+            t += 3_600 + 1;
+            vm.warp(t);
+            oracle.updatePrice(midBefore, 2, uint32(t), bytes32(0));
         }
         oracle.updatePrice(1, 2, uint32(block.timestamp), bytes32(0)); // equity value -> ~0
 

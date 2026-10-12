@@ -21,9 +21,10 @@ import { IBookHook } from "../interfaces/IBookHook.sol";
 import { IStrategyModule } from "../adapters/IStrategyModule.sol";
 import { GuardParams } from "../hook/libraries/GuardParams.sol";
 import { LiquidityAmounts } from "../hook/libraries/LiquidityAmounts.sol";
+import { LedgerSettlement } from "./LedgerSettlement.sol";
 
-interface IMaturedVault {
-    function creditSettlement(uint256 quoteAmount, uint256 equityAmount) external;
+interface IHubOwnable {
+    function acceptOwnership() external;
 }
 
 interface IVenuePool {
@@ -87,6 +88,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     /// @notice When true, redemptions that exhaust idle/hook/venue/strategy liquidity recall the
     ///         guard position (and claims) as a last resort. Base stays until halt/settlement.
     bool public guardRecallOnWithdraw = true;
+    /// @notice H6: max |spot − oracle| deviation (bps) allowed on wrap/unwrap.
+    ///         Guards the thin-book pump: spot inflated far above oracle cannot mint
+    ///         cheap shares or `unwrapQuote` at inflated `convertToQuote`. Zero disables.
+    uint16 public maxUnwrapDeviationBps = 500;
+    /// @notice Terminal halt flag (H12): once set after expiry, keeper re-enable /
+    ///         redeploy paths stay closed — `_halt` cannot be undone into settlement.
+    bool public halted;
 
     IVenuePool public venue;
     IERC20 public aToken;
@@ -113,9 +121,10 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     event Supplied(uint256 amount);
     event Withdrawn(uint256 amount);
     event RebalancePulled(address indexed token, uint256 amount);
-    event SettlementFinalized(
-        uint256 seniorShares, uint256 juniorShares, uint256 quoteToSenior, uint256 quoteToJunior, uint256 equityUnits
-    );
+    // NOTE: settlement logic + `SettlementFinalized` live in `LedgerSettlement`
+    // (delegatecall library, EIP-170 room); the error stubs below stay so existing
+    // selectors (`LedgerVault.AlreadySettled`, ...) keep resolving — the library
+    // declares identical errors, so onchain selectors are unchanged.
 
     error ZeroAddress();
     error ZeroAmount();
@@ -136,6 +145,8 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     error VaultsUnset();
     error SettlementNotReady();
     error InvalidOracleDecimals(uint8 decimals);
+    error SpotDeviation(uint256 deviationBps, uint16 maxDeviationBps);
+    error IsHalted();
 
     /// @notice Keeper-only once a keeper is set; before that (deploy bootstrap) the owner
     ///         may act. Owner recovery is replacing the keeper, never acting around it —
@@ -251,18 +262,41 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         emit VenueUpdated(lendingPool, aToken_);
     }
 
-    /// @notice Attaches the strategy module and grants it standing allowances (no per-call
-    ///         approvals); set to zero to detach. Only the module's bounded roles can draw funds.
+    /// @notice Attaches the strategy module with NO standing allowances (C3).
+    ///         The old code granted `type(uint).max` to an instantly-swappable module,
+    ///         so `setStrategyModule(evil)` drained the vault via `transferFrom`.
+    ///         Allocator flow is now: keeper `approveStrategy(token, amount)` (exact) ->
+    ///         allocator `StrategyModule.allocate/...` (consumes it) -> keeper revokes
+    ///         any remainder. Set to zero to detach (revokes both).
     function setStrategyModule(address module) external onlyOwner {
+        // Revoke from the old module first (effects before interactions below).
+        address old = strategyModule;
+        if (old != address(0)) {
+            quote.forceApprove(old, 0);
+            equity.forceApprove(old, 0);
+        }
         strategyModule = module;
-        quote.forceApprove(module, module == address(0) ? 0 : type(uint256).max);
-        equity.forceApprove(module, module == address(0) ? 0 : type(uint256).max);
         emit StrategyModuleUpdated(module);
+    }
+
+    /// @notice One-shot exact approval for the strategy module (keeper-gated, C3).
+    ///         Approves `amount` on top of zero — never a standing max. Revoke by
+    ///         approving zero.
+    function approveStrategy(address token, uint256 amount) external onlyKeeper {
+        if (token != address(quote) && token != address(equity)) revert ZeroAddress();
+        if (strategyModule == address(0)) revert ZeroAddress();
+        IERC20(token).forceApprove(strategyModule, amount);
     }
 
     function setGuardRecallOnWithdraw(bool enabled) external onlyOwner {
         guardRecallOnWithdraw = enabled;
         emit GuardRecallOnWithdrawSet(enabled);
+    }
+
+    /// @notice Tunes the H6 spot-vs-oracle band (0 disables). Bounded to 100%.
+    function setMaxUnwrapDeviationBps(uint16 bps) external onlyOwner {
+        if (bps > BPS) revert FeeTooHigh(bps);
+        maxUnwrapDeviationBps = bps;
     }
 
     /// @notice Registers the ERC-7575 entry point in the share token's vault lookup (EIP-7575).
@@ -287,6 +321,10 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     }
 
     function _halt() internal {
+        // H12: once halted after expiry, the book stays halted — keeper
+        // `setHookDeployEnabled(true)+rearm()` must not redeploy terminal capital.
+        if (halted) return;
+        if (expired()) halted = true;
         hook.setDeployEnabled(false);
         if (hook.poolInitialized() && !hook.exited()) {
             hook.pullAll();
@@ -314,27 +352,44 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         hook.acceptHookOwnership();
     }
 
+    /// @notice H8: completes a two-step `DualBookHub` ownership transfer to this vault
+    ///         (the hub is `Ownable2Step`; without this relay the transfer would strand
+    ///         with the deployer as owner). Deploy wiring: `hub.transferOwnership(vault)`
+    ///         then this. Owner-only, use once at deploy.
+    function acceptHubOwnership(address hub) external onlyOwner {
+        IHubOwnable(hub).acceptOwnership();
+    }
+
     function initializeHook(PoolKey calldata key, uint160 sqrtPriceX96) external onlyOwner {
         hook.initializeBook(key, sqrtPriceX96);
     }
 
     function setGuardParams(GuardParams.Params calldata params) external onlyKeeper {
+        if (halted) revert IsHalted();
+        // H8: bound the riskiest knob — minEvBps == 10_000 means "never defend".
+        // Hard cap at 5_000 (50%) so a fat-finger cannot silently disable the guard.
+        if (params.minEvBps > 5_000) revert ConversionFeeTooHigh(params.minEvBps);
         hook.setGuardParams(params);
     }
 
     function setHookDeployEnabled(bool enabled) external onlyKeeper {
+        // H12: halted books never re-enable deployments.
+        if (enabled && halted) revert IsHalted();
         hook.setDeployEnabled(enabled);
     }
 
     function recenterGuard() external onlyKeeper {
+        if (halted) revert IsHalted();
         hook.recenterGuard();
     }
 
     function deployGuard() external onlyKeeper {
+        if (halted) revert IsHalted();
         hook.deployGuard();
     }
 
     function rearmHook() external onlyKeeper {
+        if (halted) revert IsHalted();
         hook.rearm();
     }
 
@@ -365,6 +420,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (supplied == 0) revert ZeroAmount();
         quote.forceApprove(address(venue), supplied);
         venue.deposit(address(quote), supplied, address(this), 0);
+        quote.forceApprove(address(venue), 0);
         emit Supplied(supplied);
     }
 
@@ -432,6 +488,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (startTimestamp == 0) startTimestamp = uint64(block.timestamp);
         if (expired()) revert TradingClosed();
         if (_oracleMid() == 0) revert OracleInvalid();
+        _requireSpotBand();
         if (quoteAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
@@ -450,6 +507,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (startTimestamp == 0) startTimestamp = uint64(block.timestamp);
         if (expired()) revert TradingClosed();
         if (_oracleMid() == 0) revert OracleInvalid();
+        _requireSpotBand();
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
@@ -470,9 +528,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         nonReentrant
         returns (uint256 quoteAmount)
     {
+        // H6: terminal exits go through settlement/matured paths only — post-expiry
+        // `unwrapQuote` at a pumped spot NAV drains real quote and bricks the waterfall.
+        if (expired()) revert TradingClosed();
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
         if (_oracleMid() == 0) revert OracleInvalid();
+        _requireSpotBand();
         quoteAmount = _deductExitFees(convertToQuote(shares));
         if (quoteAmount < minQuoteOut) revert SlippageExceeded(quoteAmount, minQuoteOut);
         shareToken.burn(msg.sender, shares);
@@ -486,9 +548,11 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         nonReentrant
         returns (uint256 equityAmount)
     {
+        if (expired()) revert TradingClosed();
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 gross = _quoteToEquityUnits(convertToQuote(shares), _requireOracleMid());
+        _requireSpotBand();
         equityAmount = _deductExitFees(gross - Math.mulDiv(gross, conversionFeeBps, BPS));
         if (equityAmount < minEquityOut) revert SlippageExceeded(equityAmount, minEquityOut);
         shareToken.burn(msg.sender, shares);
@@ -502,12 +566,14 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         nonReentrant
         returns (uint256 quoteAmount, uint256 equityAmount)
     {
+        if (expired()) revert TradingClosed();
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
         hook.unwindClaims();
 
         uint256 supply = shareToken.totalSupply();
+        if (supply == 0) revert InsufficientQuote(0, 0);
         uint256 quoteUnits = quote.balanceOf(address(this)) + hook.quoteIdle();
         if (address(aToken) != address(0)) quoteUnits += aToken.balanceOf(address(this));
         uint256 equityUnits = equity.balanceOf(address(this)) + hook.equityIdle();
@@ -551,60 +617,26 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     /// @notice One-shot settlement after expiry. Pulls the book out of the hook, then hands the
     ///         senior guarantee first, remaining QUOTE plus all equity to junior, and freezes each
     ///         tranche's terminal rates. Permissionless once the guarantee is funded.
-    function finalizeSettlement() external {
-        _finalize(false);
+    ///         Logic lives in `LedgerSettlement` (delegatecall library, EIP-170 room).
+    ///         The `settled` flag flips BEFORE delegating (checks-effects; strictly
+    ///         stronger than the old in-body flip against reentrant pulls).
+    function finalizeSettlement() external nonReentrant {
+        if (!expired()) revert NotExpired();
+        if (settled) revert AlreadySettled();
+        settled = true;
+        LedgerSettlement.finalize(
+            hook, strategyModule, address(venue), aToken, shareToken, quote, equity, accountant, false
+        );
     }
 
     /// @notice Owner escape hatch for a pathological book: settles with a senior haircut.
-    function finalizeSettlementHaircut() external onlyOwner {
-        _finalize(true);
-    }
-
-    function _finalize(bool allowHaircut) internal nonReentrant {
+    function finalizeSettlementHaircut() external onlyOwner nonReentrant {
         if (!expired()) revert NotExpired();
         if (settled) revert AlreadySettled();
-        address acct = accountant;
-        if (acct == address(0)) revert AccountantUnset();
-        ITrancheAccountant accountant_ = ITrancheAccountant(acct);
-        address seniorVault = accountant_.seniorVault();
-        address juniorVault = accountant_.juniorVault();
-        if (seniorVault == address(0) || juniorVault == address(0)) revert VaultsUnset();
-
-        hook.unwindClaims();
-        if (!hook.exited()) hook.pullAll();
-
-        if (strategyModule != address(0)) IStrategyModule(strategyModule).exitAll();
-
-        if (address(venue) != address(0)) {
-            uint256 venueUnits = aToken.balanceOf(address(this));
-            if (venueUnits != 0) venue.withdraw(address(quote), venueUnits, address(this));
-        }
-
-        uint256 hSenior = shareToken.balanceOf(seniorVault);
-        uint256 hJunior = shareToken.balanceOf(juniorVault);
-
-        uint256 quoteUnits = quote.balanceOf(address(this));
-        uint256 equityUnits = equity.balanceOf(address(this));
-
-        uint256 seniorGuarantee = accountant_.seniorGuaranteeQuote();
-        if (!allowHaircut && quoteUnits < seniorGuarantee) revert SettlementNotReady();
-
-        uint256 quoteToSenior = quoteUnits < seniorGuarantee ? quoteUnits : seniorGuarantee;
-        uint256 quoteToJunior = quoteUnits - quoteToSenior;
-
         settled = true;
-
-        if (hSenior != 0) shareToken.burn(seniorVault, hSenior);
-        if (hJunior != 0) shareToken.burn(juniorVault, hJunior);
-
-        if (quoteToSenior != 0) quote.safeTransfer(seniorVault, quoteToSenior);
-        if (quoteToJunior != 0) quote.safeTransfer(juniorVault, quoteToJunior);
-        if (equityUnits != 0) equity.safeTransfer(juniorVault, equityUnits);
-
-        IMaturedVault(seniorVault).creditSettlement(quoteToSenior, 0);
-        IMaturedVault(juniorVault).creditSettlement(quoteToJunior, equityUnits);
-
-        emit SettlementFinalized(hSenior, hJunior, quoteToSenior, quoteToJunior, equityUnits);
+        LedgerSettlement.finalize(
+            hook, strategyModule, address(venue), aToken, shareToken, quote, equity, accountant, true
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -711,7 +743,23 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function _withdrawFromVenue(uint256 amount) internal returns (uint256 withdrawn) {
         if (address(venue) == address(0)) revert VenueUnset();
         withdrawn = venue.withdraw(address(quote), amount, address(this));
+        // Medium: the old code ignored the venue's return — a shortfall silently
+        // propagated into settlement. Fail closed here.
+        if (withdrawn < amount) revert InsufficientQuote(amount, withdrawn);
         emit Withdrawn(withdrawn);
+    }
+
+    /// @notice H6 spot-vs-oracle band: reverts when the pool spot has been pumped
+    ///         far from the oracle (thin-book manipulation). Skips when the band is
+    ///         disabled or the book reports no deviation (uninitialized/stale).
+    ///         Reads the book's own deviation (same oracle + slot0 math the guard
+    ///         uses) instead of duplicating spot pricing here.
+    function _requireSpotBand() internal view {
+        uint16 maxDev = maxUnwrapDeviationBps;
+        if (maxDev == 0) return;
+        (bool ok, uint256 deviationBps) = hook.oracleDeviationBps();
+        if (!ok) return;
+        if (deviationBps > maxDev) revert SpotDeviation(deviationBps, maxDev);
     }
 
     function _oracleMid() internal view returns (uint256) {

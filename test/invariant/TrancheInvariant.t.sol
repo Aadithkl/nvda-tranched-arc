@@ -124,6 +124,7 @@ contract TrancheHandler is Test {
     }
 
     function rebalance() external {
+        vm.prank(keeper);
         accountant.rebalance();
     }
 
@@ -133,6 +134,7 @@ contract TrancheHandler is Test {
     }
 
     function _settle() internal {
+        vm.prank(keeper);
         accountant.rebalance();
     }
 }

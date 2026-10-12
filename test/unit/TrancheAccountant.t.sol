@@ -111,6 +111,7 @@ contract TrancheAccountantTest is Test {
     }
 
     function test_rebalance_noEscrowEnrichment() public {
+        vm.prank(keeper);
         (uint256 movedToSenior, uint256 movedToJunior) = accountant.rebalance();
         assertEq(movedToSenior, 0);
         assertEq(movedToJunior, 0);
@@ -128,6 +129,7 @@ contract TrancheAccountantTest is Test {
 
     function test_loss_juniorAbsorbs() public {
         valueSource.setRate(0.9e6);
+        vm.prank(keeper);
         (uint256 movedToSenior,) = accountant.rebalance();
         assertEq(accountant.poolValue(), 180e6);
         assertEq(accountant.seniorClaim(), 100e6);
@@ -139,6 +141,7 @@ contract TrancheAccountantTest is Test {
 
     function test_seniorHaircut_juniorWiped() public {
         valueSource.setRate(0.5e6);
+        vm.prank(keeper);
         accountant.rebalance();
         assertEq(accountant.poolValue(), 100e6);
         assertEq(accountant.seniorClaim(), 100e6);
@@ -198,6 +201,7 @@ contract TrancheAccountantTest is Test {
 
     function test_rebalance_keepsLockedRedeemAssets() public {
         valueSource.setRate(1.05e6);
+        vm.prank(keeper);
         accountant.rebalance();
 
         uint256 aliceShares = senior.balanceOf(alice);
@@ -211,6 +215,7 @@ contract TrancheAccountantTest is Test {
         assertEq(accountant.claimableSenior(), locked);
 
         // Any later rebalance must leave the assets backing the fulfilled claim untouched.
+        vm.prank(keeper);
         accountant.rebalance();
         assertGe(hs.balanceOf(address(senior)), locked);
 
@@ -222,6 +227,7 @@ contract TrancheAccountantTest is Test {
 
     function test_effectivePool_excludesLockedClaims() public {
         valueSource.setRate(1.05e6);
+        vm.prank(keeper);
         accountant.rebalance();
         assertEq(accountant.effectivePool(), 210e6);
 
