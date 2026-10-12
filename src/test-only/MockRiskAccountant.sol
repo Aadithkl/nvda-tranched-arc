@@ -33,7 +33,7 @@ contract MockRiskAccountant is ITrancheAccountant {
         return seniorClaim + juniorClaim;
     }
 
-    function seniorGuaranteeUsdc() external view override returns (uint256) {
+    function seniorGuaranteeQuote() external view override returns (uint256) {
         return seniorClaim;
     }
 
@@ -46,4 +46,15 @@ contract MockRiskAccountant is ITrancheAccountant {
     function onTrancheRedeem(bool, uint256) external override { }
 
     function onTrancheClaim(bool, uint256) external override { }
+
+    /// @notice Mocks enforce no floor policy (see MockAccountant).
+    function minJuniorFloorBps() external pure override returns (uint16) {
+        return 0;
+    }
+
+    function executeEpoch() external pure override returns (uint256) {
+        return 0;
+    }
+
+    function claimEpoch(bool, address) external pure override { }
 }

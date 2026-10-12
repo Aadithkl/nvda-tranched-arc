@@ -24,7 +24,7 @@ contract MockHookValue is ITrancheHookValue {
         expiredFlag = expired_;
     }
 
-    function convertToUsdc(uint256 shares) external view returns (uint256) {
+    function convertToQuote(uint256 shares) external view returns (uint256) {
         return Math.mulDiv(shares, rate, 1e18);
     }
 
@@ -34,7 +34,7 @@ contract MockHookValue is ITrancheHookValue {
 }
 
 contract TrancheAccountantTest is Test {
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
     MockHookShare internal hs;
     MockHookValue internal valueSource;
@@ -51,25 +51,26 @@ contract TrancheAccountantTest is Test {
         bob = makeAddr("bob");
         keeper = makeAddr("keeper");
 
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
-        hs = new MockHookShare(usdc, address(this));
+        hs = new MockHookShare(quote, address(this));
         valueSource = new MockHookValue();
 
         accountant = new TrancheAccountant(address(this));
         accountant.setHook(address(valueSource));
         accountant.setKeeper(keeper);
 
-        senior = new SeniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
-        junior = new JuniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        senior = new SeniorVault(hs, quote, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        junior = new JuniorVault(hs, quote, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
         accountant.setVaults(address(senior), address(junior));
         senior.setAccountant(address(accountant));
         junior.setAccountant(address(accountant));
 
         hs.mint(alice, 100e18);
         hs.mint(bob, 100e18);
-        _deposit(senior, alice, 100e18);
+        // Junior-led genesis: senior deposits must preserve the 25% junior floor.
         _deposit(junior, bob, 100e18);
+        _deposit(senior, alice, 100e18);
     }
 
     function _deposit(TrancheVault vault, address user, uint256 amount) internal {
@@ -101,35 +102,37 @@ contract TrancheAccountantTest is Test {
         assertEq(accountant.poolValue(), 200e6);
     }
 
-    function test_claims_seniorCouponJuniorResidual() public view {
-        assertEq(accountant.seniorClaim(), 105e6);
-        assertEq(accountant.juniorClaim(), 95e6);
+    function test_claims_seniorPrincipalJuniorResidual() public view {
+        // Senior claim is principal-only mid-life (escrow premium is settlement-only);
+        // junior holds the residual including unaccrued escrow value.
+        assertEq(accountant.seniorClaim(), 100e6);
+        assertEq(accountant.juniorClaim(), 100e6);
         assertTrue(accountant.escrowFunded());
     }
 
-    function test_rebalance_movesEscrowSharesToSenior() public {
+    function test_rebalance_noEscrowEnrichment() public {
         (uint256 movedToSenior, uint256 movedToJunior) = accountant.rebalance();
-        assertEq(movedToSenior, 5e18);
+        assertEq(movedToSenior, 0);
         assertEq(movedToJunior, 0);
-        assertEq(hs.balanceOf(address(senior)), 105e18);
-        assertEq(hs.balanceOf(address(junior)), 95e18);
+        assertEq(hs.balanceOf(address(senior)), 100e18);
+        assertEq(hs.balanceOf(address(junior)), 100e18);
         assertEq(accountant.poolValue(), 200e6);
     }
 
     function test_profit_increasesJuniorClaim() public {
         valueSource.setRate(1.05e6);
         assertEq(accountant.poolValue(), 210e6);
-        assertEq(accountant.seniorClaim(), 105e6);
-        assertEq(accountant.juniorClaim(), 105e6);
+        assertEq(accountant.seniorClaim(), 100e6);
+        assertEq(accountant.juniorClaim(), 110e6);
     }
 
     function test_loss_juniorAbsorbs() public {
         valueSource.setRate(0.9e6);
         (uint256 movedToSenior,) = accountant.rebalance();
         assertEq(accountant.poolValue(), 180e6);
-        assertEq(accountant.seniorClaim(), 105e6);
-        assertEq(accountant.juniorClaim(), 75e6);
-        uint256 expectedSeniorShares = Math.mulDiv(200e18, 105, 180);
+        assertEq(accountant.seniorClaim(), 100e6);
+        assertEq(accountant.juniorClaim(), 80e6);
+        uint256 expectedSeniorShares = Math.mulDiv(200e18, 100, 180);
         assertEq(movedToSenior, expectedSeniorShares - 100e18);
         assertEq(hs.balanceOf(address(senior)), expectedSeniorShares);
     }
@@ -171,10 +174,17 @@ contract TrancheAccountantTest is Test {
         uint256 aliceShares = senior.balanceOf(alice);
         vm.prank(alice);
         senior.requestRedeem(aliceShares, alice, alice);
+        assertEq(accountant.seniorPrincipal(), principalBefore, "request preserves principal");
 
         vm.prank(keeper);
         accountant.fulfillRedeem(true, alice);
-        assertLt(accountant.seniorPrincipal(), principalBefore);
+        assertEq(accountant.seniorPrincipal(), principalBefore, "fulfill preserves principal");
+
+        // Principal tracks paid value: claiming releases the liability that actually left.
+        uint256 claimable = senior.claimableRedeemRequest(0, alice);
+        vm.prank(alice);
+        senior.redeem(claimable, alice, alice);
+        assertLt(accountant.seniorPrincipal(), principalBefore, "claim reduces by paid value");
     }
 
     function test_fulfillRedeem_onlyKeeper() public {
@@ -221,10 +231,23 @@ contract TrancheAccountantTest is Test {
         vm.prank(keeper);
         accountant.fulfillRedeem(true, alice);
 
-        // The 105 USDC redeemed by alice is locked to her, not junior's claim.
+        // Alice's ~100 QUOTE redemption is locked to her; junior keeps everything else
+        // (pool minus senior principal, both net of the lock — senior's locked value is
+        // excluded from its remaining claim, so it cannot double-dip).
         assertEq(accountant.poolValue(), 210e6);
-        assertApproxEqAbs(accountant.juniorClaim(), 105e6, 1e4);
-        assertApproxEqAbs(accountant.effectivePool(), 105e6, 1e4);
+        assertApproxEqAbs(accountant.juniorClaim(), 110e6, 1e5);
+        assertApproxEqAbs(accountant.effectivePool(), 110e6, 1e5);
+    }
+
+    function test_escrowLocked_onceLive() public {
+        // Promise fixed once user money arrives: settable on the empty book...
+        TrancheAccountant fresh = new TrancheAccountant(address(this));
+        fresh.setEscrowBps(1_000);
+        assertEq(fresh.escrowBps(), 1_000);
+
+        // ...locked forever after deposits land (alice + bob are in from setUp).
+        vm.expectRevert(TrancheAccountant.EscrowLocked.selector);
+        accountant.setEscrowBps(1_000);
     }
 
     function test_setters_onlyOwner() public {
@@ -237,8 +260,8 @@ contract TrancheAccountantTest is Test {
     }
 
     function test_hookRiskBudget_readsAccountant() public {
-        assertEq(accountant.juniorClaim(), 95e6);
+        assertEq(accountant.juniorClaim(), 100e6);
         valueSource.setRate(1.05e6);
-        assertEq(accountant.juniorClaim(), 105e6);
+        assertEq(accountant.juniorClaim(), 110e6);
     }
 }

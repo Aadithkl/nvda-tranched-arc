@@ -14,7 +14,16 @@ interface ITrancheAccountant {
 
     function escrowFunded() external view returns (bool);
 
-    function seniorGuaranteeUsdc() external view returns (uint256);
+    /// @notice Minimum junior slice of tranche backing (bps of 10_000), immutable.
+    function minJuniorFloorBps() external view returns (uint16);
+
+    /// @notice Advances the withdrawal clock past a 24h boundary (permissionless).
+    function executeEpoch() external returns (uint256 id);
+
+    /// @notice Fulfills a user's pending exit at the latest snapshot (permissionless).
+    function claimEpoch(bool senior, address user) external;
+
+    function seniorGuaranteeQuote() external view returns (uint256);
 
     function onTrancheDeposit(bool senior, uint256 hookShares) external;
 

@@ -2,17 +2,17 @@
 pragma solidity ^0.8.26;
 
 interface IHookSharePipe {
-    function wrapUSDC(uint256 usdcAmount, address receiver) external returns (uint256 shares);
+    function wrapQuote(uint256 quoteAmount, address receiver) external returns (uint256 shares);
 
-    function unwrapUSDC(uint256 shares, address receiver) external returns (uint256 usdcAmount);
+    function unwrapQuote(uint256 shares, address receiver) external returns (uint256 quoteAmount);
 
-    function unwrapUSDC(uint256 shares, address receiver, uint256 minUsdcOut) external returns (uint256 usdcAmount);
+    function unwrapQuote(uint256 shares, address receiver, uint256 minQuoteOut) external returns (uint256 quoteAmount);
 
     function unwrapEquity(uint256 shares, address receiver, uint256 minEquityOut)
         external
         returns (uint256 equityAmount);
 
-    function unwrapProportional(uint256 shares, address receiver, uint256 minUsdcOut, uint256 minEquityOut)
+    function unwrapProportional(uint256 shares, address receiver, uint256 minQuoteOut, uint256 minEquityOut)
         external
-        returns (uint256 usdcAmount, uint256 equityAmount);
+        returns (uint256 quoteAmount, uint256 equityAmount);
 }

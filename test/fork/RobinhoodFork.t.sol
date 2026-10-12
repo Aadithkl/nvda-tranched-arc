@@ -23,7 +23,13 @@ import { INVDAPriceOracle } from "../../src/interfaces/INVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
+import { LedgerEntry7575 } from "../../src/vaults/LedgerEntry7575.sol";
+import { HookShareToken } from "../../src/core/HookShareToken.sol";
+import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
+import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
+import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
+import { IHookSharePipe } from "../../src/interfaces/IHookSharePipe.sol";
 import { StrategyModule } from "../../src/adapters/StrategyModule.sol";
 import { MorphoBlueLendAdapter } from "../../src/adapters/MorphoBlueLendAdapter.sol";
 import { IMorpho, IMorphoOracle } from "../../src/adapters/IMorpho.sol";
@@ -60,13 +66,13 @@ contract RobinhoodForkTest is Test {
     ChainlinkSessionOracle internal feedOracle;
     FixedSession internal session;
     PoolGuardHook internal hookA;
-    RegimeVault internal vaultA;
+    LedgerVault internal vaultA;
     PoolKey internal keyA;
 
     // Stack B: local oracle, mispriced on purpose, to force the toxic-pull path.
     NVDAPriceOracle internal mockOracle;
     PoolGuardHook internal hookB;
-    RegimeVault internal vaultB;
+    LedgerVault internal vaultB;
     PoolKey internal keyB;
 
     bool internal forked;
@@ -117,7 +123,7 @@ contract RobinhoodForkTest is Test {
 
     function _deployStack(address oracle_)
         internal
-        returns (PoolGuardHook hook, RegimeVault vault, PoolKey memory key)
+        returns (PoolGuardHook hook, LedgerVault vault, PoolKey memory key)
     {
         uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
         bytes memory args = abi.encode(manager, simulator, oracle_, NVDA, address(0), address(this));
@@ -132,11 +138,12 @@ contract RobinhoodForkTest is Test {
             hooks: IHooks(address(hook))
         });
 
-        vault = new RegimeVault(manager, hook, key, IERC20(USDG), IERC20(NVDA), oracle_, 0, address(this));
+        vault = new LedgerVault(manager, hook, key, IERC20(USDG), IERC20(NVDA), oracle_, 0, address(this));
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setKeeper(makeAddr("keeper"));
+        // D2+Q1: keeper-only after set — the rehearsal drives keeper paths itself.
+        vault.setKeeper(address(this));
     }
 
     function _params() internal pure returns (GuardParams.Params memory) {
@@ -250,6 +257,69 @@ contract RobinhoodForkTest is Test {
         assertApproxEqAbs(got, 10_000e6, 10, "withdrew from the real market");
         assertEq(IERC20(USDG).balanceOf(address(mockVault)) - vaultBefore, got);
         assertApproxEqRel(adapter.realAssets(), 10_000e6, 0.001e18);
+    }
+
+    // ------------------------------------------------------------------
+    // Tranches + 7575 entry on the live chain (D2: the entry door itself is closed;
+    // money enters through the registered senior/junior vaults, exits stay open)
+    // ------------------------------------------------------------------
+
+    function test_fork_tranches_liveDeposit() public {
+        if (!forked) return;
+
+        LedgerEntry7575 entry = new LedgerEntry7575(address(vaultA));
+        vaultA.setShareVault(address(entry));
+        assertEq(HookShareToken(address(vaultA.shareToken())).vault(USDG), address(entry), "lookup -> entry");
+        assertTrue(entry.supportsInterface(0x2f0a18c5));
+
+        address user = makeAddr("entry-user");
+        deal(USDG, user, 3_000e6);
+
+        // Direct entry deposits are closed by design (D2) — even on the live chain.
+        vm.startPrank(user);
+        IERC20(USDG).approve(address(entry), type(uint256).max);
+        vm.expectRevert(abi.encodeWithSelector(LedgerVault.NotTranche.selector, address(entry)));
+        entry.deposit(1_000e6, user);
+        vm.stopPrank();
+
+        // Full tranche stack wired like the deploy script.
+        TrancheAccountant accountant = new TrancheAccountant(address(this));
+        HookShareToken share = vaultA.shareToken();
+        SeniorVault senior = new SeniorVault(
+            IERC20(address(share)),
+            IERC20(USDG),
+            IERC20(NVDA),
+            IHookSharePipe(address(vaultA)),
+            address(this),
+            address(accountant),
+            0
+        );
+        JuniorVault junior = new JuniorVault(
+            IERC20(address(share)),
+            IERC20(USDG),
+            IERC20(NVDA),
+            IHookSharePipe(address(vaultA)),
+            address(this),
+            address(accountant),
+            0
+        );
+        accountant.setHook(address(vaultA));
+        accountant.setVaults(address(senior), address(junior));
+        vaultA.setAccountant(address(accountant));
+
+        // Genesis must be junior-led: senior money first breaches the 25% floor.
+        vm.startPrank(user);
+        IERC20(USDG).approve(address(senior), type(uint256).max);
+        IERC20(USDG).approve(address(junior), type(uint256).max);
+        vm.expectRevert();
+        senior.depositQuote(1_000e6, user);
+
+        // Junior enters, then senior fits inside the floor.
+        uint256 jrShares = junior.depositQuote(1_000e6, user);
+        assertGt(jrShares, 0, "junior deposit minted shares");
+        uint256 srShares = senior.depositQuote(1_000e6, user);
+        assertGt(srShares, 0, "senior deposit minted shares after junior led");
+        vm.stopPrank();
     }
 
     // ------------------------------------------------------------------

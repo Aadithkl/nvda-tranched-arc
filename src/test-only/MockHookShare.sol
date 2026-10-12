@@ -13,7 +13,7 @@ contract MockHookShare is ERC20, IHookShareToken, IHookSharePipe {
 
     uint256 internal constant SHARE_DECIMALS = 18;
 
-    IERC20 public immutable usdc;
+    IERC20 public immutable quote;
     IERC20 public equity;
     address public immutable authority;
     uint256 public immutable scale;
@@ -21,31 +21,31 @@ contract MockHookShare is ERC20, IHookShareToken, IHookSharePipe {
     error SlippageExceeded(uint256 received, uint256 minOut);
     error EquityNotSet();
 
-    constructor(IERC20 usdc_, address authority_) ERC20("Mock Hook Share", "mHS") {
-        usdc = usdc_;
+    constructor(IERC20 quote_, address authority_) ERC20("Mock Hook Share", "mHS") {
+        quote = quote_;
         authority = authority_;
-        scale = 10 ** (SHARE_DECIMALS - IERC20Metadata(address(usdc_)).decimals());
+        scale = 10 ** (SHARE_DECIMALS - IERC20Metadata(address(quote_)).decimals());
     }
 
     function vault(address asset_) external view returns (address) {
-        return asset_ == address(usdc) ? authority : address(0);
+        return asset_ == address(quote) ? authority : address(0);
     }
 
-    function wrapUSDC(uint256 usdcAmount, address receiver) external returns (uint256 shares) {
-        shares = usdcAmount * scale;
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+    function wrapQuote(uint256 quoteAmount, address receiver) external returns (uint256 shares) {
+        shares = quoteAmount * scale;
+        quote.safeTransferFrom(msg.sender, address(this), quoteAmount);
         _mint(receiver, shares);
     }
 
-    function unwrapUSDC(uint256 shares, address receiver) external returns (uint256) {
-        return unwrapUSDC(shares, receiver, 0);
+    function unwrapQuote(uint256 shares, address receiver) external returns (uint256) {
+        return unwrapQuote(shares, receiver, 0);
     }
 
-    function unwrapUSDC(uint256 shares, address receiver, uint256 minUsdcOut) public returns (uint256 usdcAmount) {
-        usdcAmount = shares / scale;
-        if (usdcAmount < minUsdcOut) revert SlippageExceeded(usdcAmount, minUsdcOut);
+    function unwrapQuote(uint256 shares, address receiver, uint256 minQuoteOut) public returns (uint256 quoteAmount) {
+        quoteAmount = shares / scale;
+        if (quoteAmount < minQuoteOut) revert SlippageExceeded(quoteAmount, minQuoteOut);
         _burn(msg.sender, shares);
-        usdc.safeTransfer(receiver, usdcAmount);
+        quote.safeTransfer(receiver, quoteAmount);
     }
 
     function setEquity(IERC20 equity_) external {
@@ -63,17 +63,17 @@ contract MockHookShare is ERC20, IHookShareToken, IHookSharePipe {
         equity.safeTransfer(receiver, equityAmount);
     }
 
-    function unwrapProportional(uint256 shares, address receiver, uint256 minUsdcOut, uint256 minEquityOut)
+    function unwrapProportional(uint256 shares, address receiver, uint256 minQuoteOut, uint256 minEquityOut)
         external
-        returns (uint256 usdcAmount, uint256 equityAmount)
+        returns (uint256 quoteAmount, uint256 equityAmount)
     {
         if (address(equity) == address(0)) revert EquityNotSet();
-        usdcAmount = shares / scale;
+        quoteAmount = shares / scale;
         equityAmount = shares;
-        if (usdcAmount < minUsdcOut) revert SlippageExceeded(usdcAmount, minUsdcOut);
+        if (quoteAmount < minQuoteOut) revert SlippageExceeded(quoteAmount, minQuoteOut);
         if (equityAmount < minEquityOut) revert SlippageExceeded(equityAmount, minEquityOut);
         _burn(msg.sender, shares);
-        usdc.safeTransfer(receiver, usdcAmount);
+        quote.safeTransfer(receiver, quoteAmount);
         equity.safeTransfer(receiver, equityAmount);
     }
 

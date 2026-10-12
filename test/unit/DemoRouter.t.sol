@@ -16,7 +16,7 @@ contract DemoRouterTest is Test {
     using BalanceDeltaLibrary for BalanceDelta;
     PoolManager internal manager;
     DemoRouter internal router;
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     PoolKey internal key;
@@ -28,12 +28,12 @@ contract DemoRouterTest is Test {
     function setUp() public {
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
-        usdcIsToken0 = token0 == address(usdc);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
+        usdcIsToken0 = token0 == address(quote);
 
         key = PoolKey({
             currency0: Currency.wrap(token0),
@@ -46,9 +46,9 @@ contract DemoRouterTest is Test {
         initialTick = usdcIsToken0 ? int24(196260) : int24(-196260);
         router.initializePool(key, TickMath.getSqrtPriceAtTick(initialTick));
 
-        usdc.mint(address(this), 10_000_000e6);
+        quote.mint(address(this), 10_000_000e6);
         nvda.mint(address(this), 100_000e18);
-        usdc.approve(address(router), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
         nvda.approve(address(router), type(uint256).max);
     }
 
@@ -65,12 +65,12 @@ contract DemoRouterTest is Test {
     }
 
     function test_addSwapRemove() public {
-        uint256 usdcBefore = usdc.balanceOf(address(this));
+        uint256 usdcBefore = quote.balanceOf(address(this));
         uint256 nvdaBefore = nvda.balanceOf(address(this));
 
         _addDefaultLiquidity();
 
-        uint256 usdcAfterAdd = usdc.balanceOf(address(this));
+        uint256 usdcAfterAdd = quote.balanceOf(address(this));
         uint256 nvdaAfterAdd = nvda.balanceOf(address(this));
         assertLt(usdcAfterAdd, usdcBefore);
         assertLt(nvdaAfterAdd, nvdaBefore);
@@ -83,12 +83,12 @@ contract DemoRouterTest is Test {
         uint256 outAfter = nvda.balanceOf(address(this));
         assertGt(outAfter, outBefore);
 
-        uint256 usdcAfterSwap = usdc.balanceOf(address(this));
+        uint256 usdcAfterSwap = quote.balanceOf(address(this));
         uint256 nvdaAfterSwap = nvda.balanceOf(address(this));
 
         router.removeLiquidity(key, initialTick - 6000, initialTick + 6000, -int256(LIQUIDITY), address(this));
 
-        assertGt(usdc.balanceOf(address(this)), usdcAfterSwap);
+        assertGt(quote.balanceOf(address(this)), usdcAfterSwap);
         assertGt(nvda.balanceOf(address(this)), nvdaAfterSwap);
     }
 

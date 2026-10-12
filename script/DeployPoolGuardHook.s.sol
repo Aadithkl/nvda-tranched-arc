@@ -27,7 +27,7 @@ contract DeployPoolGuardHook is Script {
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         address poolManager = vm.envAddress("V4_POOL_MANAGER");
-        address usdc = vm.envAddress("USDC_ADDRESS");
+        address quote = vm.envAddress("QUOTE_ADDRESS");
         address nvda = vm.envAddress("NVDA_ADDRESS");
         address priceOracle = vm.envOr("NVDA_ORACLE", address(0));
         if (priceOracle == address(0)) priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
@@ -68,8 +68,8 @@ contract DeployPoolGuardHook is Script {
         PoolGuardHook h = PoolGuardHook(hook);
         h.setGuardParams(params);
 
-        address token0 = usdc < nvda ? usdc : nvda;
-        address token1 = usdc < nvda ? nvda : usdc;
+        address token0 = quote < nvda ? quote : nvda;
+        address token1 = quote < nvda ? nvda : quote;
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(token0),
             currency1: Currency.wrap(token1),

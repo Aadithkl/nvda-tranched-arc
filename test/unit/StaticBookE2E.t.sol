@@ -19,7 +19,7 @@ import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
 import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
@@ -37,9 +37,9 @@ contract StaticBookE2ETest is Test {
     DemoRouter internal router;
     PoolGuardSimulator internal simulator;
     PoolGuardHook internal hook;
-    RegimeVault internal vault;
+    LedgerVault internal vault;
     NVDAPriceOracle internal oracle;
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     TrancheAccountant internal accountant;
@@ -59,7 +59,7 @@ contract StaticBookE2ETest is Test {
         manager = IPoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         router = new DemoRouter(manager);
         simulator = new PoolGuardSimulator();
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         oracle = new NVDAPriceOracle(8, address(this));
@@ -67,9 +67,9 @@ contract StaticBookE2ETest is Test {
         oracle.setMaxStaleness(1 hours);
         oracle.updatePrice(200e8, 2, uint32(block.timestamp), bytes32(0));
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
-        quoteIsToken0 = token0 == address(usdc);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
+        quoteIsToken0 = token0 == address(quote);
         initialTick = quoteIsToken0 ? int24(196260) : int24(-196260);
         expiry = uint64(block.timestamp + 1 days);
 
@@ -90,31 +90,21 @@ contract StaticBookE2ETest is Test {
             hooks: IHooks(address(hook))
         });
 
-        vault = new RegimeVault(
-            manager, hook, key, IERC20(address(usdc)), IERC20(address(nvda)), address(oracle), expiry, address(this)
+        vault = new LedgerVault(
+            manager, hook, key, IERC20(address(quote)), IERC20(address(nvda)), address(oracle), expiry, address(this)
         );
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setKeeper(keeper);
         vault.setGuardParams(_defaultParams());
-
-        // Bootstrap at zero NAV, then fund the hook from the vault.
-        usdc.mint(address(this), 2_000e6);
-        usdc.approve(address(vault), type(uint256).max);
-        vault.wrapUSDC(1_000e6, address(this));
-        usdc.mint(address(vault), 40e6);
-        nvda.mint(address(vault), 1e18);
-        vault.fundHook(40e6, 1e18);
-        vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
-        _alignOracle();
+        vault.setKeeper(keeper);
 
         accountant = new TrancheAccountant(address(this));
         accountant.setHook(address(vault));
         vault.setAccountant(address(accountant));
         senior = new SeniorVault(
             IERC20(address(vault.shareToken())),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -123,7 +113,7 @@ contract StaticBookE2ETest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(vault.shareToken())),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -132,10 +122,29 @@ contract StaticBookE2ETest is Test {
         );
         accountant.setVaults(address(senior), address(junior));
 
-        usdc.approve(address(senior), type(uint256).max);
-        usdc.approve(address(junior), type(uint256).max);
-        usdc.approve(address(router), type(uint256).max);
+        // Bootstrap at zero NAV, then fund the hook from the vault.
+        _wrapAsSenior(1_000e6, address(this));
+        quote.mint(address(this), 2_000e6);
+        quote.mint(address(vault), 40e6);
+        nvda.mint(address(vault), 1e18);
+        vm.prank(keeper);
+        vault.fundHook(40e6, 1e18);
+        vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
+        _alignOracle();
+
+        quote.approve(address(senior), type(uint256).max);
+        quote.approve(address(junior), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
         nvda.approve(address(router), type(uint256).max);
+    }
+
+    /// @notice Wrap doors admit registered tranches only (D2) — seed through senior.
+    function _wrapAsSenior(uint256 amount, address receiver) internal returns (uint256 shares) {
+        quote.mint(address(senior), amount);
+        vm.startPrank(address(senior));
+        quote.approve(address(vault), amount);
+        shares = vault.wrapQuote(amount, receiver);
+        vm.stopPrank();
     }
 
     function _defaultParams() internal pure returns (GuardParams.Params memory) {
@@ -160,7 +169,7 @@ contract StaticBookE2ETest is Test {
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10 * mult)), 2, uint32(block.timestamp), bytes32(0));
     }
 
-    /// @dev Buying equity always pays USDC: zeroForOne == (USDC is token0).
+    /// @dev Buying equity always pays QUOTE: zeroForOne == (QUOTE is token0).
     function _buyEquitySwap(uint256 usdcIn) internal returns (SwapParams memory params) {
         params = SwapParams({
             zeroForOne: quoteIsToken0,
@@ -171,14 +180,14 @@ contract StaticBookE2ETest is Test {
     }
 
     function test_fullBookLifecycle() public {
-        // 1. Tranche deposits
-        usdc.mint(address(this), 10_000e6);
-        senior.depositUSDC(1_000e6, address(this));
-        junior.depositUSDC(200e6, address(this));
+        // 1. Tranche deposits (junior-led, floor-compliant)
+        quote.mint(address(this), 10_000e6);
+        junior.depositQuote(400e6, address(this));
+        senior.depositQuote(1_000e6, address(this));
         assertTrue(hook.guardPresent());
         assertEq(hook.effectiveLiquidity(), uint128(GUARD_L + BASE_L));
 
-        usdc.mint(address(this), 100e6);
+        quote.mint(address(this), 100e6);
 
         // 2. EV+ swap: simulate then execute; the guard must stay (equivalence)
         (bool ok, int256 ev, uint256 notional) = hook.simulateEv(
@@ -224,12 +233,15 @@ contract StaticBookE2ETest is Test {
         assertTrue(hook.guardPresent(), "permissionless recheck re-arms");
 
         // 6. Allocator: park in standby, recall, refund, redeploy
+        vm.prank(keeper);
         vault.setHookDeployEnabled(false);
         vm.prank(keeper);
         vault.recallFromHook();
         assertFalse(hook.guardPresent());
 
+        vm.prank(keeper);
         vault.setHookDeployEnabled(true);
+        vm.prank(keeper);
         vault.fundHook(200e6, 2e17);
         vm.prank(keeper);
         vault.deployGuard();
@@ -242,9 +254,9 @@ contract StaticBookE2ETest is Test {
         assertTrue(hook.exited());
 
         uint256 srShares = senior.balanceOf(address(this));
-        uint256 usdcBefore = usdc.balanceOf(address(this));
+        uint256 usdcBefore = quote.balanceOf(address(this));
         senior.redeemAtExpiry(srShares, address(this));
-        uint256 seniorPaid = usdc.balanceOf(address(this)) - usdcBefore;
+        uint256 seniorPaid = quote.balanceOf(address(this)) - usdcBefore;
         assertGe(seniorPaid, 1_040e6, "senior gets principal + most of escrow");
 
         uint256 jrShares = junior.balanceOf(address(this));
@@ -253,7 +265,7 @@ contract StaticBookE2ETest is Test {
     }
 
     function test_simulateMatchesExecution_evMinus() public {
-        usdc.mint(address(this), 100e6);
+        quote.mint(address(this), 100e6);
         _setOracleMultiple(3);
 
         SwapParams memory params = SwapParams({
@@ -273,7 +285,7 @@ contract StaticBookE2ETest is Test {
     }
 
     function test_simulateMatchesExecution_evPlus() public {
-        usdc.mint(address(this), 100e6);
+        quote.mint(address(this), 100e6);
         SwapParams memory params = SwapParams({
             zeroForOne: quoteIsToken0,
             amountSpecified: -int256(5e5),

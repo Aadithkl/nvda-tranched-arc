@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  decideBookRouting,
   decideStatic,
   decideStrategy,
   decideWinddown,
@@ -137,4 +138,33 @@ test("decideWinddown: soft halt inside the wind-down window", () => {
     decideWinddown({ inWinddownWindow: true, deployEnabled: false, guardPresent: true }).action,
     "HOLD",
   );
+});
+
+test("decideBookRouting: holds while frozen, expired or in dwell", () => {
+  const base = { activeBook: 0, volumeA: 1e6, volumeB: 1e6 };
+  assert.equal(decideBookRouting({ ...base, frozen: true }).action, "HOLD");
+  assert.equal(decideBookRouting({ ...base, expired: true }).action, "HOLD");
+  assert.equal(decideBookRouting({ ...base, dwellElapsed: false }).action, "HOLD");
+  assert.equal(decideBookRouting({ ...base, activeBook: 7 }).action, "HOLD");
+});
+
+test("decideBookRouting: switches only beyond hysteresis", () => {
+  const fees = { feeA_bps: 30, feeB_bps: 100, dwellElapsed: true };
+  // B earns 3x on equal volume -> switch to book 1.
+  const go = decideBookRouting({ ...fees, activeBook: 0, volumeA: 1e6, volumeB: 1e6 });
+  assert.equal(go.action, "SWITCH");
+  assert.equal(go.toBook, 1);
+
+  // 4% edge with 5% hysteresis -> hold.
+  const near = decideBookRouting({ ...fees, activeBook: 0, volumeA: 1e6, volumeB: 312_000 });
+  assert.equal(near.action, "HOLD");
+
+  // Active book kept when it wins: B active, A volume collapses -> hold on 1.
+  const hold = decideBookRouting({ ...fees, activeBook: 1, volumeA: 1e6, volumeB: 1e6 });
+  assert.equal(hold.action, "HOLD");
+
+  // Round trip: B active, A revenue dominates -> switch back to 0.
+  const back = decideBookRouting({ ...fees, activeBook: 1, volumeA: 1e6, volumeB: 100_000 });
+  assert.equal(back.action, "SWITCH");
+  assert.equal(back.toBook, 0);
 });

@@ -25,7 +25,7 @@ contract MockAccountant is ITrancheAccountant {
         return seniorClaim + juniorClaim;
     }
 
-    function seniorGuaranteeUsdc() external view override returns (uint256) {
+    function seniorGuaranteeQuote() external view override returns (uint256) {
         return seniorClaim;
     }
 
@@ -47,6 +47,18 @@ contract MockAccountant is ITrancheAccountant {
     function moveShares(TrancheVault vault, address to, uint256 amount) external {
         vault.moveShares(to, amount);
     }
+
+    /// @notice Mocks enforce no floor policy (the real accountant's 25% gate is covered
+    ///         by dedicated tests with the real contract).
+    function minJuniorFloorBps() external pure override returns (uint16) {
+        return 0;
+    }
+
+    function executeEpoch() external pure override returns (uint256) {
+        return 0;
+    }
+
+    function claimEpoch(bool, address) external pure override { }
 
     function fulfill(TrancheVault vault, uint256 shares, uint256 assets, address controller) external {
         vault.fulfillRedeem(shares, assets, controller);

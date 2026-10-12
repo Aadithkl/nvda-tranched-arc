@@ -122,6 +122,48 @@ export function sessionStandbyPlan(open, amounts = {}) {
 }
 
 /**
+ * Dual-book routing advisory (low-fee book A vs high-fee book B). One of:
+ * HOLD, SWITCH (with toBook 0/1).
+ * Pure revenue heuristic with hysteresis: compares trailing-24h fee revenue
+ * (volume x fee) and only moves when the other book beats the active one by
+ * minImprovementBps. Advisory only — the controller still enforces dwell (1h),
+ * freeze, expiry and oracle validity onchain, and the switch itself is atomic.
+ */
+export function decideBookRouting(state) {
+  const {
+    activeBook = 0,
+    feeA_bps = 30,
+    feeB_bps = 100,
+    volumeA = 0,
+    volumeB = 0,
+    dwellElapsed = true,
+    frozen = false,
+    expired = false,
+    minImprovementBps = 500,
+  } = state;
+
+  if (frozen) return { action: "HOLD", reason: "frozen: wind-down, no new risk" };
+  if (expired) return { action: "HOLD", reason: "expired: settlement path" };
+  if (activeBook !== 0 && activeBook !== 1) return { action: "HOLD", reason: "unknown active book" };
+  if (!dwellElapsed) return { action: "HOLD", reason: "switch dwell not elapsed" };
+
+  const revA = volumeA * feeA_bps;
+  const revB = volumeB * feeB_bps;
+  const activeRev = activeBook === 0 ? revA : revB;
+  const otherRev = activeBook === 0 ? revB : revA;
+  const toBook = activeBook === 0 ? 1 : 0;
+
+  if (otherRev > activeRev * (1 + minImprovementBps / BPS)) {
+    return {
+      action: "SWITCH",
+      toBook,
+      reason: `book ${toBook} revenue ${otherRev} beats active ${activeRev} beyond ${minImprovementBps}bps hysteresis`,
+    };
+  }
+  return { action: "HOLD", reason: `active book ${activeBook} revenue ${activeRev} holds (other ${otherRev})` };
+}
+
+/**
  * Expiry wind-down decisions. One of:
  * HOLD, SOFT_HALT, HALT, PREPARE_SETTLEMENT, HAIRCUT_OR_WAIT, SETTLE.
  * The hard halt (haltIfExpired) is permissionless; everything else is keeper/owner ops.
@@ -168,14 +210,17 @@ if (invokedDirectly) {
   if (args.includes("--help") || args.length === 0) {
     console.log(`usage:
   node agent/static.mjs --state '<json>'      # guard decision (recheck/recenter)
-  node agent/static.mjs --strategy '<json>'   # strategy decision (park/resume/deleverage/...)
+  node agent/static.mjs --strategy '<json>'   # strategy decision (park/resume/de leverage/...)
   node agent/static.mjs --winddown '<json>'   # expiry wind-down decision (soft halt/halt/settle)
+  node agent/static.mjs --route '<json>'      # dual-book routing advisory (hold/switch)
 state fields: exited, recheckDue, deployEnabled, guardPresent, deviationBps,
               recheckMaxDeviationBps, tick, guardLo, guardHi, edgeBandBps
 strategy fields: sessionOpen, capBreached, healthFactorWad, minHealthFactorWad,
                  utilizationBps, maxUtilizationBps, guardPresent, deployEnabled
 winddown fields: expired, settled, halted, deployEnabled, guardPresent, usdcUnits,
-                 seniorGuarantee, loopDebtUsdg, inWinddownWindow
+                  seniorGuarantee, loopDebtUsdg, inWinddownWindow
+route fields: activeBook, feeA_bps, feeB_bps, volumeA, volumeB, dwellElapsed,
+                  frozen, expired, minImprovementBps
 example:
   node agent/static.mjs --state '{"guardPresent":true,"tick":196500,"guardLo":195660,"guardHi":196860}'`);
     process.exit(0);
@@ -188,6 +233,11 @@ example:
   const strategyIdx = args.indexOf("--strategy");
   if (strategyIdx !== -1 && args[strategyIdx + 1]) {
     console.log(JSON.stringify(decideStrategy(JSON.parse(args[strategyIdx + 1])), null, 2));
+    process.exit(0);
+  }
+  const routeIdx = args.indexOf("--route");
+  if (routeIdx !== -1 && args[routeIdx + 1]) {
+    console.log(JSON.stringify(decideBookRouting(JSON.parse(args[routeIdx + 1])), null, 2));
     process.exit(0);
   }
   const stateIdx = args.indexOf("--state");

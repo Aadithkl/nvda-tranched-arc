@@ -19,7 +19,7 @@ contract InvariantHookValue is ITrancheHookValue {
         rate = rate_;
     }
 
-    function convertToUsdc(uint256 shares) external view returns (uint256) {
+    function convertToQuote(uint256 shares) external view returns (uint256) {
         return Math.mulDiv(shares, rate, 1e18);
     }
 
@@ -37,7 +37,7 @@ contract TrancheHandler is Test {
     uint256 internal constant MIN_RATE = 0.05e6;
     uint256 internal constant MAX_RATE = 2e6;
 
-    TestToken public usdc;
+    TestToken public quote;
     MockHookShare public hs;
     InvariantHookValue public valueSource;
     TrancheAccountant public accountant;
@@ -47,7 +47,7 @@ contract TrancheHandler is Test {
     address[] public users;
 
     constructor(
-        TestToken usdc_,
+        TestToken quote_,
         MockHookShare hs_,
         InvariantHookValue valueSource_,
         TrancheAccountant accountant_,
@@ -56,7 +56,7 @@ contract TrancheHandler is Test {
         address keeper_,
         address[] memory users_
     ) {
-        usdc = usdc_;
+        quote = quote_;
         hs = hs_;
         valueSource = valueSource_;
         accountant = accountant_;
@@ -138,7 +138,7 @@ contract TrancheHandler is Test {
 }
 
 contract TrancheInvariantTest is Test {
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
     MockHookShare internal hs;
     InvariantHookValue internal valueSource;
@@ -156,17 +156,17 @@ contract TrancheInvariantTest is Test {
         users.push(makeAddr("bob"));
         users.push(makeAddr("carol"));
 
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
-        hs = new MockHookShare(usdc, address(this));
+        hs = new MockHookShare(quote, address(this));
         valueSource = new InvariantHookValue();
 
         accountant = new TrancheAccountant(address(this));
         accountant.setHook(address(valueSource));
         accountant.setKeeper(keeper);
 
-        senior = new SeniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
-        junior = new JuniorVault(hs, usdc, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        senior = new SeniorVault(hs, quote, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
+        junior = new JuniorVault(hs, quote, nvda, IHookSharePipe(address(hs)), address(this), address(0), 0);
         accountant.setVaults(address(senior), address(junior));
         senior.setAccountant(address(accountant));
         junior.setAccountant(address(accountant));
@@ -175,7 +175,7 @@ contract TrancheInvariantTest is Test {
             hs.mint(users[i], 1_000e18);
         }
 
-        handler = new TrancheHandler(usdc, hs, valueSource, accountant, senior, junior, keeper, users);
+        handler = new TrancheHandler(quote, hs, valueSource, accountant, senior, junior, keeper, users);
         targetContract(address(handler));
     }
 
@@ -191,9 +191,14 @@ contract TrancheInvariantTest is Test {
         uint256 target =
             accountant.seniorPrincipal() + Math.mulDiv(accountant.seniorPrincipal(), accountant.escrowBps(), 10_000);
         assertEq(accountant.escrowFunded(), accountant.effectivePool() >= target);
-        if (!accountant.escrowFunded()) {
-            assertEq(accountant.juniorClaim(), 0);
-        }
+        // Principal-only senior claim mid-life, net of value already locked for senior:
+        // junior holds the residual including any unaccrued escrow value.
+        uint256 pool = accountant.effectivePool();
+        uint256 lockedValue = valueSource.convertToQuote(accountant.claimableSenior());
+        uint256 principal = accountant.seniorPrincipal();
+        uint256 remaining = lockedValue > principal ? 0 : principal - lockedValue;
+        uint256 expectedSenior = pool < remaining ? pool : remaining;
+        assertEq(accountant.seniorClaim(), expectedSenior);
     }
 
     /// @dev After every mutation the accountant rebalances, so each vault's hook-share balance
@@ -202,7 +207,7 @@ contract TrancheInvariantTest is Test {
         uint256 pool = accountant.poolValue();
         uint256 total = hs.balanceOf(address(senior)) + hs.balanceOf(address(junior));
         if (pool == 0 || total == 0) return;
-        uint256 seniorEntitlement = accountant.seniorClaim() + valueSource.convertToUsdc(accountant.claimableSenior());
+        uint256 seniorEntitlement = accountant.seniorClaim() + valueSource.convertToQuote(accountant.claimableSenior());
         uint256 expectedSenior = Math.mulDiv(total, seniorEntitlement, pool);
         assertApproxEqAbs(hs.balanceOf(address(senior)), expectedSenior, 1e15);
     }

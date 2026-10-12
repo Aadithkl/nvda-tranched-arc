@@ -18,7 +18,7 @@ import { MockRiskAccountant } from "../../src/test-only/MockRiskAccountant.sol";
 import { TestToken } from "../../src/test-only/TestToken.sol";
 
 contract TrancheVaultTest is Test {
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
     MockHookShare internal hs;
     SeniorVault internal senior;
@@ -33,12 +33,12 @@ contract TrancheVaultTest is Test {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
-        hs = new MockHookShare(IERC20(address(usdc)), makeAddr("hook"));
+        hs = new MockHookShare(IERC20(address(quote)), makeAddr("hook"));
         senior = new SeniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
@@ -47,7 +47,7 @@ contract TrancheVaultTest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
@@ -55,18 +55,18 @@ contract TrancheVaultTest is Test {
             0
         );
 
-        usdc.mint(address(hs), 1_000_000e6);
+        quote.mint(address(hs), 1_000_000e6);
         nvda.mint(address(hs), 1_000_000e18);
         hs.setEquity(IERC20(address(nvda)));
-        usdc.mint(alice, 1_000e6);
-        usdc.mint(bob, 1_000e6);
+        quote.mint(alice, 1_000e6);
+        quote.mint(bob, 1_000e6);
         hs.mint(alice, 1_000e18);
         hs.mint(bob, 1_000e18);
 
         vm.prank(alice);
-        usdc.approve(address(senior), type(uint256).max);
+        quote.approve(address(senior), type(uint256).max);
         vm.prank(bob);
-        usdc.approve(address(junior), type(uint256).max);
+        quote.approve(address(junior), type(uint256).max);
         vm.prank(alice);
         hs.approve(address(senior), type(uint256).max);
         vm.prank(bob);
@@ -84,7 +84,7 @@ contract TrancheVaultTest is Test {
         assertEq(junior.name(), "Junior NVDA Tranche");
         assertEq(junior.symbol(), "jrNVDA");
         assertEq(senior.asset(), address(hs));
-        assertEq(address(senior.usdc()), address(usdc));
+        assertEq(address(senior.quote()), address(quote));
         assertEq(senior.owner(), address(this));
         assertEq(senior.guardian(), address(this));
         assertEq(senior.accountant(), accountant);
@@ -114,28 +114,28 @@ contract TrancheVaultTest is Test {
         senior.deposit(100e18, bob);
     }
 
-    function test_depositUSDC_wrapsAndMints() public {
+    function test_depositQuote_wrapsAndMints() public {
         uint256 expectedShares = senior.previewDeposit(100e18);
         vm.prank(alice);
-        uint256 shares = senior.depositUSDC(100e6, alice);
+        uint256 shares = senior.depositQuote(100e6, alice);
         assertEq(shares, expectedShares);
         assertEq(senior.totalAssets(), 100e18);
         assertEq(hs.balanceOf(address(senior)), 100e18);
-        assertEq(usdc.balanceOf(address(senior)), 0);
-        assertEq(usdc.balanceOf(alice), 900e6);
+        assertEq(quote.balanceOf(address(senior)), 0);
+        assertEq(quote.balanceOf(alice), 900e6);
     }
 
-    function test_depositUSDC_zero_reverts() public {
+    function test_depositQuote_zero_reverts() public {
         vm.prank(alice);
         vm.expectRevert(TrancheVault.ZeroAmount.selector);
-        senior.depositUSDC(0, alice);
+        senior.depositQuote(0, alice);
     }
 
-    function test_depositUSDC_cap_reverts() public {
+    function test_depositQuote_cap_reverts() public {
         senior.setMaxTotalAssets(50e18);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(TrancheVault.DepositCapExceeded.selector, 100e18, 50e18));
-        senior.depositUSDC(100e6, alice);
+        senior.depositQuote(100e6, alice);
     }
 
     function test_deposit_paused_reverts() public {
@@ -143,7 +143,7 @@ contract TrancheVaultTest is Test {
         assertEq(senior.maxDeposit(alice), 0);
         vm.prank(alice);
         vm.expectRevert();
-        senior.depositUSDC(100e6, alice);
+        senior.depositQuote(100e6, alice);
     }
 
     function test_setDepositsPaused_unauthorized_reverts() public {
@@ -209,20 +209,20 @@ contract TrancheVaultTest is Test {
         assertEq(got, assets);
     }
 
-    function test_claimAndUnwrapUSDC() public {
+    function test_claimAndUnwrapQuote() public {
         vm.prank(alice);
-        uint256 shares = senior.depositUSDC(100e6, alice);
+        uint256 shares = senior.depositQuote(100e6, alice);
         vm.prank(alice);
         senior.requestRedeem(shares, alice, alice);
         uint256 assets = senior.convertToAssets(shares);
         vm.prank(accountant);
         senior.fulfillRedeem(shares, assets, alice);
 
-        uint256 before = usdc.balanceOf(alice);
+        uint256 before = quote.balanceOf(alice);
         vm.prank(alice);
-        uint256 usdcOut = senior.claimAndUnwrapUSDC(shares, alice, alice);
+        uint256 usdcOut = senior.claimAndUnwrapQuote(shares, alice, alice);
         assertApproxEqRel(usdcOut, 100e6, 1e15);
-        assertEq(usdc.balanceOf(alice), before + usdcOut);
+        assertEq(quote.balanceOf(alice), before + usdcOut);
         assertApproxEqAbs(senior.totalAssets(), 0, 2e15);
     }
 
@@ -307,7 +307,7 @@ contract TrancheVaultTest is Test {
 
     function _juniorRedeemFlow(uint256 amountUsdc) internal returns (uint256 shares, uint256 assets) {
         vm.prank(bob);
-        shares = junior.depositUSDC(amountUsdc, bob);
+        shares = junior.depositQuote(amountUsdc, bob);
         vm.prank(bob);
         junior.requestRedeem(shares, bob, bob);
         assets = junior.convertToAssets(shares);
@@ -336,26 +336,26 @@ contract TrancheVaultTest is Test {
 
     function test_claimAndUnwrapEquity_senior_reverts() public {
         vm.prank(alice);
-        vm.expectRevert(TrancheVault.SeniorUsdcOnly.selector);
+        vm.expectRevert(TrancheVault.SeniorQuoteOnly.selector);
         senior.claimAndUnwrapEquity(1e18, alice, alice);
     }
 
     function test_claimAndUnwrapProportional_junior() public {
         (uint256 shares,) = _juniorRedeemFlow(100e6);
 
-        uint256 usdcBefore = usdc.balanceOf(bob);
+        uint256 usdcBefore = quote.balanceOf(bob);
         uint256 nvdaBefore = nvda.balanceOf(bob);
         vm.prank(bob);
         (uint256 usdcOut, uint256 nvdaOut) = junior.claimAndUnwrapProportional(shares, bob, bob);
         assertGt(usdcOut, 0);
         assertGt(nvdaOut, 0);
-        assertEq(usdc.balanceOf(bob), usdcBefore + usdcOut);
+        assertEq(quote.balanceOf(bob), usdcBefore + usdcOut);
         assertEq(nvda.balanceOf(bob), nvdaBefore + nvdaOut);
     }
 
     function test_claimAndUnwrapProportional_senior_reverts() public {
         vm.prank(alice);
-        vm.expectRevert(TrancheVault.SeniorUsdcOnly.selector);
+        vm.expectRevert(TrancheVault.SeniorQuoteOnly.selector);
         senior.claimAndUnwrapProportional(1e18, alice, alice);
     }
 }

@@ -31,7 +31,7 @@ contract PoolGuardHookTest is Test {
     PoolGuardHook internal hook;
     PoolGuardSimulator internal simulator;
     NVDAPriceOracle internal oracle;
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     PoolKey internal key;
@@ -50,7 +50,7 @@ contract PoolGuardHookTest is Test {
         manager = new PoolManager(address(this));
         router = new DemoRouter(IPoolManager(address(manager)));
         simulator = new PoolGuardSimulator();
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         oracle = new NVDAPriceOracle(8, address(this));
@@ -58,8 +58,8 @@ contract PoolGuardHookTest is Test {
         oracle.setMaxStaleness(1 hours);
         _pushMid(200e8);
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
         equityIsToken1 = token1 == address(nvda);
         initialTick = equityIsToken1 ? int24(196260) : int24(-196260);
 
@@ -74,15 +74,15 @@ contract PoolGuardHookTest is Test {
         poolId = key.toId();
 
         hook.setGuardParams(_defaultParams());
-        usdc.mint(address(hook), 1_000_000e6);
+        quote.mint(address(hook), 1_000_000e6);
         nvda.mint(address(hook), 10_000e18);
 
         hook.initializeBook(key, TickMath.getSqrtPriceAtTick(initialTick));
         _alignOracle();
 
-        usdc.mint(address(this), 10_000_000e6);
+        quote.mint(address(this), 10_000_000e6);
         nvda.mint(address(this), 10_000e18);
-        usdc.approve(address(router), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
         nvda.approve(address(router), type(uint256).max);
     }
 
@@ -126,7 +126,7 @@ contract PoolGuardHookTest is Test {
         _pushMid(hook.poolPrice1e18() / 1e10);
     }
 
-    /// @dev Buying equity always pays USDC: output is the equity token.
+    /// @dev Buying equity always pays QUOTE: output is the equity token.
     function _buyEquityZeroForOne() internal view returns (bool) {
         return equityIsToken1;
     }
@@ -187,7 +187,7 @@ contract PoolGuardHookTest is Test {
     function test_initializeBook_dynamicFee_reverts() public {
         PoolGuardHook fresh = _mineAndDeploy(address(oracle), address(nvda), vault);
         fresh.setGuardParams(_defaultParams());
-        usdc.mint(address(fresh), 1_000_000e6);
+        quote.mint(address(fresh), 1_000_000e6);
         nvda.mint(address(fresh), 10_000e18);
         PoolKey memory dynKey = key;
         dynKey.fee = LPFeeLibrary.DYNAMIC_FEE_FLAG;
@@ -323,7 +323,7 @@ contract PoolGuardHookTest is Test {
         (uint256 quoteIdle, uint256 equityIdle) = hook.inventory();
         assertEq(quoteIdle, 0);
         assertEq(equityIdle, 0);
-        assertGt(usdc.balanceOf(vault), 0);
+        assertGt(quote.balanceOf(vault), 0);
         assertGt(nvda.balanceOf(vault), 0);
     }
 
@@ -332,7 +332,7 @@ contract PoolGuardHookTest is Test {
         assertTrue(hook.exited());
         assertEq(hook.effectiveLiquidity(), 0);
 
-        usdc.mint(address(hook), 1_000_000e6);
+        quote.mint(address(hook), 1_000_000e6);
         nvda.mint(address(hook), 10_000e18);
         hook.rearm();
 

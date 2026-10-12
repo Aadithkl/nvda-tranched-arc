@@ -17,23 +17,24 @@ import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
+import { VaultStrategyController } from "../../src/strategy/VaultStrategyController.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
 import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
 import { HookShareToken } from "../../src/core/HookShareToken.sol";
 import { IHookSharePipe } from "../../src/interfaces/IHookSharePipe.sol";
 
-contract RegimeVaultTest is Test {
+contract LedgerVaultTest is Test {
     using PoolIdLibrary for PoolKey;
 
     IPoolManager internal manager;
     DemoRouter internal router;
     PoolGuardSimulator internal simulator;
     PoolGuardHook internal hook;
-    RegimeVault internal vault;
+    LedgerVault internal vault;
     NVDAPriceOracle internal oracle;
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     TrancheAccountant internal accountant;
@@ -54,7 +55,7 @@ contract RegimeVaultTest is Test {
         manager = IPoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         router = new DemoRouter(manager);
         simulator = new PoolGuardSimulator();
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         oracle = new NVDAPriceOracle(8, address(this));
@@ -62,11 +63,12 @@ contract RegimeVaultTest is Test {
         oracle.setMaxStaleness(1 hours);
         oracle.updatePrice(200e8, 2, uint32(block.timestamp), bytes32(0));
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
-        quoteIsToken0 = token0 == address(usdc);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
+        quoteIsToken0 = token0 == address(quote);
         initialTick = quoteIsToken0 ? int24(196260) : int24(-196260);
-        expiry = uint64(block.timestamp + 1 days);
+        // Long book life: the 24h knob timelock must fit comfortably before expiry.
+        expiry = uint64(block.timestamp + 30 days);
 
         hook = _mineAndDeploy();
         key = PoolKey({
@@ -77,11 +79,11 @@ contract RegimeVaultTest is Test {
             hooks: IHooks(address(hook))
         });
 
-        vault = new RegimeVault(
+        vault = new LedgerVault(
             IPoolManager(address(manager)),
             hook,
             key,
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             address(oracle),
             expiry,
@@ -91,18 +93,8 @@ contract RegimeVaultTest is Test {
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
         vault.acceptHookOwnership();
-        vault.setKeeper(keeper);
         vault.setGuardParams(_defaultParams());
-
-        usdc.mint(address(this), 2_000e6);
-        usdc.approve(address(vault), type(uint256).max);
-        vault.wrapUSDC(1_000e6, address(this));
-
-        usdc.mint(address(vault), 40e6);
-        nvda.mint(address(vault), 1e18);
-        vault.fundHook(40e6, 1e18);
-        vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
-        _alignOracle();
+        vault.setKeeper(keeper);
 
         accountant = new TrancheAccountant(address(this));
         accountant.setHook(address(vault));
@@ -110,7 +102,7 @@ contract RegimeVaultTest is Test {
         share = vault.shareToken();
         senior = new SeniorVault(
             IERC20(address(share)),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -119,7 +111,7 @@ contract RegimeVaultTest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(share)),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -128,11 +120,30 @@ contract RegimeVaultTest is Test {
         );
         accountant.setVaults(address(senior), address(junior));
 
-        usdc.approve(address(vault), type(uint256).max);
-        usdc.approve(address(senior), type(uint256).max);
-        usdc.approve(address(junior), type(uint256).max);
-        usdc.approve(address(router), type(uint256).max);
+        _wrapAsSenior(1_000e6, address(this));
+        quote.mint(address(this), 2_000e6);
+
+        quote.mint(address(vault), 40e6);
+        nvda.mint(address(vault), 1e18);
+        vm.prank(keeper);
+        vault.fundHook(40e6, 1e18);
+        vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
+        _alignOracle();
+
+        quote.approve(address(vault), type(uint256).max);
+        quote.approve(address(senior), type(uint256).max);
+        quote.approve(address(junior), type(uint256).max);
+        quote.approve(address(router), type(uint256).max);
         nvda.approve(address(router), type(uint256).max);
+    }
+
+    /// @notice Wrap doors admit registered tranches only (D2) — seed through senior.
+    function _wrapAsSenior(uint256 amount, address receiver) internal returns (uint256 shares) {
+        quote.mint(address(senior), amount);
+        vm.startPrank(address(senior));
+        quote.approve(address(vault), amount);
+        shares = vault.wrapQuote(amount, receiver);
+        vm.stopPrank();
     }
 
     // ------------------------------------------------------------------
@@ -169,13 +180,26 @@ contract RegimeVaultTest is Test {
         oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
     }
 
+    /// @notice Runs a knob through the 24h timelock queue, then re-stamps the oracle
+    ///         (warping past staleness would otherwise freeze price reads).
+    function _executeKnob(VaultStrategyController controller, bytes32 key) internal {
+        uint256 lastMid = uint256(uint192(oracle.getPrice().mid));
+        (, uint64 at) = controller.pendingKnobs(key);
+        vm.expectRevert(abi.encodeWithSelector(VaultStrategyController.TimelockActive.selector, at));
+        controller.executeKnob(key);
+        vm.warp(at);
+        controller.executeKnob(key);
+        oracle.updatePrice(int192(int256(lastMid)), 2, uint32(block.timestamp), bytes32(0));
+    }
+
     // ------------------------------------------------------------------
     // Tranche flow
     // ------------------------------------------------------------------
 
-    function test_depositUSDC_mintsTrancheShares() public {
-        usdc.mint(address(this), 10_000e6);
-        senior.depositUSDC(1_000e6, address(this));
+    function test_depositQuote_mintsTrancheShares() public {
+        quote.mint(address(this), 10_000e6);
+        junior.depositQuote(400e6, address(this));
+        senior.depositQuote(1_000e6, address(this));
 
         assertGt(senior.balanceOf(address(this)), 0);
         assertGt(accountant.seniorPrincipal(), 995e6);
@@ -183,28 +207,26 @@ contract RegimeVaultTest is Test {
         assertEq(share.balanceOf(address(senior)), senior.totalAssets());
     }
 
-    function test_wrapUnwrapUSDC() public {
-        usdc.mint(address(this), 1_000e6);
+    function test_wrapUnwrapQuote() public {
         uint256 heldBefore = vault.shareToken().balanceOf(address(this));
-        uint256 shares = vault.wrapUSDC(500e6, address(this));
+        uint256 shares = _wrapAsSenior(500e6, address(this));
         assertGt(shares, 0);
         assertEq(vault.shareToken().balanceOf(address(this)), heldBefore + shares);
 
-        uint256 before = usdc.balanceOf(address(this));
-        uint256 out = vault.unwrapUSDC(shares, address(this), 0);
+        uint256 before = quote.balanceOf(address(this));
+        uint256 out = vault.unwrapQuote(shares, address(this), 0);
         assertGe(out, 499e6);
         assertLe(out, 500e6);
-        assertEq(usdc.balanceOf(address(this)) - before, out);
+        assertEq(quote.balanceOf(address(this)) - before, out);
     }
 
     function test_unwrapEquity_paysAtOracleWithFee() public {
         vault.setConversionFeeBps(50);
         nvda.mint(address(vault), 10e18);
-        usdc.mint(address(this), 1_000e6);
-        uint256 shares = vault.wrapUSDC(100e6, address(this));
+        uint256 shares = _wrapAsSenior(100e6, address(this));
 
         uint256 mid8 = uint256(uint192(oracle.getPrice().mid));
-        uint256 expected = vault.convertToUsdc(shares) * 1e20 / mid8;
+        uint256 expected = vault.convertToQuote(shares) * 1e20 / mid8;
         uint256 net = expected - (expected * 50) / 10_000;
 
         uint256 out = vault.unwrapEquity(shares, address(this), 0);
@@ -214,13 +236,12 @@ contract RegimeVaultTest is Test {
 
     function test_unwrapProportional() public {
         nvda.mint(address(vault), 5e18);
-        usdc.mint(address(this), 1_000e6);
-        uint256 shares = vault.wrapUSDC(400e6, address(this));
+        uint256 shares = _wrapAsSenior(400e6, address(this));
 
         uint256 supply = share.totalSupply();
-        uint256 usdcUnits = usdc.balanceOf(address(vault)) + usdc.balanceOf(address(hook));
+        uint256 quoteUnits = quote.balanceOf(address(vault)) + quote.balanceOf(address(hook));
         uint256 equityUnits = nvda.balanceOf(address(vault)) + nvda.balanceOf(address(hook));
-        uint256 expectedUsdc = usdcUnits * shares / supply;
+        uint256 expectedUsdc = quoteUnits * shares / supply;
         uint256 expectedEquity = equityUnits * shares / supply;
 
         (uint256 outUsdc, uint256 outEquity) = vault.unwrapProportional(shares, address(this), 0, 0);
@@ -233,23 +254,27 @@ contract RegimeVaultTest is Test {
     // ------------------------------------------------------------------
 
     function test_allocator_fundPauseRecallRedeploy() public {
-        usdc.mint(address(vault), 1_000e6);
-        uint256 hookBefore = usdc.balanceOf(address(hook));
+        quote.mint(address(vault), 1_000e6);
+        uint256 hookBefore = quote.balanceOf(address(hook));
+        vm.prank(keeper);
         vault.fundHook(500e6, 0);
-        assertEq(usdc.balanceOf(address(hook)), hookBefore + 500e6);
+        assertEq(quote.balanceOf(address(hook)), hookBefore + 500e6);
 
+        vm.prank(keeper);
         vault.setHookDeployEnabled(false);
         assertFalse(hook.deployEnabled());
 
         vm.prank(keeper);
         vault.recallFromHook();
         assertFalse(hook.guardPresent());
-        assertGt(usdc.balanceOf(address(vault)), 400e6);
+        assertGt(quote.balanceOf(address(vault)), 400e6);
 
         vm.expectRevert();
         vault.deployGuard();
 
+        vm.prank(keeper);
         vault.setHookDeployEnabled(true);
+        vm.prank(keeper);
         vault.fundHook(500e6, 5e17);
         vm.prank(keeper);
         vault.deployGuard();
@@ -264,9 +289,12 @@ contract RegimeVaultTest is Test {
 
     function test_expiry_blocksWrap() public {
         vm.warp(expiry + 1);
-        usdc.mint(address(this), 10e6);
-        vm.expectRevert(RegimeVault.TradingClosed.selector);
-        vault.wrapUSDC(10e6, address(this));
+        quote.mint(address(senior), 10e6);
+        vm.startPrank(address(senior));
+        quote.approve(address(vault), 10e6);
+        vm.expectRevert(LedgerVault.TradingClosed.selector);
+        vault.wrapQuote(10e6, address(this));
+        vm.stopPrank();
     }
 
     // ------------------------------------------------------------------
@@ -274,9 +302,9 @@ contract RegimeVaultTest is Test {
     // ------------------------------------------------------------------
 
     function test_finalizeSettlement_waterfall() public {
-        usdc.mint(address(this), 10_000e6);
-        senior.depositUSDC(1_000e6, address(this));
-        junior.depositUSDC(200e6, address(this));
+        quote.mint(address(this), 10_000e6);
+        junior.depositQuote(400e6, address(this));
+        senior.depositQuote(1_000e6, address(this));
 
         vm.warp(expiry + 1);
         vault.finalizeSettlement();
@@ -286,68 +314,102 @@ contract RegimeVaultTest is Test {
         assertTrue(senior.matured());
         assertTrue(junior.matured());
 
-        uint256 seniorBal = usdc.balanceOf(address(senior));
-        uint256 juniorBal = usdc.balanceOf(address(junior));
+        uint256 seniorBal = quote.balanceOf(address(senior));
+        uint256 juniorBal = quote.balanceOf(address(junior));
         assertApproxEqAbs(seniorBal, 1_050e6, 2);
         assertGt(juniorBal, 0);
-        assertEq(usdc.balanceOf(address(vault)), 0);
+        assertEq(quote.balanceOf(address(vault)), 0);
 
         uint256 seniorShares = senior.balanceOf(address(this));
-        uint256 before = usdc.balanceOf(address(this));
+        uint256 before = quote.balanceOf(address(this));
         senior.redeemAtExpiry(seniorShares, address(this));
-        assertGe(usdc.balanceOf(address(this)) - before, 1_049e6);
+        assertGe(quote.balanceOf(address(this)) - before, 1_049e6);
     }
 
     function test_finalizeSettlement_beforeExpiry_reverts() public {
-        vm.expectRevert(RegimeVault.NotExpired.selector);
+        vm.expectRevert(LedgerVault.NotExpired.selector);
         vault.finalizeSettlement();
     }
 
     function test_finalizeSettlement_twice_reverts() public {
-        usdc.mint(address(this), 2_000e6);
-        senior.depositUSDC(1_000e6, address(this));
-        junior.depositUSDC(200e6, address(this));
+        quote.mint(address(this), 2_000e6);
+        junior.depositQuote(400e6, address(this));
+        senior.depositQuote(1_000e6, address(this));
         vm.warp(expiry + 1);
         vault.finalizeSettlement();
-        vm.expectRevert(RegimeVault.AlreadySettled.selector);
+        vm.expectRevert(LedgerVault.AlreadySettled.selector);
         vault.finalizeSettlement();
     }
 
     function test_finalizeSettlement_haircut_unfundedGuarantee() public {
-        usdc.mint(address(this), 30_000e6);
-        senior.depositUSDC(25_000e6, address(this));
+        // Floor-compliant entry (junior-led, >=25% junior): underfunding at entry is now
+        // structurally impossible (floor 25% >> escrow 5%), so manufacture real losses —
+        // swap quote to equity through the controller, then crash equity value.
+        PoolKey memory venueKey = PoolKey({
+            currency0: key.currency0, currency1: key.currency1, fee: 3000, tickSpacing: 60, hooks: IHooks(address(0))
+        });
+        router.initializePool(venueKey, TickMath.getSqrtPriceAtTick(initialTick));
+        quote.mint(address(this), 50_000_000e6);
+        nvda.mint(address(this), 500_000e18);
+        router.addLiquidity(
+            venueKey, initialTick - 600, initialTick + 600, 5e17, type(uint256).max, type(uint256).max, address(this)
+        );
 
-        vm.warp(expiry + 1);
-        vm.expectRevert(RegimeVault.SettlementNotReady.selector);
+        VaultStrategyController controller = new VaultStrategyController(address(this));
+        controller.setVault(address(vault));
+        controller.setAgent(address(this), true);
+        vault.setKeeper(address(controller));
+        _executeKnob(controller, controller.proposeRebalanceVenue(venueKey, address(router)));
+
+        // Floor-compliant book against the seeded 1000e6 idle: junior-led.
+        junior.depositQuote(400e6, address(this));
+        senior.depositQuote(1_000e6, address(this));
+
+        // Destroy quote value TWAP-style: many small swaps into equity (each inside the
+        // 1% oracle floor), then crash equity. Must clear ~1400e6 of quote leg.
+        for (uint256 i = 0; i < 14; ++i) {
+            uint256 chunkOut = vault.quoteToEquity(100e6);
+            controller.submitRebalance(false, 100e6, chunkOut * 99 / 100, block.timestamp + 60);
+        }
+        oracle.updatePrice(1, 2, uint32(block.timestamp), bytes32(0)); // equity value -> ~0
+
+        vm.warp(expiry + 2 days);
+        vm.expectRevert(LedgerVault.SettlementNotReady.selector);
         vault.finalizeSettlement();
 
         vault.finalizeSettlementHaircut();
         assertTrue(vault.settled());
-        assertGe(usdc.balanceOf(address(senior)), 25_000e6);
+        uint256 seniorBal = quote.balanceOf(address(senior));
+        assertGt(seniorBal, 0, "senior salvages the quote remainder");
+        assertLt(seniorBal, 1_050e6, "haircut: guarantee not covered");
     }
 
     // ------------------------------------------------------------------
     // Rebalancing venue
     // ------------------------------------------------------------------
 
-    function test_rebalanceSwap_equityToUsdc() public {
+    function test_rebalanceSwap_equityToQuote() public {
         PoolKey memory venueKey = PoolKey({
             currency0: key.currency0, currency1: key.currency1, fee: 3000, tickSpacing: 60, hooks: IHooks(address(0))
         });
         router.initializePool(venueKey, TickMath.getSqrtPriceAtTick(initialTick));
-        usdc.mint(address(this), 100_000e6);
+        quote.mint(address(this), 100_000e6);
         nvda.mint(address(this), 100e18);
         router.addLiquidity(
             venueKey, initialTick - 6000, initialTick + 6000, 5e13, type(uint256).max, type(uint256).max, address(this)
         );
 
-        vault.setRebalanceVenue(venueKey, address(router));
+        // Swap now lives in the bottom-layer controller; the vault only pulls funds for it.
+        VaultStrategyController controller = new VaultStrategyController(address(this));
+        controller.setVault(address(vault));
+        controller.setAgent(address(this), true);
+        vault.setKeeper(address(controller));
+        _executeKnob(controller, controller.proposeRebalanceVenue(venueKey, address(router)));
         nvda.mint(address(vault), 1e15);
 
-        uint256 before = usdc.balanceOf(address(vault));
-        vm.prank(keeper);
-        vault.rebalanceSwap(true, 1e15, 2_975_000, block.timestamp + 60);
-        assertGt(usdc.balanceOf(address(vault)) - before, 2_970_000);
+        uint256 before = quote.balanceOf(address(vault));
+        controller.submitRebalance(true, 1e15, 2_975_000, block.timestamp + 60);
+        assertGt(quote.balanceOf(address(vault)) - before, 2_970_000);
     }
 }
 

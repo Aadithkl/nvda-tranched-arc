@@ -14,16 +14,18 @@ import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { PoolGuardHook } from "../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../src/vaults/LedgerVault.sol";
+import { LedgerEntry7575 } from "../src/vaults/LedgerEntry7575.sol";
 import { VaultStrategyController } from "../src/strategy/VaultStrategyController.sol";
 import { VaultStrategyAgent } from "../src/strategy/VaultStrategyAgent.sol";
+import { StrategyModule } from "../src/adapters/StrategyModule.sol";
 import { TrancheAccountant } from "../src/vaults/TrancheAccountant.sol";
 import { SeniorVault } from "../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../src/vaults/JuniorVault.sol";
 import { HookShareToken } from "../src/core/HookShareToken.sol";
 import { IHookSharePipe } from "../src/interfaces/IHookSharePipe.sol";
 
-/// @notice Static-fee book, full stack: simulator + guard hook (mined) + combined RegimeVault
+/// @notice Static-fee book, full stack: simulator + guard hook (mined) + combined LedgerVault
 ///         (hook owner, share issuer, NAV, pipe, settlement, allocator) + accountant + tranches.
 ///         Pool initialization is opt-in (`STATIC_INIT_BOOK`) because it deploys the bands and
 ///         therefore needs the vault to hold the bootstrap inventory first.
@@ -34,21 +36,87 @@ contract DeployStaticStack is Script {
     uint160 internal constant HOOK_FLAGS = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
 
     function run() external {
+        vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
-        address poolManager = vm.envAddress("V4_POOL_MANAGER");
-        address usdc = vm.envAddress("USDC_ADDRESS");
+        (LedgerVault vault, PoolKey memory key, int24 initialTick, bool initBook, uint64 expiry) = _deployCore(deployer);
+        VaultStrategyController controller = _deployControl(address(vault), deployer);
+        _deployTranches(address(vault), deployer, expiry);
+        vault.setExitFees(
+            uint16(vm.envOr("STATIC_EXIT_FEE_BPS", uint256(20))), uint16(vm.envOr("STATIC_MAX_FINE_BPS", uint256(30)))
+        );
+        _bootstrapStack(vault, deployer);
+        _wireStrategy(vault, controller);
+        if (initBook) vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
+        vm.stopBroadcast();
+        console2.log("BookInitialized:", initBook);
+    }
+
+    function _deployCore(address deployer)
+        internal
+        returns (LedgerVault vault, PoolKey memory key, int24 initialTick, bool initBook, uint64 expiry)
+    {
+        address quote = vm.envAddress("QUOTE_ADDRESS");
         address nvda = vm.envAddress("NVDA_ADDRESS");
-        address priceOracle = vm.envOr("NVDA_ORACLE", address(0));
+        address hook;
+        (hook, key) = _mineHook(deployer, quote, nvda);
+        expiry = uint64(vm.envOr("STATIC_EXPIRY", uint256(0)));
+        initialTick = int24(vm.envInt("STATIC_INITIAL_TICK"));
+        initBook = vm.envOr("STATIC_INIT_BOOK", false);
+        vault = new LedgerVault(
+            IPoolManager(vm.envAddress("V4_POOL_MANAGER")),
+            PoolGuardHook(hook),
+            key,
+            IERC20(quote),
+            IERC20(nvda),
+            _envOracle(),
+            expiry,
+            deployer
+        );
+        PoolGuardHook(hook).setVault(address(vault));
+        PoolGuardHook(hook).transferOwnership(address(vault));
+        vault.acceptHookOwnership();
+        vault.setGuardParams(_guardParams());
+        console2.log("PoolGuardHook:", hook);
+        console2.log("LedgerVault:", address(vault));
+        console2.log("PoolId:", vm.toString(PoolId.unwrap(key.toId())));
+        console2.log("Expiry:", expiry);
+    }
+
+    function _mineHook(address deployer, address quote, address nvda)
+        internal
+        returns (address hook, PoolKey memory key)
+    {
+        address priceOracle = _envOracle();
+        address simulator = vm.envOr("STATIC_SIMULATOR", address(0));
+        if (simulator == address(0)) simulator = address(new PoolGuardSimulator());
+        bytes memory hookArgs = abi.encode(
+            IPoolManager(vm.envAddress("V4_POOL_MANAGER")), simulator, priceOracle, nvda, address(0), deployer
+        );
+        bytes memory initcode = abi.encodePacked(type(PoolGuardHook).creationCode, hookArgs);
+        (address expectedHook, bytes32 salt) =
+            HookMiner.find(CREATE2_DEPLOYER, HOOK_FLAGS, type(PoolGuardHook).creationCode, hookArgs);
+        hook = _create2(salt, initcode);
+        require(hook == expectedHook, "hook address mismatch");
+        require((uint160(hook) >> 152) != uint160(0x91), "hook prefix 0x91");
+        key = PoolKey({
+            currency0: Currency.wrap(quote < nvda ? quote : nvda),
+            currency1: Currency.wrap(quote < nvda ? nvda : quote),
+            fee: uint24(vm.envOr("STATIC_FEE", uint256(3_000))),
+            tickSpacing: int24(vm.envOr("STATIC_TICK_SPACING", int256(60))),
+            hooks: IHooks(hook)
+        });
+        console2.log("PoolGuardSimulator:", simulator);
+        console2.log("HookSalt:", vm.toString(salt));
+        console2.log("PriceOracle:", priceOracle);
+    }
+
+    function _envOracle() internal view returns (address priceOracle) {
+        priceOracle = vm.envOr("NVDA_ORACLE", address(0));
         if (priceOracle == address(0)) priceOracle = vm.envAddress("HOOK_DEMO_ORACLE");
-        address operator = vm.envOr("AGENT_OPERATOR_ADDRESS", deployer);
+    }
 
-        uint24 staticFee = uint24(vm.envOr("STATIC_FEE", uint256(3_000)));
-        int24 tickSpacing = int24(vm.envOr("STATIC_TICK_SPACING", int256(60)));
-        int24 initialTick = int24(vm.envInt("STATIC_INITIAL_TICK"));
-        uint64 expiry = uint64(vm.envOr("STATIC_EXPIRY", uint256(0)));
-        bool initBook = vm.envOr("STATIC_INIT_BOOK", false);
-
-        GuardParams.Params memory params = GuardParams.Params({
+    function _guardParams() internal view returns (GuardParams.Params memory params) {
+        params = GuardParams.Params({
             guardTickWidth: int24(vm.envOr("STATIC_GUARD_TICK_WIDTH", int256(600))),
             baseTickWidth: int24(vm.envOr("STATIC_BASE_TICK_WIDTH", int256(6_000))),
             guardLiquidity: uint128(vm.envOr("STATIC_GUARD_LIQUIDITY", uint256(50e12))),
@@ -59,106 +127,88 @@ contract DeployStaticStack is Script {
             maxPriceAge: uint32(vm.envOr("STATIC_MAX_PRICE_AGE", uint256(300))),
             allowedSessionsMask: uint8(vm.envOr("STATIC_ALLOWED_SESSIONS_MASK", uint256(0)))
         });
+    }
 
-        vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
-
-        address simulator = vm.envOr("STATIC_SIMULATOR", address(0));
-        if (simulator == address(0)) simulator = address(new PoolGuardSimulator());
-
-        bytes memory hookArgs =
-            abi.encode(IPoolManager(poolManager), simulator, priceOracle, nvda, address(0), deployer);
-        bytes memory initcode = abi.encodePacked(type(PoolGuardHook).creationCode, hookArgs);
-        (address expectedHook, bytes32 salt) =
-            HookMiner.find(CREATE2_DEPLOYER, HOOK_FLAGS, type(PoolGuardHook).creationCode, hookArgs);
-        address hook = _create2(salt, initcode);
-        require(hook == expectedHook, "hook address mismatch");
-        require((uint160(hook) >> 152) != uint160(0x91), "hook prefix 0x91");
-
-        address token0 = usdc < nvda ? usdc : nvda;
-        address token1 = usdc < nvda ? nvda : usdc;
-        PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(token0),
-            currency1: Currency.wrap(token1),
-            fee: staticFee,
-            tickSpacing: tickSpacing,
-            hooks: IHooks(hook)
-        });
-
-        RegimeVault vault = new RegimeVault(
-            IPoolManager(poolManager),
-            PoolGuardHook(hook),
-            key,
-            IERC20(usdc),
-            IERC20(nvda),
-            priceOracle,
-            expiry,
-            deployer
-        );
-
-        PoolGuardHook(hook).setVault(address(vault));
-        PoolGuardHook(hook).transferOwnership(address(vault));
-        vault.acceptHookOwnership();
-        vault.setGuardParams(params);
-
-        VaultStrategyController controller = new VaultStrategyController(deployer);
+    function _deployControl(address vaultAddr, address deployer) internal returns (VaultStrategyController controller) {
+        address operator = vm.envOr("AGENT_OPERATOR_ADDRESS", deployer);
+        controller = new VaultStrategyController(deployer);
         VaultStrategyAgent agent = new VaultStrategyAgent(deployer, operator, address(controller));
-        controller.setVault(address(vault));
+        controller.setVault(vaultAddr);
         controller.setAgent(address(agent), true);
-        vault.setKeeper(address(controller));
+        LedgerVault(vaultAddr).setKeeper(address(controller));
+        console2.log("VaultStrategyController:", address(controller));
+        console2.log("VaultStrategyAgent:", address(agent));
+        console2.log("Keeper/Operator:", operator);
+    }
 
+    function _deployTranches(address vaultAddr, address deployer, uint64 expiry) internal {
+        address quote = vm.envAddress("QUOTE_ADDRESS");
+        address nvda = vm.envAddress("NVDA_ADDRESS");
         TrancheAccountant accountant = new TrancheAccountant(deployer);
-        accountant.setKeeper(operator);
-        HookShareToken share = vault.shareToken();
+        accountant.setKeeper(vm.envOr("AGENT_OPERATOR_ADDRESS", deployer));
+        HookShareToken share = LedgerVault(vaultAddr).shareToken();
         SeniorVault senior = new SeniorVault(
             IERC20(address(share)),
-            IERC20(usdc),
+            IERC20(quote),
             IERC20(nvda),
-            IHookSharePipe(address(vault)),
+            IHookSharePipe(address(vaultAddr)),
             deployer,
             address(accountant),
             expiry
         );
         JuniorVault junior = new JuniorVault(
             IERC20(address(share)),
-            IERC20(usdc),
+            IERC20(quote),
             IERC20(nvda),
-            IHookSharePipe(address(vault)),
+            IHookSharePipe(address(vaultAddr)),
             deployer,
             address(accountant),
             expiry
         );
-        accountant.setHook(address(vault));
+        accountant.setHook(vaultAddr);
         accountant.setVaults(address(senior), address(junior));
-        vault.setAccountant(address(accountant));
-
-        if (initBook) {
-            vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
-        }
-
-        vm.stopBroadcast();
-
-        console2.log("PoolGuardSimulator:", simulator);
-        console2.log("PoolGuardHook:", hook);
-        console2.log("HookSalt:", vm.toString(salt));
-        console2.log("RegimeVault:", address(vault));
-        console2.log("HookShareToken:", address(share));
-        console2.log("PoolId:", vm.toString(PoolId.unwrap(key.toId())));
-        console2.log("Fee (static):", staticFee);
-        console2.log("TickSpacing:", tickSpacing);
-        console2.log("GuardTickWidth:", params.guardTickWidth);
-        console2.log("BaseTickWidth:", params.baseTickWidth);
-        console2.log("GuardLiquidity:", params.guardLiquidity);
-        console2.log("BaseLiquidity:", params.baseLiquidity);
-        console2.log("RecheckInterval:", params.recheckInterval);
+        LedgerVault(vaultAddr).setAccountant(address(accountant));
+        LedgerEntry7575 entry = new LedgerEntry7575(vaultAddr);
+        LedgerVault(vaultAddr).setShareVault(address(entry));
         console2.log("TrancheAccountant:", address(accountant));
         console2.log("SeniorVault:", address(senior));
         console2.log("JuniorVault:", address(junior));
-        console2.log("VaultStrategyController:", address(controller));
-        console2.log("VaultStrategyAgent:", address(agent));
-        console2.log("Keeper/Operator:", operator);
-        console2.log("Expiry:", expiry);
-        console2.log("PriceOracle:", priceOracle);
-        console2.log("BookInitialized:", initBook);
+        console2.log("LedgerEntry7575:", address(entry));
+        console2.log("HookShareToken:", address(share));
+    }
+
+    /// @notice Pre-mine invariant (anti-inflation-attack): the book must never start from
+    ///         dust. Wraps 0.1 quote units (10**(decimals-1): $0.10 on a 6-dec book, 0.1 WETH
+    ///         on an 18-dec book) from the deployer, who keeps the bootstrap shares. Deployer
+    ///         must hold the quote and the vault needs a live oracle (wrap reverts on
+    ///         invalid mid). Set STATIC_BOOTSTRAP=false to skip (not for production books).
+    function _bootstrapStack(LedgerVault vault, address deployer) internal {
+        if (!vm.envOr("STATIC_BOOTSTRAP", true)) return;
+        address quote = vm.envAddress("QUOTE_ADDRESS");
+        uint8 quoteDec = vault.quoteDecimals();
+        require(quoteDec > 0, "bootstrap: bad quote decimals");
+        uint256 bootAmount = 10 ** (quoteDec - 1);
+        require(IERC20(quote).balanceOf(deployer) >= bootAmount, "bootstrap: fund deployer with quote");
+        IERC20(quote).approve(address(vault), bootAmount);
+        uint256 bootShares = vault.wrapQuote(bootAmount, deployer);
+        console2.log("BootstrapQuote:", bootAmount);
+        console2.log("BootstrapShares:", bootShares);
+    }
+
+    /// @notice Optional bottom-layer strategy wiring (env-gated). When STRATEGY_MODULE_ADDRESS
+    ///         is set, hooks the quote-asset Morpho module up so the controller can allocate
+    ///         (allocator) and de-risk (sentinel). The module must still be deployer-owned at
+    ///         this point; adapter lifecycle (submit/disable) stays owner-direct on the module.
+    ///         Book registry (setBooks) is wired post-deploy once the second hook exists.
+    function _wireStrategy(LedgerVault vault, VaultStrategyController controller) internal {
+        address strategyModule = vm.envOr("STRATEGY_MODULE_ADDRESS", address(0));
+        if (strategyModule == address(0)) return;
+        StrategyModule(strategyModule).setVault(address(vault));
+        StrategyModule(strategyModule).setAllocator(address(controller));
+        StrategyModule(strategyModule).setSentinel(address(controller));
+        vault.setStrategyModule(strategyModule);
+        controller.setStrategyModule(strategyModule);
+        console2.log("StrategyModule:", strategyModule);
     }
 
     function _create2(bytes32 salt, bytes memory initcode) internal returns (address expected) {

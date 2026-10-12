@@ -16,7 +16,7 @@ import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
 import { StrategyModule } from "../../src/adapters/StrategyModule.sol";
 import { ERC4626Adapter } from "../../src/adapters/ERC4626Adapter.sol";
 import { MorphoBlueLendAdapter } from "../../src/adapters/MorphoBlueLendAdapter.sol";
@@ -24,11 +24,12 @@ import { MorphoLoopAdapter } from "../../src/adapters/MorphoLoopAdapter.sol";
 import { IStrategyAdapter } from "../../src/adapters/IStrategyAdapter.sol";
 import { IMorpho } from "../../src/adapters/IMorpho.sol";
 import { MockMorpho } from "../../src/test-only/MockMorpho.sol";
+import { MockAccountant } from "../../src/test-only/MockAccountant.sol";
 import { MockERC4626 } from "../../src/test-only/MockERC4626.sol";
 import { MockVaultBase, MockMorphoOracle } from "../../src/test-only/MockStrategyFakes.sol";
 
 contract StrategyModuleTest is Test {
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     StrategyModule internal module;
@@ -40,20 +41,20 @@ contract StrategyModuleTest is Test {
     address internal sentinel = makeAddr("sentinel");
 
     function setUp() public {
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
-        module = new StrategyModule(address(this), address(usdc));
-        mockVault = new MockVaultBase(address(usdc), address(module));
+        module = new StrategyModule(address(this), address(quote));
+        mockVault = new MockVaultBase(address(quote), address(module));
         module.setVault(address(mockVault));
         module.setAllocator(allocator);
         module.setSentinel(sentinel);
         module.setTimelock(0);
 
-        venue4626 = new MockERC4626(address(usdc));
-        lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(usdc));
+        venue4626 = new MockERC4626(address(quote));
+        lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(quote));
 
-        usdc.mint(address(mockVault), 10_000e6);
+        quote.mint(address(mockVault), 10_000e6);
         mockVault.setBaseAssets(10_000e6);
     }
 
@@ -121,14 +122,14 @@ contract StrategyModuleTest is Test {
         vm.prank(allocator);
         module.allocate(address(lendAdapter), 500e6);
 
-        assertEq(usdc.balanceOf(address(venue4626)), 500e6);
+        assertEq(quote.balanceOf(address(venue4626)), 500e6);
         assertEq(lendAdapter.realAssets(), 500e6);
         assertEq(module.totalAssets(), 500e6);
 
         vm.prank(allocator);
         uint256 got = module.deallocate(address(lendAdapter), 200e6);
         assertEq(got, 200e6);
-        assertEq(usdc.balanceOf(address(mockVault)), 9_700e6);
+        assertEq(quote.balanceOf(address(mockVault)), 9_700e6);
         assertEq(lendAdapter.realAssets(), 300e6);
     }
 
@@ -162,8 +163,8 @@ contract StrategyModuleTest is Test {
     }
 
     function test_pullToVault_routing() public {
-        MockERC4626 venueB = new MockERC4626(address(usdc));
-        ERC4626Adapter adapterB = new ERC4626Adapter(address(module), address(venueB), address(usdc));
+        MockERC4626 venueB = new MockERC4626(address(quote));
+        ERC4626Adapter adapterB = new ERC4626Adapter(address(module), address(venueB), address(quote));
 
         _enableLendAdapter();
         module.submitAdapter(address(adapterB), true, false, 5_000e6, 9_000);
@@ -174,12 +175,12 @@ contract StrategyModuleTest is Test {
         module.allocate(address(adapterB), 400e6);
         vm.stopPrank();
 
-        uint256 vaultBefore = usdc.balanceOf(address(mockVault));
+        uint256 vaultBefore = quote.balanceOf(address(mockVault));
         vm.prank(address(mockVault));
         uint256 pulled = module.pullToVault(250e6);
 
         assertEq(pulled, 250e6);
-        assertEq(usdc.balanceOf(address(mockVault)) - vaultBefore, 250e6);
+        assertEq(quote.balanceOf(address(mockVault)) - vaultBefore, 250e6);
         assertEq(lendAdapter.realAssets(), 0);
         assertEq(adapterB.realAssets(), 250e6);
     }
@@ -190,7 +191,7 @@ contract StrategyModuleTest is Test {
 
     function _morphoMarketParams(address oracle) internal view returns (IMorpho.MarketParams memory) {
         return IMorpho.MarketParams({
-            loanToken: address(usdc), collateralToken: address(nvda), oracle: oracle, irm: address(0), lltv: 0.86e18
+            loanToken: address(quote), collateralToken: address(nvda), oracle: oracle, irm: address(0), lltv: 0.86e18
         });
     }
 
@@ -198,24 +199,24 @@ contract StrategyModuleTest is Test {
         MockMorpho morpho = new MockMorpho();
         MockMorphoOracle oracle = new MockMorphoOracle(2e27);
         MorphoBlueLendAdapter adapter = new MorphoBlueLendAdapter(
-            address(module), address(morpho), _morphoMarketParams(address(oracle)), address(usdc)
+            address(module), address(morpho), _morphoMarketParams(address(oracle)), address(quote)
         );
 
         module.submitAdapter(address(adapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(adapter));
-        usdc.mint(address(mockVault), 200_000e6);
+        quote.mint(address(mockVault), 200_000e6);
         mockVault.setBaseAssets(200_000e6);
 
         vm.prank(allocator);
         module.allocate(address(adapter), 100_000e6);
 
         assertApproxEqRel(adapter.realAssets(), 100_000e6, 0.001e18);
-        assertEq(usdc.balanceOf(address(morpho)), 100_000e6);
+        assertEq(quote.balanceOf(address(morpho)), 100_000e6);
 
         vm.prank(allocator);
         uint256 got = module.deallocate(address(adapter), 10_000e6);
         assertApproxEqAbs(got, 10_000e6, 2);
-        assertEq(usdc.balanceOf(address(mockVault)), 210_000e6 - 100_000e6 + got);
+        assertEq(quote.balanceOf(address(mockVault)), 210_000e6 - 100_000e6 + got);
     }
 
     // ------------------------------------------------------------------
@@ -226,7 +227,7 @@ contract StrategyModuleTest is Test {
         MockMorpho morpho = new MockMorpho();
         MockMorphoOracle oracle = new MockMorphoOracle(2e27); // $2000 NVDA, loan 6-dec, coll 18-dec
         IMorpho.MarketParams memory params = _morphoMarketParams(address(oracle));
-        loop = new MorphoLoopAdapter(address(module), address(morpho), params, address(usdc), 6_000, 1.2e18);
+        loop = new MorphoLoopAdapter(address(module), address(morpho), params, address(quote), 6_000, 1.2e18);
         module.submitAdapter(address(loop), false, true, 1_000_000e6, 9_000);
         module.executeAdapter(address(loop));
         nvda.mint(address(mockVault), 10e18);
@@ -234,8 +235,8 @@ contract StrategyModuleTest is Test {
         nvda.approve(address(module), type(uint256).max);
 
         // Seed the market with loan-side liquidity so the sleeve can borrow.
-        usdc.mint(address(this), 10_000e6);
-        usdc.approve(address(morpho), type(uint256).max);
+        quote.mint(address(this), 10_000e6);
+        quote.approve(address(morpho), type(uint256).max);
         morpho.supply(params, 10_000e6, 0, address(this), "");
     }
 
@@ -252,7 +253,7 @@ contract StrategyModuleTest is Test {
         // 60% of 86% LLTV of $2000 collateral = $1032 max debt
         vm.prank(allocator);
         module.borrow(address(loop), 500e6);
-        assertEq(usdc.balanceOf(address(mockVault)), 10_000e6 + 500e6);
+        assertEq(quote.balanceOf(address(mockVault)), 10_000e6 + 500e6);
         assertApproxEqAbs(loop.debt(), 500e6, 2e6);
         assertApproxEqAbs(loop.healthFactor(), 3.44e18, 0.01e18);
 
@@ -260,11 +261,11 @@ contract StrategyModuleTest is Test {
         vm.expectRevert();
         module.borrow(address(loop), 600e6);
 
-        uint256 vaultBefore = usdc.balanceOf(address(mockVault));
+        uint256 vaultBefore = quote.balanceOf(address(mockVault));
         vm.prank(allocator);
         module.deleverage(address(loop), 200e6, 0.5e18);
 
-        assertEq(usdc.balanceOf(address(mockVault)), vaultBefore - 200e6);
+        assertEq(quote.balanceOf(address(mockVault)), vaultBefore - 200e6);
         assertApproxEqAbs(loop.debt(), 300e6, 2e6);
         assertEq(loop.collateralBalance(), 0.5e18);
     }
@@ -293,14 +294,14 @@ contract StrategyModuleTest is Test {
         assertEq(loop.debt(), 0);
         assertEq(nvda.balanceOf(address(mockVault)), 10e18);
         // vault paid back the 500e6 debt from its own (borrowed) balance
-        assertApproxEqAbs(usdc.balanceOf(address(mockVault)), 10_000e6, 10);
+        assertApproxEqAbs(quote.balanceOf(address(mockVault)), 10_000e6, 10);
     }
 
     // ------------------------------------------------------------------
     // Real vault integration
     // ------------------------------------------------------------------
 
-    RegimeVault internal vault;
+    LedgerVault internal vault;
     PoolGuardHook internal hook;
     PoolGuardSimulator internal simulator;
     NVDAPriceOracle internal oracle;
@@ -314,9 +315,9 @@ contract StrategyModuleTest is Test {
         oracle.setMaxStaleness(1 hours);
         oracle.updatePrice(200e8, 2, uint32(block.timestamp), bytes32(0));
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
-        int24 initialTick = token0 == address(usdc) ? int24(196260) : int24(-196260);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
+        int24 initialTick = token0 == address(quote) ? int24(196260) : int24(-196260);
 
         uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
         bytes memory args = abi.encode(manager, simulator, address(oracle), address(nvda), address(0), address(this));
@@ -335,8 +336,8 @@ contract StrategyModuleTest is Test {
             hooks: IHooks(address(hook))
         });
 
-        vault = new RegimeVault(
-            manager, hook, key, IERC20(address(usdc)), IERC20(address(nvda)), address(oracle), 0, address(this)
+        vault = new LedgerVault(
+            manager, hook, key, IERC20(address(quote)), IERC20(address(nvda)), address(oracle), 0, address(this)
         );
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
@@ -355,11 +356,13 @@ contract StrategyModuleTest is Test {
             })
         );
         // Zero-NAV bootstrap so share granularity stays fine for later deposits.
-        usdc.mint(address(this), 200e6);
-        usdc.approve(address(vault), type(uint256).max);
-        vault.wrapUSDC(100e6, address(this));
+        // Wrap doors admit registered tranches only (D2) — gate at this test contract.
+        vault.setAccountant(address(new MockAccountant(address(this), address(this))));
+        quote.mint(address(this), 200e6);
+        quote.approve(address(vault), type(uint256).max);
+        vault.wrapQuote(100e6, address(this));
 
-        usdc.mint(address(vault), 100e6);
+        quote.mint(address(vault), 100e6);
         nvda.mint(address(vault), 1e18);
         vault.fundHook(40e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
@@ -374,7 +377,7 @@ contract StrategyModuleTest is Test {
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
 
-        usdc.mint(address(vault), 1_000e6);
+        quote.mint(address(vault), 1_000e6);
         uint256 baseBefore = vault.baseManagedAssets();
 
         vm.prank(allocator);
@@ -385,20 +388,20 @@ contract StrategyModuleTest is Test {
         assertEq(module.totalAssets(), 400e6);
 
         // Wrap shares, then drain the vault into the strategy so the redemption must route there.
-        usdc.mint(address(this), 1_000e6);
-        usdc.approve(address(vault), type(uint256).max);
-        uint256 shares = vault.wrapUSDC(1_000e6, address(this));
+        quote.mint(address(this), 1_000e6);
+        quote.approve(address(vault), type(uint256).max);
+        uint256 shares = vault.wrapQuote(1_000e6, address(this));
 
-        uint256 toDrain = usdc.balanceOf(address(vault));
+        uint256 toDrain = quote.balanceOf(address(vault));
         vm.prank(allocator);
         module.allocate(address(lendAdapter), toDrain);
-        assertEq(usdc.balanceOf(address(vault)), 0);
+        assertEq(quote.balanceOf(address(vault)), 0);
         uint256 allocated = 400e6 + toDrain;
 
-        uint256 balanceBefore = usdc.balanceOf(address(this));
-        uint256 out = vault.unwrapUSDC(shares, address(this), 0);
+        uint256 balanceBefore = quote.balanceOf(address(this));
+        uint256 out = vault.unwrapQuote(shares, address(this), 0);
 
-        assertApproxEqAbs(usdc.balanceOf(address(this)) - balanceBefore, 1_000e6, 2e6);
+        assertApproxEqAbs(quote.balanceOf(address(this)) - balanceBefore, 1_000e6, 2e6);
         assertGt(out, 0);
         assertLt(lendAdapter.realAssets(), allocated, "redemption pulled from the strategy");
 

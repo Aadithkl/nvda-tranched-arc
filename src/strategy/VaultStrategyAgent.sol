@@ -6,7 +6,7 @@ import { VaultStrategyController } from "./VaultStrategyController.sol";
 
 /// @notice Operator-key call surface for `VaultStrategyController`. The offchain agent holds only
 ///         the operator key; the controller enforces bounds and can be whitelisted on the
-///         `RegimeVault` as its keeper.
+///         `LedgerVault` as its keeper.
 contract VaultStrategyAgent {
     address public owner;
     address public pendingOwner;
@@ -23,6 +23,16 @@ contract VaultStrategyAgent {
     event RecallSubmitted();
     event FundSubmitted(uint256 quoteAmount, uint256 equityAmount);
     event RebalanceSubmitted(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline);
+    event AllocateSubmitted(address adapter, uint256 amount);
+    event DeallocateSubmitted(address adapter, uint256 withdrawn);
+    event RepaySubmitted(address adapter, uint256 amount);
+    event DeleverageSubmitted(address adapter, uint256 repayAmount, uint256 collateralWithdrawn);
+    event SwitchStaged(uint8 toBook);
+    event AdapterDisabledSubmitted(address adapter);
+    event CapsLoweredSubmitted(address adapter, uint256 absoluteCap, uint16 relativeCapBps);
+    event PendingCancelledSubmitted(address adapter);
+    event CollateralAllocatedSubmitted(address adapter, uint256 amount);
+    event BorrowSubmitted(address adapter, uint256 amount);
 
     error NotOwner(address caller);
     error NotPendingOwner(address caller);
@@ -102,5 +112,55 @@ contract VaultStrategyAgent {
     function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline) external onlyOperator {
         controller.submitRebalance(equityOut, amountIn, minOut, deadline);
         emit RebalanceSubmitted(equityOut, amountIn, minOut, deadline);
+    }
+
+    function submitAllocate(address adapter, uint256 amount) external onlyOperator {
+        controller.submitAllocate(adapter, amount);
+        emit AllocateSubmitted(adapter, amount);
+    }
+
+    function submitDeallocate(address adapter, uint256 amount) external onlyOperator returns (uint256 withdrawn) {
+        withdrawn = controller.submitDeallocate(adapter, amount);
+        emit DeallocateSubmitted(adapter, withdrawn);
+    }
+
+    function submitRepay(address adapter, uint256 amount) external onlyOperator {
+        controller.submitRepay(adapter, amount);
+        emit RepaySubmitted(adapter, amount);
+    }
+
+    function submitDeleverage(address adapter, uint256 repayAmount, uint256 collateralWithdrawn) external onlyOperator {
+        controller.submitDeleverage(adapter, repayAmount, collateralWithdrawn);
+        emit DeleverageSubmitted(adapter, repayAmount, collateralWithdrawn);
+    }
+
+    function submitSwitchBook(uint8 toBook) external onlyOperator {
+        controller.submitSwitchBook(toBook);
+        emit SwitchStaged(toBook);
+    }
+
+    function submitDisableAdapter(address adapter) external onlyOperator {
+        controller.submitDisableAdapter(adapter);
+        emit AdapterDisabledSubmitted(adapter);
+    }
+
+    function submitLowerCaps(address adapter, uint256 absoluteCap, uint16 relativeCapBps) external onlyOperator {
+        controller.submitLowerCaps(adapter, absoluteCap, relativeCapBps);
+        emit CapsLoweredSubmitted(adapter, absoluteCap, relativeCapBps);
+    }
+
+    function submitCancelPending(address adapter) external onlyOperator {
+        controller.submitCancelPending(adapter);
+        emit PendingCancelledSubmitted(adapter);
+    }
+
+    function submitAllocateCollateral(address adapter, uint256 amount) external onlyOperator {
+        controller.submitAllocateCollateral(adapter, amount);
+        emit CollateralAllocatedSubmitted(adapter, amount);
+    }
+
+    function submitBorrow(address adapter, uint256 amount) external onlyOperator {
+        controller.submitBorrow(adapter, amount);
+        emit BorrowSubmitted(adapter, amount);
     }
 }

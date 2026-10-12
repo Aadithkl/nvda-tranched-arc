@@ -17,7 +17,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     using SafeERC20 for IERC20;
     using Math for uint256;
 
-    IERC20 public immutable usdc;
+    IERC20 public immutable quote;
     IERC20 public immutable equity;
     IHookShareToken public immutable hookShare;
     IHookSharePipe public immutable pipe;
@@ -33,7 +33,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     bool public matured;
     uint256 public settledAt;
-    uint256 public usdcPerShare1e18;
+    uint256 public quotePerShare1e18;
     uint256 public equityPerShare1e18;
     uint256 private _pendingMaturedShares;
 
@@ -44,18 +44,18 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     event DepositsPausedSet(bool paused);
     event MaxTotalAssetsUpdated(uint256 maxTotalAssets);
     event SharesMoved(address indexed to, uint256 amount);
-    event UsdcDeposited(address indexed caller, address indexed receiver, uint256 usdcAmount, uint256 shares);
-    event UsdcUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount);
+    event QuoteDeposited(address indexed caller, address indexed receiver, uint256 quoteAmount, uint256 shares);
+    event QuoteUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 quoteAmount);
     event EquityUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 equityAmount);
     event ProportionalUnwrapped(
-        address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount, uint256 equityAmount
+        address indexed caller, address indexed receiver, uint256 shares, uint256 quoteAmount, uint256 equityAmount
     );
     event ExpirySet(uint64 expiry);
     event SettlementCredited(
-        uint256 usdcAmount, uint256 equityAmount, uint256 usdcPerShare1e18, uint256 equityPerShare1e18
+        uint256 quoteAmount, uint256 equityAmount, uint256 quotePerShare1e18, uint256 equityPerShare1e18
     );
     event MaturedRedeem(
-        address indexed caller, address indexed receiver, uint256 shares, uint256 usdcAmount, uint256 equityAmount
+        address indexed caller, address indexed receiver, uint256 shares, uint256 quoteAmount, uint256 equityAmount
     );
     event MaturedRedeemFulfilled(address indexed user, uint256 shares);
 
@@ -68,12 +68,13 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     error ZeroAmount();
     error DepositCapExceeded(uint256 assets, uint256 maxAssets);
     error DepositsPaused();
-    error SeniorUsdcOnly();
+    error FloorBreach(uint256 juniorBal, uint256 seniorBal);
+    error SeniorQuoteOnly();
     error Expired();
     error Matured();
     error NotMatured();
     error SettlementAlreadyCredited();
-    error SlippageExceeded(uint256 usdcAmount, uint256 equityAmount, uint256 minUsdcOut, uint256 minEquityOut);
+    error SlippageExceeded(uint256 quoteAmount, uint256 equityAmount, uint256 minQuoteOut, uint256 minEquityOut);
     error NothingPendingRedeem();
     error NothingToClaim();
 
@@ -91,7 +92,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         string memory name_,
         string memory symbol_,
         IERC20 asset_,
-        IERC20 usdc_,
+        IERC20 quote_,
         IERC20 equity_,
         IHookSharePipe pipe_,
         bool isSenior_,
@@ -99,10 +100,10 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         address accountant_,
         uint64 expiry_
     ) ERC20(name_, symbol_) ERC7540(asset_) {
-        if (address(usdc_) == address(0) || address(equity_) == address(0) || address(pipe_) == address(0)) {
+        if (address(quote_) == address(0) || address(equity_) == address(0) || address(pipe_) == address(0)) {
             revert ZeroAddress();
         }
-        usdc = usdc_;
+        quote = quote_;
         equity = equity_;
         hookShare = IHookShareToken(address(asset_));
         pipe = pipe_;
@@ -166,33 +167,56 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         emit SharesMoved(to, amount);
     }
 
-    function depositUSDC(uint256 usdcAmount, address receiver) external nonReentrant returns (uint256 shares) {
-        if (usdcAmount == 0) revert ZeroAmount();
+    function depositQuote(uint256 quoteAmount, address receiver) external nonReentrant returns (uint256 shares) {
+        if (quoteAmount == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
         if (expired()) revert Expired();
         if (depositsPaused) revert DepositsPaused();
 
         uint256 cap = maxTotalAssets;
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-        usdc.forceApprove(address(pipe), usdcAmount);
-        uint256 assets = pipe.wrapUSDC(usdcAmount, address(this));
+        quote.safeTransferFrom(msg.sender, address(this), quoteAmount);
+        quote.forceApprove(address(pipe), quoteAmount);
+        uint256 assets = pipe.wrapQuote(quoteAmount, address(this));
 
         // Re-check the cap against post-wrap state so a reentrant or upgraded pipe cannot bypass it
         // with the pre-call snapshot (Slither reentrancy-balance).
         if (cap != 0 && totalAssets() > cap) revert DepositCapExceeded(totalAssets(), cap);
 
+        // Senior deposits must preserve the junior buffer floor (Centrifuge-style min
+        // subordination, hook-share integer math, no oracle). Junior deposits only raise
+        // the fraction, so they skip the check. Reverts roll everything back atomically.
+        if (isSenior) _checkDepositFloor();
+
         uint256 assetsBefore = totalAssets() - assets;
         shares = assets.mulDiv(totalSupply() + 10 ** _decimalsOffset(), assetsBefore + 1, Math.Rounding.Floor);
         _mint(receiver, shares);
         emit Deposit(msg.sender, receiver, assets, shares);
-        emit UsdcDeposited(msg.sender, receiver, usdcAmount, shares);
+        emit QuoteDeposited(msg.sender, receiver, quoteAmount, shares);
         _notifyDeposit(assets);
     }
 
     function deposit(uint256 assets, address receiver) public virtual override nonReentrant returns (uint256 shares) {
         if (expired()) revert Expired();
         shares = super.deposit(assets, receiver);
+        if (isSenior) _checkDepositFloor();
         _notifyDeposit(assets);
+    }
+
+    /// @notice Post-deposit junior-buffer check for senior money: junior hook backing must be
+    ///         at least the floor fraction of combined backing. Genesis must therefore be
+    ///         junior-led — the first deposit ever can only succeed on the junior side.
+    function _checkDepositFloor() internal view {
+        address acct = accountant;
+        if (acct == address(0)) return;
+        ITrancheAccountant accountant_ = ITrancheAccountant(acct);
+        uint256 floor = accountant_.minJuniorFloorBps();
+        if (floor == 0) return;
+        address seniorVault = accountant_.seniorVault();
+        address juniorVault = accountant_.juniorVault();
+        if (seniorVault == address(0) || juniorVault == address(0)) return;
+        uint256 juniorBal = IERC20(address(hookShare)).balanceOf(juniorVault);
+        uint256 seniorBal = IERC20(address(hookShare)).balanceOf(seniorVault);
+        if (juniorBal * 10_000 < floor * (juniorBal + seniorBal)) revert FloorBreach(juniorBal, seniorBal);
     }
 
     function _notifyDeposit(uint256 hookShares) internal {
@@ -212,7 +236,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     /// @dev Fulfilled redemption assets leave the vault only when the user claims. Report the
     ///      claim so the accountant releases the locked-claim liability tracked at fulfillment.
-    ///      After settlement the vault holds USDC (and equity for junior) instead of hook shares,
+    ///      After settlement the vault holds QUOTE (and equity for junior) instead of hook shares,
     ///      so the payout is the frozen per-share rate (`_transferOut` intercepts the transfer).
     function _withdraw(address caller, address receiver, address sharesOwner, uint256 assets, uint256 shares)
         internal
@@ -228,11 +252,11 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     function _transferOut(address to, uint256 assets) internal virtual override {
         uint256 shares = _pendingMaturedShares;
         if (matured && shares != 0) {
-            uint256 usdcAmount = shares.mulDiv(usdcPerShare1e18, 1e18, Math.Rounding.Floor);
+            uint256 quoteAmount = shares.mulDiv(quotePerShare1e18, 1e18, Math.Rounding.Floor);
             uint256 equityAmount = shares.mulDiv(equityPerShare1e18, 1e18, Math.Rounding.Floor);
-            if (usdcAmount != 0) usdc.safeTransfer(to, usdcAmount);
+            if (quoteAmount != 0) quote.safeTransfer(to, quoteAmount);
             if (equityAmount != 0) equity.safeTransfer(to, equityAmount);
-            emit MaturedRedeem(to, to, shares, usdcAmount, equityAmount);
+            emit MaturedRedeem(to, to, shares, quoteAmount, equityAmount);
             return;
         }
         super._transferOut(to, assets);
@@ -246,70 +270,70 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     /// @notice Credits the vault with its settlement payout and freezes the redemption rates at
     ///         the terminal NAV. Called by the pipe after it burns this vault's hook shares and
-    ///         pushes USDC (and equity for junior) into the vault.
-    function creditSettlement(uint256 usdcAmount, uint256 equityAmount) external {
+    ///         pushes QUOTE (and equity for junior) into the vault.
+    function creditSettlement(uint256 quoteAmount, uint256 equityAmount) external {
         if (msg.sender != address(pipe)) revert NotPipe(msg.sender);
         if (matured) revert SettlementAlreadyCredited();
-        if (isSenior && equityAmount != 0) revert SeniorUsdcOnly();
+        if (isSenior && equityAmount != 0) revert SeniorQuoteOnly();
         matured = true;
         settledAt = block.timestamp;
         // Denominates the frozen rates across held + pending/claimable shares: redeem requests burn
         // shares at request time, so `totalSupply` alone would strand pending holders at rate zero.
         uint256 supply = totalSupply() + totalPendingRedeemShares();
         if (supply != 0) {
-            usdcPerShare1e18 = usdcAmount.mulDiv(1e18, supply);
+            quotePerShare1e18 = quoteAmount.mulDiv(1e18, supply);
             equityPerShare1e18 = equityAmount.mulDiv(1e18, supply);
         }
-        emit SettlementCredited(usdcAmount, equityAmount, usdcPerShare1e18, equityPerShare1e18);
+        emit SettlementCredited(quoteAmount, equityAmount, quotePerShare1e18, equityPerShare1e18);
     }
 
     function redeemAtExpiry(uint256 shares, address receiver)
         external
-        returns (uint256 usdcAmount, uint256 equityAmount)
+        returns (uint256 quoteAmount, uint256 equityAmount)
     {
         return redeemAtExpiry(shares, receiver, 0, 0);
     }
 
     /// @notice Burns the caller's vault shares and pays the frozen terminal payout directly:
-    ///         USDC only for senior, USDC + equity pro-rata for junior. Available only after
+    ///         QUOTE only for senior, QUOTE + equity pro-rata for junior. Available only after
     ///         settlement (see `matured`).
-    function redeemAtExpiry(uint256 shares, address receiver, uint256 minUsdcOut, uint256 minEquityOut)
+    function redeemAtExpiry(uint256 shares, address receiver, uint256 minQuoteOut, uint256 minEquityOut)
         public
         nonReentrant
-        returns (uint256 usdcAmount, uint256 equityAmount)
+        returns (uint256 quoteAmount, uint256 equityAmount)
     {
         if (!matured) revert NotMatured();
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
         _burn(msg.sender, shares);
-        usdcAmount = shares.mulDiv(usdcPerShare1e18, 1e18, Math.Rounding.Floor);
+        quoteAmount = shares.mulDiv(quotePerShare1e18, 1e18, Math.Rounding.Floor);
         equityAmount = shares.mulDiv(equityPerShare1e18, 1e18, Math.Rounding.Floor);
-        if (usdcAmount < minUsdcOut || equityAmount < minEquityOut) {
-            revert SlippageExceeded(usdcAmount, equityAmount, minUsdcOut, minEquityOut);
+        if (quoteAmount < minQuoteOut || equityAmount < minEquityOut) {
+            revert SlippageExceeded(quoteAmount, equityAmount, minQuoteOut, minEquityOut);
         }
-        if (usdcAmount != 0) usdc.safeTransfer(receiver, usdcAmount);
+        if (quoteAmount != 0) quote.safeTransfer(receiver, quoteAmount);
         if (equityAmount != 0) equity.safeTransfer(receiver, equityAmount);
-        emit MaturedRedeem(msg.sender, receiver, shares, usdcAmount, equityAmount);
+        emit MaturedRedeem(msg.sender, receiver, shares, quoteAmount, equityAmount);
     }
 
-    function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController)
+    function claimAndUnwrapQuote(uint256 shares, address receiver, address ownerOrController)
         external
-        returns (uint256 usdcAmount)
+        returns (uint256 quoteAmount)
     {
-        return claimAndUnwrapUSDC(shares, receiver, ownerOrController, 0);
+        return claimAndUnwrapQuote(shares, receiver, ownerOrController, 0);
     }
 
-    function claimAndUnwrapUSDC(uint256 shares, address receiver, address ownerOrController, uint256 minUsdcOut)
+    function claimAndUnwrapQuote(uint256 shares, address receiver, address ownerOrController, uint256 minQuoteOut)
         public
         nonReentrant
-        returns (uint256 usdcAmount)
+        returns (uint256 quoteAmount)
     {
         if (matured) revert Matured();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 assets = redeem(shares, address(this), ownerOrController);
-        usdcAmount = pipe.unwrapUSDC(assets, receiver, minUsdcOut);
-        emit UsdcUnwrapped(msg.sender, receiver, assets, usdcAmount);
+        quoteAmount = pipe.unwrapQuote(assets, receiver, minQuoteOut);
+        emit QuoteUnwrapped(msg.sender, receiver, assets, quoteAmount);
     }
 
     function claimAndUnwrapEquity(uint256 shares, address receiver, address ownerOrController)
@@ -325,7 +349,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         returns (uint256 equityAmount)
     {
         if (matured) revert Matured();
-        if (isSenior) revert SeniorUsdcOnly();
+        if (isSenior) revert SeniorQuoteOnly();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 assets = redeem(shares, address(this), ownerOrController);
         equityAmount = pipe.unwrapEquity(assets, receiver, minEquityOut);
@@ -334,7 +358,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
 
     function claimAndUnwrapProportional(uint256 shares, address receiver, address ownerOrController)
         external
-        returns (uint256 usdcAmount, uint256 equityAmount)
+        returns (uint256 quoteAmount, uint256 equityAmount)
     {
         return claimAndUnwrapProportional(shares, receiver, ownerOrController, 0, 0);
     }
@@ -343,15 +367,15 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         uint256 shares,
         address receiver,
         address ownerOrController,
-        uint256 minUsdcOut,
+        uint256 minQuoteOut,
         uint256 minEquityOut
-    ) public nonReentrant returns (uint256 usdcAmount, uint256 equityAmount) {
+    ) public nonReentrant returns (uint256 quoteAmount, uint256 equityAmount) {
         if (matured) revert Matured();
-        if (isSenior) revert SeniorUsdcOnly();
+        if (isSenior) revert SeniorQuoteOnly();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 assets = redeem(shares, address(this), ownerOrController);
-        (usdcAmount, equityAmount) = pipe.unwrapProportional(assets, receiver, minUsdcOut, minEquityOut);
-        emit ProportionalUnwrapped(msg.sender, receiver, assets, usdcAmount, equityAmount);
+        (quoteAmount, equityAmount) = pipe.unwrapProportional(assets, receiver, minQuoteOut, minEquityOut);
+        emit ProportionalUnwrapped(msg.sender, receiver, assets, quoteAmount, equityAmount);
     }
 
     /// @notice Post-settlement: transitions a pending withdraw request into a matured claim at the
@@ -366,16 +390,16 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     }
 
     /// @notice Post-settlement claim: pays the frozen settlement rates for all claimable shares of
-    ///         the caller (requests fulfilled before or after settlement). Senior pays USDC only.
-    function claimMatured(address receiver) external nonReentrant returns (uint256 usdcAmount, uint256 equityAmount) {
+    ///         the caller (requests fulfilled before or after settlement). Senior pays QUOTE only.
+    function claimMatured(address receiver) external nonReentrant returns (uint256 quoteAmount, uint256 equityAmount) {
         if (!matured) revert NotMatured();
         if (receiver == address(0)) revert ZeroAddress();
         uint256 shares = maxRedeem(msg.sender);
         if (shares == 0) revert NothingToClaim();
-        usdcAmount = shares.mulDiv(usdcPerShare1e18, 1e18, Math.Rounding.Floor);
+        quoteAmount = shares.mulDiv(quotePerShare1e18, 1e18, Math.Rounding.Floor);
         equityAmount = shares.mulDiv(equityPerShare1e18, 1e18, Math.Rounding.Floor);
         redeem(shares, receiver, msg.sender);
-        emit MaturedRedeem(msg.sender, receiver, shares, usdcAmount, equityAmount);
+        emit MaturedRedeem(msg.sender, receiver, shares, quoteAmount, equityAmount);
     }
 
     function maxDeposit(address) public view virtual override returns (uint256) {

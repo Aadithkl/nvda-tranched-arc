@@ -12,7 +12,7 @@ a bounded strategy module (Morpho lending + a levered junior sleeve) — all wit
 ```
 depositors → Senior/Junior tranche vaults (ERC-7540) → TrancheAccountant (waterfall, expiry)
                                   │
-                            RegimeVault  (share issuer, NAV, pipe, settlement, capital allocator;
+                            LedgerVault  (share issuer, NAV, pipe, settlement, capital allocator;
                                   │        owns the hook)
               ┌───────────────────┼────────────────────────────┐
               ▼                   ▼                            ▼
@@ -29,8 +29,10 @@ depositors → Senior/Junior tranche vaults (ERC-7540) → TrancheAccountant (wa
   the oracle edge turns negative (the swap then prices against base only — never a revert). Pulled
   guards re-arm on the next EV+ swap or via the permissionless time-based `recheckGuard()`;
   oracle-stale/invalid and disallowed sessions revert (market-open guard).
-- **RegimeVault** — combined vault: ERC-7575 share issuance, NAV (hook positions + venues +
-  strategy adapters), wrap/unwrap pipe, expiry settlement waterfall, and the allocator surface.
+- **LedgerVault** — combined vault: vault-native ERC-20 share (`HookShareToken`, ERC-7575
+  share-to-vault lookup), NAV (hook positions + venues + strategy adapters), wrap/unwrap pipe,
+  expiry settlement waterfall, and the allocator surface. The standard surface is a stateless
+  **`LedgerEntry7575`** ERC-7575 entry point (ERC-4626 minus ERC-20) piping through the vault.
 - **StrategyModule** — Curator/Allocator/Sentinel roles, absolute + relative caps checked on
   allocation, timelocked risk increases, instant de-risking; adapters are fixed-function
   (`MorphoBlueLendAdapter`, `ERC4626Adapter`, `MorphoLoopAdapter` — junior sleeve only, excluded
@@ -50,6 +52,8 @@ hook idle → venue → strategy adapters → **guard recall** as the last resor
 ## Docs
 
 - [`docs/STATIC_FEE.md`](docs/STATIC_FEE.md) — design freeze (hook, gating, discovery rules)
+- [`docs/DUAL_BOOK_PLAN.md`](docs/DUAL_BOOK_PLAN.md) — dual low/high-fee static hooks with
+  volume-steered liquidity switching + multi-strategy (implementation handoff plan)
 - [`docs/STRATEGY_MODULE_PLAN.md`](docs/STRATEGY_MODULE_PLAN.md) — strategy module + Robinhood
   migration plan of record (roles, caps, market-open guard, verification checklist)
 - [`docs/STATIC_FEE_PLAN.md`](docs/STATIC_FEE_PLAN.md) — build plan / version model

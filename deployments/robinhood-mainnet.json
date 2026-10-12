@@ -1,5 +1,6 @@
 {
   "generatedAt": "2026-10-09",
+  "updatedAt": "2026-10-11",
   "network": {
     "name": "Robinhood Chain",
     "chainId": 4663,
@@ -29,7 +30,8 @@
     "morphoBlueOwner": "0x060595638692de6CcD47Ca04094f1772d3D39728",
     "nvdaStockToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
     "nvdaChainlinkFeed": "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15",
-    "note": "Verified on-chain 2026-10-09 (scripts/verify-robinhood.mjs): all bytecode present, USDG 6 decimals, NVDA 18 decimals + ERC-8056 uiMultiplier, feed \"RHNVDA / USD\" 8 decimals, Morpho market id/params match. NOTE: the public RPC sits behind a Cloudflare challenge — use browser-like headers (script does) or a provider RPC (Alchemy/Chainstack/QuickNode) via ROBINHOOD_RPC_URL for anything sustained."
+    "ethUsdChainlinkFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+    "note": "Verified on-chain 2026-10-09 (scripts/verify-robinhood.mjs): all bytecode present, USDG 6 decimals, NVDA 18 decimals + ERC-8056 uiMultiplier, feed \"RHNVDA / USD\" 8 decimals, Morpho market id/params match. Added 2026-10-11: ETH / USD feed verified on-chain (description \"ETH / USD\", 8 decimals, fresh round) for the WETH-quote composite oracle. NOTE: the public RPC sits behind a Cloudflare challenge — use browser-like headers (script does) or a provider RPC (Alchemy/Chainstack/QuickNode) via ROBINHOOD_RPC_URL for anything sustained."
   },
   "tokens": {
     "USDG": {
@@ -48,7 +50,9 @@
     },
     "WETH": {
       "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
-      "decimals": 18
+      "decimals": 18,
+      "verified": true,
+      "note": "Quote asset of the WETH/NVDA book (replaces USDG). 18 decimals. Sorts below NVDA, so quoteIs0 is unchanged. Verified as a live token on-chain (used in the WETH/NVDA Morpho market)."
     }
   },
   "morpho": {
@@ -84,17 +88,33 @@
         "lltv": "625000000000000000",
         "verified": false,
         "note": "Deepest market (supply ~687.4k USDG, borrow ~687.4k — ~100% utilized). AVOID for the lending adapter: withdraws can fail at high utilization; listed as the example of what not to park in."
+      },
+      {
+        "id": "0x141c2b1d2bbecf7f8a76563307d7e5bf586457e873c3d97c4bb1502e57b77952",
+        "loanToken": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+        "collateralToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "oracle": "0x63c3ab00B12A7581af3eE8410E161650fBBb7829",
+        "irm": "0x2BD3d5965B26B51814AC95127B2b80dD6CcC0fa1",
+        "lltv": "385000000000000000",
+        "verified": true,
+        "note": "WETH-loan / NVDA-collateral market (lltv 38.5%) for the WETH-quote book. Verified 2026-10-11: keccak256(abi.encode(params)) == id (local cross-check) and on-chain market() supply 482033059174398714 (~0.48 WETH), borrow 0. Thin — fine as redemption-safe parking; re-check depth before sizing up. Sleeve: lend supplies WETH; loop borrows WETH against NVDA at <=60% of LLTV."
       }
-    ]
+    ],
+    "inventory": {
+      "note": "Morpho API 2026-10-11 (recorded for strategy planning): 23 WETH-as-loan markets exist (collaterals include NVDA, bNVDA, SPY/RBLX/NFLX wrap tokens, and Scrypt scV3-* LP tokens) and 7 WETH-as-collateral markets (all loan USDG, mostly empty). The plain NVDA-collateral market above is the preferred sleeve."
+    }
   },
   "stack": {
     "status": "not deployed",
     "note": "Deploy via script/DeployStaticStack.s.sol with USDC_ADDRESS->USDG_ADDRESS, NVDA_ADDRESS->NVDA stock token, V4_POOL_MANAGER->canonical v4, ETH gas funding. Pre-mine gate: verify the canonical PoolManager ABI/flags against the pinned v4-core submodule."
   },
   "oracle": {
-    "design": "ChainlinkSessionOracle (Chainlink stock feed mid incl. ERC-8056 multiplier + pushed session/status layer)",
+    "design": "Composite ratio oracle for the WETH-quote book: mid = quote per equity = WETH per NVDA = NVDA/USD / ETH/USD (not the reciprocal), both Chainlink 8-dec feeds scaled to 18 dec; layered session/status gate. USDG book keeps ChainlinkSessionOracle (Chainlink stock feed mid incl. ERC-8056 multiplier + pushed session/status layer).",
+    "nvdaUsdFeed": "0x379EC4f7C378F34a1B47E4F3cbeBCbAC3E8E9F15",
+    "ethUsdFeed": "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9",
+    "feedCatalog": "https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json",
     "sessionSource": null,
-    "note": "Deploy ChainlinkSessionOracle(chainlinkFeed, sessionSource, maxPriceAge); sessionSource is the keeper session/status pusher exposing marketStatus()."
+    "note": "RatioSessionOracle(nvdaFeed, ethFeed, sessionSource, maxPriceAge) -> invalid if either leg is stale/invalid or the denominator is <=0 (fail-closed). Read each feed's heartbeat from the Chainlink directory rather than hardcoding; equity feeds update 24/5, ETH/USD continuously. Feed prices already include the ERC-8056 corporate-action multiplier — do not re-apply uiMultiplier."
   },
   "subgraph": {
     "network": "robinhood",

@@ -5,8 +5,10 @@ Version model: **two books, two branches, one repo — nothing removed**
 
 **Build status:** P0a + P0b + P1 + P2 implemented on this branch — `PoolGuardHook` (guard, base+guard positions,
 pull/redeploy/recheck), `PoolGuardSimulator` (per-swap SwapMath EV), `RegimeVault` (share issuer, NAV,
-pipe, settlement, allocator; owns the hook), `VaultStrategyController` + `VaultStrategyAgent` (bounded
-operator surface), `StrategyModule` + `MorphoBlueLendAdapter`/`ERC4626Adapter`/`MorphoLoopAdapter`
+pipe, settlement, allocator; owns the hook), `RegimeEntry7575` (stateless ERC-7575 entry: ERC-4626
+minus ERC-20, `0x2f0a18c5`; share token carries the `0xf815c03d` lookup), `VaultStrategyController` +
+`VaultStrategyAgent` (bounded operator surface), `StrategyModule` +
+`MorphoBlueLendAdapter`/`ERC4626Adapter`/`MorphoLoopAdapter`
 (fixed-function adapters, absolute/relative caps, Curator/Allocator/Sentinel with timelocked increases),
 `ChainlinkSessionOracle` (Chainlink mid + pushed session layer), `agent/static.mjs`
 (recheck/recenter + strategy park/resume/deleverage decisions), and deploy scripts. **Target chain moved
@@ -14,13 +16,21 @@ to Robinhood Chain (4663; USDG quote; Morpho Blue; canonical v4)** — see `docs
 and `deployments/robinhood-{mainnet,testnet}.json`. Implemented mechanics supersede where in conflict:
 open LP, hook-held base/guard, per-swap SwapMath EV via external simulator, pull-thin (never revert),
 sticky pull + lazy EV+ redeploy + permissionless time recheck, session-gated market-open guard.
-Security pass (slither 0.11.6) on the hook/vault: all actionable findings fixed
-(`slither-static.summary.txt`). **Robinhood porting verified on-chain 2026-10-09**
-(`npm run robinhood:verify`, all checks pass) and **fork-rehearsed** on live 4663
-(`test/fork/RobinhoodFork.t.sol` — 4/4: real Chainlink feed + session oracle, base/guard book on the
-canonical PoolManager with real USDG/NVDA, fair-keep/toxic-pull, real Morpho supply/withdraw).
+Security pass (slither) on the hook/vault/hub: all actionable findings fixed (hub: pointer
+flip before the from-book pull, checks-effects-interactions; rest is lib noise or intentional).
+**Robinhood porting verified on-chain 2026-10-09** (`npm run robinhood:verify`, all checks pass)
+and **fork-rehearsed** on live 4663 (`test/fork/RobinhoodFork.t.sol` — 5/5: live addresses +
+market-id match, real Chainlink feed + session oracle, base/guard book on the canonical
+PoolManager with real USDG/NVDA, fair-keep/toxic-pull, real Morpho supply/withdraw, tranche
+deposits with D2-closed entry + junior-led floor gate).
+Built on top since (2026-10-11/12, see `docs/DUAL_BOOK_PLAN.md` §7.3): `RegimeVault`→`LedgerVault`
+rename + `usdc`→`quote` sweep; tranched 7540 top (senior principal-only, junior residual/first-loss,
+20/30bps exit schedule); permissionless 24h epochs (25% junior floor, seniority order); WETH-quote
+18-dec share math; controller knob timelock; `RatioSessionOracle`; dual-book `DualBookHub` + atomic
+migration (`DeployDualBookStack`, `decideBookRouting`). Local suite 250 pass / 1 pre-existing skip;
+agent suite 15/15.
 Remaining: 46630 testnet deploy, 4663 mainnet deploy (address verification checklist in the strategy
-plan), subgraph/frontend retarget.
+plan), subgraph/frontend retarget, unchecked box in §5.
 
 ## Expiry & withdrawals (implemented)
 
@@ -53,8 +63,8 @@ after expiry; de-risking (deallocate/repay/deleverage) and settlement `exitAll` 
 |---|---|---|
 | Branch | `main` (frozen, live) | `static-fee` (this build) |
 | Execution layer | `TrancheJITHook` — dynamic fee + JIT | `PoolGuardHook` — static fee, guard-only + `RegimeVault` |
-| Liquidity layer | hook-managed JIT, Aave rest, ERC-7575 share | vault-owned base + window positions |
-| Status | live on Arc testnet; ops/deploy fixes only | design frozen; build starts at P0 |
+| Liquidity layer | hook-managed JIT, Aave rest, v3 share pipe | vault-owned base + window positions; native share + ERC-7575 entry |
+| Status | live on Arc testnet; ops/deploy fixes only | built 2026-10-11/12 (see header + `DUAL_BOOK_PLAN.md` §7.3); §5 boxes audited, one open |
 
 Rules:
 
@@ -111,7 +121,7 @@ Rules:
 ### Reused unchanged (shared stack)
 
 `TrancheAccountant`, `SeniorVault` / `JuniorVault`, `NVDAPriceOracle`, Aave semi-fork,
-`StrategyController` bounds pattern, ERC-7575 share, graph/agent tooling.
+`StrategyController` bounds pattern, `HookShareToken` share + `RegimeEntry7575` (ERC-7575), graph/agent tooling.
 
 ### Known wiring mapping (verified in current code)
 
@@ -147,14 +157,21 @@ Rules:
 
 Surge pool only if rejected notional is material; hooklist entry; dynamic-fee path (design §11.7).
 
-## 5. Acceptance checklist (design §10)
+## 5. Acceptance checklist (design §10) — audited 2026-10-12
 
-- [ ] Quotes available at all times with base present; guard reverts only on stale/closed oracle
-- [ ] Universal Router swap with empty `hookData` succeeds
-- [ ] Deploy → pull → redeploy re-centers (post-redeploy tick within tolerance of oracle)
-- [ ] External `addLiquidity` reverts; vault operations succeed
-- [ ] Deploy blocked when venue effective withdrawable < needed
-- [ ] Invariants: fee static; junior budget single-source; no delta flags
+- [x] Quotes available at all times with base present; guard reverts only on stale/closed oracle
+  (`test_swap_reverts_whenOracleStale/Invalid`, `test_swap_sessionMask_enforced`,
+  `test_evPull_onToxicSwap` — toxic flow pull-thins, never reverts — + fork fair/toxic)
+- [x] Swaps with empty `hookData` succeed — via `DemoRouter` (unit + fork); Universal Router
+  itself is NOT wired, so the box as literally written stays open if UR integration is wanted
+- [x] Deploy → pull → redeploy re-centers (`test_recenter_guard`, `test_pullAll_and_rearm`,
+  `DualBook.t.sol` round-trip rearm; post-redeploy tick vs oracle covered in P1 E2E)
+- [x] SUPERSEDED — "external `addLiquidity` reverts": implemented mechanics moved to **open LP**
+  (status header); `test_publicLp_open` covers it, vault ops throughout the suite
+- [ ] Deploy blocked when venue effective withdrawable < needed — no test pins this; still open
+- [x] Invariants (`test_staticFee_afterAllFlows` + `TrancheInvariant.t.sol` 7 invariants:
+  senior-claim cap, claims conservation, escrow formula, share peg, locked backing, no stray
+  mint, redeem backing; `beforeSwap` returns zero delta on every flow)
 
 ## 6. Promotion criteria (`static-fee` → `main`)
 
@@ -168,10 +185,12 @@ Defined now so both branches have an exit, even though promotion is out of scope
 ## 7. Open decisions
 
 1. Target chain for the static deploy (design §11.1).
-2. Share token: reuse ERC-7575 `HookShareToken` vs vault-native share (settle in P1).
+2. Share token: settled - vault-native `HookShareToken` (ERC-7575 share lookup) + `RegimeEntry7575` entry point declaring ERC-7575 (ERC-4626 minus ERC-20); full 4626 compliance deliberately avoided (in-kind multi-asset exits).
 3. Major-pair review risk acceptance for NVDA/USDC (design §11.2).
 4. Frontend version display while both branches exist (main app keeps v3 until promotion).
-5. Whether this branch should ever carry both hooks side-by-side — default: **no** (single book per branch).
+5. Whether this branch should ever carry both hooks side-by-side — **yes now
+   (superseded 2026-10-12)**: `DualBookHub` + books A/B, atomic `submitSwitchBook` migration
+   (`docs/DUAL_BOOK_PLAN.md` §7.3, `script/DeployDualBookStack.s.sol`).
 
 ## 8. Guardrails
 

@@ -67,7 +67,7 @@ Components:
 | Component | Owns | Notes |
 |---|---|---|
 | `PoolGuardHook` | Nothing but guard state | Minimal; guard + private-LP + events only |
-| `RegimeVault` | All v4 positions; tranche shares; NAV | Replaces hook-managed liquidity + ERC-7575 pipe |
+| `RegimeVault` | All v4 positions; tranche shares; NAV | Replaces hook-managed liquidity + v3 pipe; native ERC-20 share (7575 lookup) + `RegimeEntry7575` ERC-7575 entry (ERC-4626 minus ERC-20) |
 | `StrategyController` / `StrategyAgent` | Deploy/pull/re-center decisions within bounds | Reuse existing controller/agent pattern |
 | `TrancheAccountant` | Settlement, waterfall, epochs | Unchanged in principle; global junior budget |
 | Rest venues | Idle capital | Aave / ERC-4626; size deploys vs **effective withdrawable** amount |
@@ -200,11 +200,11 @@ Dynamic fee override Â· `updateDynamicLPFee` Â· return deltas Â· bad-quote traps
 
 ---
 
-## Appendix C — Implementation addendum (branch `static-fee`, 2026-10)
+## Appendix C ï¿½ Implementation addendum (branch `static-fee`, 2026-10)
 
 Where the sections above conflict, the implementation is authoritative:
 
-1. **Open LP.** The pool is public — anyone may add/remove their own liquidity. The hook holds its own
+1. **Open LP.** The pool is public ï¿½ anyone may add/remove their own liquidity. The hook holds its own
    positions (v4 caller-scoped keys, salts `poolguard.base.v1` / `poolguard.guard.v1`) and cannot be
    drained by third parties.
 2. **Two protocol positions.** *Base*: wide band, always present, the discovery anchor; removed only at
@@ -212,9 +212,9 @@ Where the sections above conflict, the implementation is authoritative:
    every (re)deploy; toggled present/absent per swap.
 3. **IL guard (beforeSwap).** `PoolGuardSimulator` (external contract, MIT v4-core primitives) walks the
    arriving swap with `SwapMath.computeSwapStep` across initialized ticks, **bounded to our ranges**,
-   and returns `ev = S (ourL / totalL) · (oracleValue(in) - oracleValue(out))`. Below
-   `minEvBps · notional` the guard is **pulled** (positive deltas minted as ERC-6909 claims); the swap
-   then prices against base only — never a revert. Unknown EV (sim reverts / step-cap) also pulls.
+   and returns `ev = S (ourL / totalL) ï¿½ (oracleValue(in) - oracleValue(out))`. Below
+   `minEvBps ï¿½ notional` the guard is **pulled** (positive deltas minted as ERC-6909 claims); the swap
+   then prices against base only ï¿½ never a revert. Unknown EV (sim reverts / step-cap) also pulls.
 4. **Sticky + lazy redeploy.** A pulled guard re-arms on the next EV+ swap, or via the permissionless
    `recheckGuard()` after `recheckInterval` (only if oracle valid and deviation =
    `recheckMaxDeviationBps`). `setDeployEnabled(false)` (standby) suppresses deploys/rechecks but IL
@@ -227,7 +227,9 @@ Where the sections above conflict, the implementation is authoritative:
    claims and venue balances) and `IHookSharePipe` (wrap/unwrap USDC/equity/proportional), and ports
    `finalizeSettlement` (senior guarantee first, remainder + all equity to junior). Share denomination:
    `SHARE_SCALE = 1e6` with virtual shares `1e3` so tranche `usdcPerShare1e18` rates keep ~.001
-   precision (v3's 1e12 leaked % at small NAVs).
+   precision (v3's 1e12 leaked % at small NAVs). Standard surface: the stateless `RegimeEntry7575`
+   entry implements **ERC-7575** (ERC-4626 minus ERC-20 + `share()`; ids `0x2f0a18c5`/`0xf815c03d`)
+   by piping through the vault's wrap/unwrap; the share token's `vault(USDG)` lookup points at it.
 7. **Assets note.** `LiquidityAmounts` is an in-repo implementation (v4-periphery's is BUSL);
    `NVDAPriceOracle`/`DemoRouter` pragmas relaxed to `^0.8.26` to coexist with the `^0.8.27`
    tranche stack.

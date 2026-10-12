@@ -17,7 +17,7 @@ import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
-import { RegimeVault } from "../../src/vaults/RegimeVault.sol";
+import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
 import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
@@ -38,9 +38,9 @@ contract ExpiryWithdrawalsTest is Test {
     IPoolManager internal manager;
     PoolGuardSimulator internal simulator;
     PoolGuardHook internal hook;
-    RegimeVault internal vault;
+    LedgerVault internal vault;
     NVDAPriceOracle internal oracle;
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
 
     TrancheAccountant internal accountant;
@@ -58,7 +58,7 @@ contract ExpiryWithdrawalsTest is Test {
     function setUp() public {
         manager = IPoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         simulator = new PoolGuardSimulator();
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
 
         oracle = new NVDAPriceOracle(8, address(this));
@@ -66,9 +66,9 @@ contract ExpiryWithdrawalsTest is Test {
         oracle.setMaxStaleness(1 hours);
         oracle.updatePrice(200e8, 2, uint32(block.timestamp), bytes32(0));
 
-        address token0 = address(usdc) < address(nvda) ? address(usdc) : address(nvda);
-        address token1 = token0 == address(usdc) ? address(nvda) : address(usdc);
-        int24 initialTick = token0 == address(usdc) ? int24(196260) : int24(-196260);
+        address token0 = address(quote) < address(nvda) ? address(quote) : address(nvda);
+        address token1 = token0 == address(quote) ? address(nvda) : address(quote);
+        int24 initialTick = token0 == address(quote) ? int24(196260) : int24(-196260);
         expiry = uint64(block.timestamp + 1 days);
 
         uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
@@ -88,8 +88,8 @@ contract ExpiryWithdrawalsTest is Test {
             hooks: IHooks(address(hook))
         });
 
-        vault = new RegimeVault(
-            manager, hook, key, IERC20(address(usdc)), IERC20(address(nvda)), address(oracle), expiry, address(this)
+        vault = new LedgerVault(
+            manager, hook, key, IERC20(address(quote)), IERC20(address(nvda)), address(oracle), expiry, address(this)
         );
         hook.setVault(address(vault));
         hook.transferOwnership(address(vault));
@@ -97,10 +97,9 @@ contract ExpiryWithdrawalsTest is Test {
         vault.setGuardParams(_guardParams());
 
         // Zero-NAV bootstrap, then fund the hook and initialize the book.
-        usdc.mint(address(this), 200e6);
-        usdc.approve(address(vault), type(uint256).max);
-        vault.wrapUSDC(100e6, address(this));
-        usdc.mint(address(vault), 150e6);
+        // (Tranches are wired below; seeding goes through senior — wrap doors are gated.)
+        quote.mint(address(this), 200e6);
+        quote.mint(address(vault), 150e6);
         nvda.mint(address(vault), 2e18);
         vault.fundHook(150e6, 1e18);
         vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
@@ -111,7 +110,7 @@ contract ExpiryWithdrawalsTest is Test {
         vault.setAccountant(address(accountant));
         senior = new SeniorVault(
             IERC20(address(vault.shareToken())),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -120,7 +119,7 @@ contract ExpiryWithdrawalsTest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(vault.shareToken())),
-            usdc,
+            quote,
             nvda,
             IHookSharePipe(address(vault)),
             address(this),
@@ -128,22 +127,32 @@ contract ExpiryWithdrawalsTest is Test {
             expiry
         );
         accountant.setVaults(address(senior), address(junior));
+        _wrapAsSenior(100e6, address(this));
 
-        module = new StrategyModule(address(this), address(usdc));
+        module = new StrategyModule(address(this), address(quote));
         module.setVault(address(vault));
         module.setAllocator(address(this));
         module.setTimelock(0);
         vault.setStrategyModule(address(module));
 
-        venue4626 = new MockERC4626(address(usdc));
-        lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(usdc));
+        venue4626 = new MockERC4626(address(quote));
+        lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(quote));
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
 
         readiness = new VaultReadiness();
 
-        usdc.approve(address(senior), type(uint256).max);
-        usdc.approve(address(junior), type(uint256).max);
+        quote.approve(address(senior), type(uint256).max);
+        quote.approve(address(junior), type(uint256).max);
+    }
+
+    /// @notice Wrap doors admit registered tranches only (D2) — seed through senior.
+    function _wrapAsSenior(uint256 amount, address receiver) internal returns (uint256 shares) {
+        quote.mint(address(senior), amount);
+        vm.startPrank(address(senior));
+        quote.approve(address(vault), amount);
+        shares = vault.wrapQuote(amount, receiver);
+        vm.stopPrank();
     }
 
     function _guardParams() internal pure returns (GuardParams.Params memory) {
@@ -161,13 +170,13 @@ contract ExpiryWithdrawalsTest is Test {
     }
 
     function _depositSenior(uint256 amount) internal {
-        usdc.mint(address(this), amount);
-        senior.depositUSDC(amount, address(this));
+        quote.mint(address(this), amount);
+        senior.depositQuote(amount, address(this));
     }
 
     function _depositJunior(uint256 amount) internal {
-        usdc.mint(address(this), amount);
-        junior.depositUSDC(amount, address(this));
+        quote.mint(address(this), amount);
+        junior.depositQuote(amount, address(this));
     }
 
     function _warpToExpiry() internal {
@@ -188,11 +197,11 @@ contract ExpiryWithdrawalsTest is Test {
         assertFalse(hook.guardPresent(), "no redeploy after soft halt");
 
         // Hard halt requires expiry and is permissionless.
-        vm.expectRevert(RegimeVault.NotExpired.selector);
+        vm.expectRevert(LedgerVault.NotExpired.selector);
         vault.haltIfExpired();
 
         _warpToExpiry();
-        uint256 vaultBefore = usdc.balanceOf(address(vault));
+        uint256 vaultBefore = quote.balanceOf(address(vault));
         vm.prank(makeAddr("anyone"));
         vault.haltIfExpired();
 
@@ -202,7 +211,7 @@ contract ExpiryWithdrawalsTest is Test {
         lo;
         hi;
         assertEq(baseL, 0);
-        assertGt(usdc.balanceOf(address(vault)), vaultBefore, "inventory swept to vault");
+        assertGt(quote.balanceOf(address(vault)), vaultBefore, "inventory swept to vault");
 
         // Idempotent.
         vm.prank(makeAddr("someone-else"));
@@ -215,8 +224,8 @@ contract ExpiryWithdrawalsTest is Test {
     // ------------------------------------------------------------------
 
     function test_settlementReadiness_and_finalize() public {
+        _depositJunior(400e6);
         _depositSenior(1_000e6);
-        _depositJunior(200e6);
 
         _warpToExpiry();
         vault.haltIfExpired();
@@ -235,21 +244,20 @@ contract ExpiryWithdrawalsTest is Test {
         assertTrue(junior.matured());
     }
 
-    function test_haircutPath_whenUnderfunded() public {
-        _depositSenior(25_000e6);
+    function test_haircutPath_ownerEscapeHatch() public {
+        // Floor-compliant entry (underfunding at entry is structurally impossible now:
+        // floor 25% >> escrow 5% overcollateralizes the guarantee from the first deposit).
+        // The haircut path is the owner escape hatch — always available at/after expiry.
+        _depositJunior(400e6);
+        _depositSenior(1_000e6);
 
         _warpToExpiry();
         vault.haltIfExpired();
 
-        VaultReadiness.SettlementReadiness memory r = readiness.settlementReadiness(address(vault));
-        assertGt(r.shortfall, 0, "senior guarantee not covered");
-
-        vm.expectRevert(RegimeVault.SettlementNotReady.selector);
-        vault.finalizeSettlement();
-
         vault.finalizeSettlementHaircut();
         assertTrue(vault.settled());
-        assertApproxEqAbs(usdc.balanceOf(address(senior)), r.usdcUnits, 2);
+        assertTrue(senior.matured());
+        assertTrue(junior.matured());
     }
 
     // ------------------------------------------------------------------
@@ -257,6 +265,7 @@ contract ExpiryWithdrawalsTest is Test {
     // ------------------------------------------------------------------
 
     function test_postSettlement_requestFulfillClaim_senior() public {
+        _depositJunior(400e6);
         _depositSenior(1_000e6);
         _warpToExpiry();
         vault.haltIfExpired();
@@ -275,17 +284,17 @@ contract ExpiryWithdrawalsTest is Test {
         assertEq(senior.pendingRedeemRequest(0, address(this)), 0);
         assertEq(senior.maxRedeem(address(this)), requestShares);
 
-        uint256 expected = requestShares.mulDiv(senior.usdcPerShare1e18(), 1e18);
-        uint256 before = usdc.balanceOf(address(this));
+        uint256 expected = requestShares.mulDiv(senior.quotePerShare1e18(), 1e18);
+        uint256 before = quote.balanceOf(address(this));
         (uint256 usdcOut,) = senior.claimMatured(address(this));
-        assertEq(usdc.balanceOf(address(this)) - before, usdcOut);
+        assertEq(quote.balanceOf(address(this)) - before, usdcOut);
         assertApproxEqAbs(usdcOut, expected, 2);
 
         // The rest is paid via the direct expiry redemption.
         uint256 rest = shares - requestShares;
-        uint256 before2 = usdc.balanceOf(address(this));
+        uint256 before2 = quote.balanceOf(address(this));
         senior.redeemAtExpiry(rest, address(this));
-        assertGt(usdc.balanceOf(address(this)) - before2, 0);
+        assertGt(quote.balanceOf(address(this)) - before2, 0);
         assertEq(senior.balanceOf(address(this)), 0);
     }
 
@@ -300,17 +309,18 @@ contract ExpiryWithdrawalsTest is Test {
         vm.prank(makeAddr("anyone"));
         junior.fulfillRedeemMatured(address(this));
 
-        uint256 usdcBefore = usdc.balanceOf(address(this));
+        uint256 usdcBefore = quote.balanceOf(address(this));
         uint256 nvdaBefore = nvda.balanceOf(address(this));
         (uint256 usdcOut, uint256 equityOut) = junior.claimMatured(address(this));
 
         assertGt(usdcOut, 0);
         assertGt(equityOut, 0, "junior receives the equity leg");
-        assertEq(usdc.balanceOf(address(this)) - usdcBefore, usdcOut);
+        assertEq(quote.balanceOf(address(this)) - usdcBefore, usdcOut);
         assertEq(nvda.balanceOf(address(this)) - nvdaBefore, equityOut);
     }
 
     function test_pendingAtExpiry_flowsThroughSettlement() public {
+        _depositJunior(400e6);
         _depositSenior(1_000e6);
 
         // Request BEFORE expiry: shares burn into pending state (no cancel exists).
@@ -323,18 +333,19 @@ contract ExpiryWithdrawalsTest is Test {
         vault.finalizeSettlement();
 
         // Frozen rates cover pending shares too (supply + pending denominator).
-        assertGt(senior.usdcPerShare1e18(), 0);
+        assertGt(senior.quotePerShare1e18(), 0);
         vm.prank(makeAddr("anyone"));
         senior.fulfillRedeemMatured(address(this));
-        uint256 expected = shares.mulDiv(senior.usdcPerShare1e18(), 1e18);
+        uint256 expected = shares.mulDiv(senior.quotePerShare1e18(), 1e18);
 
-        uint256 before = usdc.balanceOf(address(this));
+        uint256 before = quote.balanceOf(address(this));
         (uint256 usdcOut,) = senior.claimMatured(address(this));
         assertApproxEqAbs(usdcOut, expected, 2);
-        assertEq(usdc.balanceOf(address(this)) - before, usdcOut);
+        assertEq(quote.balanceOf(address(this)) - before, usdcOut);
     }
 
     function test_claimMatured_withoutClaimable_reverts() public {
+        _depositJunior(40e6);
         _depositSenior(100e6);
         _warpToExpiry();
         vault.haltIfExpired();
@@ -349,21 +360,24 @@ contract ExpiryWithdrawalsTest is Test {
     // ------------------------------------------------------------------
 
     function test_oracleClosed_gatesPriceOps_butProportionalWorks() public {
-        usdc.mint(address(this), 100e6);
-        uint256 shares = vault.wrapUSDC(100e6, address(this));
+        uint256 shares = _wrapAsSenior(100e6, address(this));
 
         // Close the market (session None -> oracle invalid).
         oracle.updatePrice(200e8, 0, uint32(block.timestamp), bytes32(0));
         assertFalse(oracle.getPrice().valid);
 
-        usdc.mint(address(this), 10e6);
-        vm.expectRevert(RegimeVault.OracleInvalid.selector);
-        vault.wrapUSDC(10e6, address(this));
+        // Gate passes for the tranche, so the oracle check is what fires.
+        quote.mint(address(senior), 10e6);
+        vm.startPrank(address(senior));
+        quote.approve(address(vault), 10e6);
+        vm.expectRevert(LedgerVault.OracleInvalid.selector);
+        vault.wrapQuote(10e6, address(this));
+        vm.stopPrank();
 
-        vm.expectRevert(RegimeVault.OracleInvalid.selector);
-        vault.unwrapUSDC(shares, address(this), 0);
+        vm.expectRevert(LedgerVault.OracleInvalid.selector);
+        vault.unwrapQuote(shares, address(this), 0);
 
-        vm.expectRevert(RegimeVault.OracleInvalid.selector);
+        vm.expectRevert(LedgerVault.OracleInvalid.selector);
         vault.unwrapEquity(shares, address(this), 0);
 
         // Proportional is oracle-free and still works.
@@ -390,29 +404,28 @@ contract ExpiryWithdrawalsTest is Test {
         uint256 payout = idleUsdc + 2e6; // shortfall the guard must cover
 
         // Drain the vault into the strategy, then disable the adapter so it cannot fund redemptions.
-        module.allocate(address(lendAdapter), usdc.balanceOf(address(vault)));
+        module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
         module.disableAdapter(address(lendAdapter));
 
         // Wrap the payout, then drain again so only hook idle + guard remain.
-        usdc.mint(address(this), payout);
-        shares = vault.wrapUSDC(payout, address(this));
+        shares = _wrapAsSenior(payout, address(this));
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
-        module.allocate(address(lendAdapter), usdc.balanceOf(address(vault)));
+        module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
         module.disableAdapter(address(lendAdapter));
 
-        assertEq(usdc.balanceOf(address(vault)), 0);
+        assertEq(quote.balanceOf(address(vault)), 0);
     }
 
     function test_guardRecallFundsRedemption() public {
         uint256 shares = _primeShortRedemption();
         assertTrue(hook.guardPresent());
 
-        uint256 before = usdc.balanceOf(address(this));
-        uint256 out = vault.unwrapUSDC(shares, address(this), 0);
+        uint256 before = quote.balanceOf(address(this));
+        uint256 out = vault.unwrapQuote(shares, address(this), 0);
 
         assertGt(out, 0);
-        assertEq(usdc.balanceOf(address(this)) - before, out);
+        assertEq(quote.balanceOf(address(this)) - before, out);
         assertFalse(hook.guardPresent(), "guard recalled to fund the redemption");
     }
 
@@ -420,8 +433,8 @@ contract ExpiryWithdrawalsTest is Test {
         uint256 shares = _primeShortRedemption();
         vault.setGuardRecallOnWithdraw(false);
 
-        vm.expectPartialRevert(RegimeVault.InsufficientUsdc.selector);
-        vault.unwrapUSDC(shares, address(this), 0);
+        vm.expectPartialRevert(LedgerVault.InsufficientQuote.selector);
+        vault.unwrapQuote(shares, address(this), 0);
         assertTrue(hook.guardPresent(), "guard untouched when the recall fallback is off");
     }
 
@@ -430,7 +443,7 @@ contract ExpiryWithdrawalsTest is Test {
     // ------------------------------------------------------------------
 
     function test_strategyModule_blocksNewAllocationsAfterExpiry() public {
-        usdc.mint(address(vault), 100e6);
+        quote.mint(address(vault), 100e6);
         module.allocate(address(lendAdapter), 50e6);
 
         _warpToExpiry();

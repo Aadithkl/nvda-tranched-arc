@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Static-Fee Book — Robinhood Chain (4663)",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [930, 510]
+  },
+  "components": [
+    { "id": "lps", "type": "external", "label": "LPs & Traders", "sublabel": "senior / junior · swappers", "pos": [30, 170], "size": [150, 64] },
+    { "id": "tranches", "type": "backend", "label": "Senior + Junior Vaults", "sublabel": "+ TrancheAccountant", "pos": [205, 170], "size": [150, 64] },
+    { "id": "vault", "type": "backend", "label": "RegimeVault", "sublabel": "shares · NAV · settlement", "pos": [380, 170], "size": [150, 64] },
+    { "id": "hook", "type": "backend", "label": "PoolGuardHook", "sublabel": "base + IL guard (vault-owned)", "pos": [555, 170], "size": [150, 64] },
+    { "id": "chainlink", "type": "external", "label": "Chainlink RHNVDA/USD", "sublabel": "8-dec feed", "pos": [380, 60], "size": [150, 64] },
+    { "id": "oracle", "type": "backend", "label": "ChainlinkSessionOracle", "sublabel": "mid + pushed session", "pos": [555, 60], "size": [150, 64] },
+    { "id": "tokens", "type": "external", "label": "USDG + NVDA", "sublabel": "6-dec quote · ERC-8056 equity", "pos": [730, 60], "size": [150, 64] },
+    { "id": "agent", "type": "backend", "label": "Strategy Agent", "sublabel": "agent/static.mjs — keeper", "pos": [205, 280], "size": [150, 64] },
+    { "id": "strategy", "type": "backend", "label": "StrategyModule", "sublabel": "adapters: Morpho lend / loop · ERC-4626", "pos": [380, 280], "size": [150, 64] },
+    { "id": "sim", "type": "backend", "label": "PoolGuardSimulator", "sublabel": "per-swap SwapMath EV", "pos": [555, 280], "size": [150, 64] },
+    { "id": "v4", "type": "external", "label": "Uniswap v4 PoolManager", "sublabel": "canonical · chain 4663", "pos": [730, 280], "size": [150, 64] },
+    { "id": "morpho", "type": "external", "label": "Morpho Blue (era-2)", "sublabel": "NVDA/USDG market", "pos": [555, 390], "size": [150, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Robinhood Chain — chain 4663 (not yet deployed)", "wraps": ["tranches", "vault", "hook", "sim", "oracle", "strategy", "v4", "morpho", "chainlink", "tokens"] },
+    { "kind": "region", "label": "Off-chain (users & keeper)", "wraps": ["lps", "agent"] }
+  ],
+  "connections": [
+    { "id": "lps-deposit", "from": "lps", "to": "tranches", "label": "deposit USDG (sr/jr)", "variant": "emphasis", "labelAt": [192, 248] },
+    { "id": "wrap-pipe", "from": "tranches", "to": "vault", "label": "wrap → vault shares", "labelAt": [365, 155] },
+    { "id": "vault-owns-hook", "from": "vault", "to": "hook", "label": "owns · funds base + guard", "labelAt": [542, 155] },
+    { "id": "swap-gate", "from": "v4", "to": "hook", "label": "beforeSwap EV gate", "variant": "emphasis" },
+    { "id": "oracle-gate", "from": "oracle", "to": "hook", "label": "mid + session gate", "labelAt": [630, 140] },
+    { "id": "feed", "from": "chainlink", "to": "oracle", "label": "8-dec mid", "labelAt": [542, 140] },
+    { "id": "currencies", "from": "tokens", "to": "v4", "label": "pool currencies", "labelAt": [805, 140] },
+    { "id": "allocate", "from": "vault", "to": "strategy", "label": "allocate idle USDG", "labelAt": [455, 248] },
+    { "id": "supply", "from": "strategy", "to": "morpho", "label": "supply / loop" },
+    { "id": "keeper", "from": "agent", "to": "vault", "label": "keeper: recheck · recall · winddown", "labelAt": [315, 265] },
+    { "id": "simulate", "from": "hook", "to": "sim", "label": "simulate EV", "labelAt": [630, 248] },
+    { "id": "trading", "from": "lps", "to": "v4", "label": "swap USDG ↔ NVDA", "fromSide": "bottom", "toSide": "bottom", "via": [[105, 480], [805, 480]], "labelSegment": 1 }
+  ]
+}

@@ -11,7 +11,7 @@ import { PeggedPriceOracle } from "../src/lending/PeggedPriceOracle.sol";
 contract DeployLending is Script {
     function run() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
-        address usdc = vm.envAddress("USDC_ADDRESS");
+        address quote = vm.envAddress("QUOTE_ADDRESS");
         address nvda = vm.envAddress("NVDA_ADDRESS");
         uint256 nvdaPrice = vm.envOr("NVDA_PEGGED_PRICE", uint256(200e8));
 
@@ -36,18 +36,19 @@ contract DeployLending is Script {
         provider.setAddress(provider.LENDING_POOL(), address(pool));
         provider.setAddress(provider.LENDING_POOL_CONFIGURATOR(), address(configurator));
 
-        oracle.setAssetPrice(usdc, usdcPeg);
+        oracle.setAssetPrice(quote, usdcPeg);
         oracle.setAssetPrice(nvda, nvdaPrice);
 
         DefaultReserveInterestRateStrategy strategy =
             new DefaultReserveInterestRateStrategy(baseRate, slope1, slope2, optimal);
 
-        (address aUsdc, address dUsdc) = configurator.initReserve(usdc, 6, "Aave Arc USDC", "aUSDC", address(strategy));
+        (address aUsdc, address dUsdc) =
+            configurator.initReserve(quote, 6, "Aave Arc QUOTE", "aUSDC", address(strategy));
         (address aNvda, address dNvda) = configurator.initReserve(nvda, 18, "Aave Arc NVDA", "aNVDA", address(strategy));
 
-        configurator.configureReserveAsCollateral(usdc, ltv, liquidationThreshold, liquidationBonus);
-        configurator.enableBorrowingOnReserve(usdc, true);
-        configurator.setReserveFactor(usdc, reserveFactor);
+        configurator.configureReserveAsCollateral(quote, ltv, liquidationThreshold, liquidationBonus);
+        configurator.enableBorrowingOnReserve(quote, true);
+        configurator.setReserveFactor(quote, reserveFactor);
 
         configurator.configureReserveAsCollateral(nvda, ltv, liquidationThreshold, liquidationBonus);
         configurator.enableBorrowingOnReserve(nvda, true);
@@ -64,7 +65,7 @@ contract DeployLending is Script {
         console2.log("dUSDC:", dUsdc);
         console2.log("aNVDA:", aNvda);
         console2.log("dNVDA:", dNvda);
-        console2.log("USDC peg (8d):", usdcPeg);
+        console2.log("QUOTE peg (8d):", usdcPeg);
         console2.log("NVDA peg (8d):", nvdaPrice);
     }
 }

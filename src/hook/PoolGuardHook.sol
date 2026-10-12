@@ -22,6 +22,7 @@ import { BeforeSwapDelta, BeforeSwapDeltaLibrary } from "v4-core/src/types/Befor
 import { BalanceDelta } from "v4-core/src/types/BalanceDelta.sol";
 import { INVDAPriceOracle } from "../interfaces/INVDAPriceOracle.sol";
 import { IPoolGuardSimulator } from "../interfaces/IPoolGuardSimulator.sol";
+import { IBookHook } from "../interfaces/IBookHook.sol";
 import { GuardParams } from "./libraries/GuardParams.sol";
 import { LiquidityAmounts } from "./libraries/LiquidityAmounts.sol";
 
@@ -35,7 +36,7 @@ import { LiquidityAmounts } from "./libraries/LiquidityAmounts.sol";
 ///         against the base only (never a revert). A pulled guard re-arms lazily on the next EV+
 ///         swap, or via the permissionless time-based `recheckGuard()`. All strategy, capital
 ///         allocation and yield live one layer down in the vault (the hook owner).
-contract PoolGuardHook is BaseHook, Ownable2Step {
+contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using LPFeeLibrary for uint24;
@@ -250,6 +251,28 @@ contract PoolGuardHook is BaseHook, Ownable2Step {
         if (quoteAmount != 0) IERC20(quote).safeTransfer(vault_, quoteAmount);
         if (equityAmount != 0) IERC20(equity).safeTransfer(vault_, equityAmount);
         emit Recalled(quoteAmount, equityAmount);
+    }
+
+    /// @notice Accepts pending hook ownership (IBookHook deploy-time wiring).
+    function acceptHookOwnership() external {
+        acceptOwnership();
+    }
+
+    /// @notice Idle quote inventory (hook-held, undeployed). Zero before initialization.
+    function quoteIdle() external view returns (uint256) {
+        address quote_ = quote;
+        if (quote_ == address(0)) return 0;
+        return IERC20(quote_).balanceOf(address(this));
+    }
+
+    /// @notice Idle equity inventory (hook-held, undeployed).
+    function equityIdle() external view returns (uint256) {
+        return IERC20(equity).balanceOf(address(this));
+    }
+
+    /// @notice Redeemable pool-manager claims for a token (ERC-6909 balances).
+    function claims(address token) external view returns (uint256) {
+        return poolManager.balanceOf(address(this), Currency.wrap(token).toId());
     }
 
     /// @notice Full exit: pulls guard + base and returns all inventory to the vault.
@@ -532,11 +555,11 @@ contract PoolGuardHook is BaseHook, Ownable2Step {
     }
 
     function _unwindCurrency(Currency currency) internal {
-        uint256 claims = poolManager.balanceOf(address(this), currency.toId());
-        if (claims == 0) return;
+        uint256 claimBal = poolManager.balanceOf(address(this), currency.toId());
+        if (claimBal == 0) return;
         address asset = Currency.unwrap(currency);
         uint256 available = IERC20(asset).balanceOf(address(poolManager));
-        uint256 amount = claims < available ? claims : available;
+        uint256 amount = claimBal < available ? claimBal : available;
         if (amount == 0) return;
         poolManager.burn(address(this), currency.toId(), amount);
         poolManager.take(currency, address(this), amount);

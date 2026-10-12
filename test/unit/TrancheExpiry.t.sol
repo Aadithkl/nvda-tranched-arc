@@ -14,7 +14,7 @@ import { TestToken } from "../../src/test-only/TestToken.sol";
 contract TrancheExpiryTest is Test {
     uint64 internal constant EXPIRY = 2_000_000_000;
 
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
     MockHookShare internal hs;
     MockRiskAccountant internal accountant;
@@ -29,14 +29,14 @@ contract TrancheExpiryTest is Test {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
-        hs = new MockHookShare(IERC20(address(usdc)), makeAddr("hook"));
+        hs = new MockHookShare(IERC20(address(quote)), makeAddr("hook"));
         accountant = new MockRiskAccountant();
 
         senior = new SeniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
@@ -45,7 +45,7 @@ contract TrancheExpiryTest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
@@ -78,11 +78,11 @@ contract TrancheExpiryTest is Test {
         assertEq(senior.maxDeposit(alice), 0);
         assertEq(senior.maxMint(alice), 0);
 
-        usdc.mint(alice, 10e6);
+        quote.mint(alice, 10e6);
         vm.startPrank(alice);
-        usdc.approve(address(senior), type(uint256).max);
+        quote.approve(address(senior), type(uint256).max);
         vm.expectRevert(TrancheVault.Expired.selector);
-        senior.depositUSDC(10e6, alice);
+        senior.depositQuote(10e6, alice);
         vm.expectRevert(TrancheVault.Expired.selector);
         senior.deposit(1e18, alice);
         vm.stopPrank();
@@ -96,49 +96,49 @@ contract TrancheExpiryTest is Test {
     function test_creditSettlement_seniorPaysUsdcOnly() public {
         uint256 supply = senior.totalSupply();
         uint256 aliceShares = senior.balanceOf(alice);
-        usdc.mint(address(senior), 100e6);
+        quote.mint(address(senior), 100e6);
 
         vm.prank(address(hs));
         senior.creditSettlement(100e6, 0);
 
         assertTrue(senior.matured());
-        assertEq(senior.usdcPerShare1e18(), 100e6 * 1e18 / supply);
+        assertEq(senior.quotePerShare1e18(), 100e6 * 1e18 / supply);
         assertEq(senior.equityPerShare1e18(), 0);
 
-        uint256 usdcBefore = usdc.balanceOf(alice);
+        uint256 usdcBefore = quote.balanceOf(alice);
         vm.prank(alice);
         (uint256 usdcOut, uint256 equityOut) = senior.redeemAtExpiry(aliceShares, alice);
-        assertEq(usdcOut, aliceShares * senior.usdcPerShare1e18() / 1e18);
+        assertEq(usdcOut, aliceShares * senior.quotePerShare1e18() / 1e18);
         assertEq(equityOut, 0);
-        assertEq(usdc.balanceOf(alice) - usdcBefore, usdcOut);
+        assertEq(quote.balanceOf(alice) - usdcBefore, usdcOut);
         assertEq(senior.balanceOf(alice), 0);
     }
 
     function test_creditSettlement_juniorPaysUsdcAndEquity() public {
         uint256 supply = junior.totalSupply();
         uint256 bobShares = junior.balanceOf(bob);
-        usdc.mint(address(junior), 40e6);
+        quote.mint(address(junior), 40e6);
         nvda.mint(address(junior), 10e18);
 
         vm.prank(address(hs));
         junior.creditSettlement(40e6, 10e18);
 
-        assertEq(junior.usdcPerShare1e18(), 40e6 * 1e18 / supply);
+        assertEq(junior.quotePerShare1e18(), 40e6 * 1e18 / supply);
         assertEq(junior.equityPerShare1e18(), 10e18 * 1e18 / supply);
 
-        uint256 usdcBefore = usdc.balanceOf(bob);
+        uint256 usdcBefore = quote.balanceOf(bob);
         uint256 nvdaBefore = nvda.balanceOf(bob);
         vm.prank(bob);
         (uint256 usdcOut, uint256 equityOut) = junior.redeemAtExpiry(bobShares, bob);
-        assertEq(usdcOut, bobShares * junior.usdcPerShare1e18() / 1e18);
+        assertEq(usdcOut, bobShares * junior.quotePerShare1e18() / 1e18);
         assertEq(equityOut, bobShares * junior.equityPerShare1e18() / 1e18);
-        assertEq(usdc.balanceOf(bob) - usdcBefore, usdcOut);
+        assertEq(quote.balanceOf(bob) - usdcBefore, usdcOut);
         assertEq(nvda.balanceOf(bob) - nvdaBefore, equityOut);
     }
 
     function test_creditSettlement_seniorRejectsEquity() public {
         vm.prank(address(hs));
-        vm.expectRevert(TrancheVault.SeniorUsdcOnly.selector);
+        vm.expectRevert(TrancheVault.SeniorQuoteOnly.selector);
         senior.creditSettlement(0, 1e18);
     }
 
@@ -157,7 +157,7 @@ contract TrancheExpiryTest is Test {
     }
 
     function test_redeemAtExpiry_zeroAndSlippageReverts() public {
-        usdc.mint(address(senior), 100e6);
+        quote.mint(address(senior), 100e6);
         vm.prank(address(hs));
         senior.creditSettlement(100e6, 0);
 
@@ -181,7 +181,7 @@ contract TrancheExpiryTest is Test {
         assertEq(senior.pendingRedeemRequest(0, alice), shares);
         // The pipe/unwrap shortcuts stay closed after maturity.
         vm.expectRevert(TrancheVault.Matured.selector);
-        senior.claimAndUnwrapUSDC(1e18, alice, alice, 0);
+        senior.claimAndUnwrapQuote(1e18, alice, alice, 0);
         vm.stopPrank();
     }
 
@@ -197,26 +197,26 @@ contract TrancheExpiryTest is Test {
         senior.fulfillRedeem(shares, shares, alice);
         assertEq(senior.claimableRedeemRequest(0, alice), shares);
 
-        usdc.mint(address(senior), 100e6);
+        quote.mint(address(senior), 100e6);
         vm.warp(EXPIRY);
         vm.prank(address(hs));
         senior.creditSettlement(100e6, 0);
 
-        uint256 rate = senior.usdcPerShare1e18();
-        uint256 usdcBefore = usdc.balanceOf(alice);
+        uint256 rate = senior.quotePerShare1e18();
+        uint256 usdcBefore = quote.balanceOf(alice);
         vm.prank(alice);
-        // `redeem` returns the nominal hook-share amount consumed; the actual payout is USDC at
+        // `redeem` returns the nominal hook-share amount consumed; the actual payout is QUOTE at
         // the frozen terminal rate (asserted via the balance delta below).
         uint256 nominal = senior.redeem(shares, alice, alice);
         assertEq(nominal, shares);
-        assertEq(usdc.balanceOf(alice) - usdcBefore, shares * rate / 1e18);
+        assertEq(quote.balanceOf(alice) - usdcBefore, shares * rate / 1e18);
         assertEq(senior.claimableRedeemRequest(0, alice), 0);
     }
 
     function test_expiryUnsetMeansNoMaturity() public {
         SeniorVault plain = new SeniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),

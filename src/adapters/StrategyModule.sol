@@ -10,7 +10,7 @@ import { IStrategyAdapter } from "./IStrategyAdapter.sol";
 import { IMorphoLoopAdapter } from "./MorphoLoopAdapter.sol";
 import { IVaultBaseAssets } from "./IStrategyModule.sol";
 
-/// @notice Strategy control plane for `RegimeVault`, modeled on Morpho Vault V2's adapter + cap
+/// @notice Strategy control plane for `LedgerVault`, modeled on Morpho Vault V2's adapter + cap
 ///         system with a Boring-Vault-style role split:
 ///           - Curator (owner): configures adapters and caps. Enabling an adapter or increasing a
 ///             cap is timelocked (submit -> execute); disabling and lowering caps are immediate.
@@ -213,6 +213,20 @@ contract StrategyModule is Ownable2Step {
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
             if (adapters[adapter].enabled) total += IStrategyAdapter(adapter).realAssets();
+        }
+    }
+
+    /// @notice Amount the redemption-safe adapters (the ones `pullToVault` draws from) could
+    ///         return to the vault right now, liquidity-aware. Used by the vault's 7575 max
+    ///         withdrawal views so they never overstate what `pullToVault` can actually deliver.
+    function pullableAssets() external view returns (uint256 total) {
+        uint256 count = adapterList.length;
+        for (uint256 i = 0; i < count; ++i) {
+            address adapter = adapterList[i];
+            AdapterConfig memory cfg = adapters[adapter];
+            if (cfg.enabled && cfg.redemptionSafe && !cfg.isLoop) {
+                total += IStrategyAdapter(adapter).maxWithdrawable();
+            }
         }
     }
 

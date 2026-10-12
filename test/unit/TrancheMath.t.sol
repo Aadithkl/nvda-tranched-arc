@@ -13,7 +13,7 @@ import { TestToken } from "../../src/test-only/TestToken.sol";
 contract TrancheMathTest is Test {
     uint256 internal constant DEPOSIT = 100e18;
 
-    TestToken internal usdc;
+    TestToken internal quote;
     TestToken internal nvda;
     MockHookShare internal hs;
     SeniorVault internal senior;
@@ -29,12 +29,12 @@ contract TrancheMathTest is Test {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
 
-        usdc = new TestToken("USD Coin", "mUSDC", 6);
+        quote = new TestToken("USD Coin", "mUSDC", 6);
         nvda = new TestToken("NVIDIA", "mNVDA", 18);
-        hs = new MockHookShare(IERC20(address(usdc)), makeAddr("hook"));
+        hs = new MockHookShare(IERC20(address(quote)), makeAddr("hook"));
         senior = new SeniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
@@ -43,7 +43,7 @@ contract TrancheMathTest is Test {
         );
         junior = new JuniorVault(
             IERC20(address(hs)),
-            IERC20(address(usdc)),
+            IERC20(address(quote)),
             IERC20(address(nvda)),
             IHookSharePipe(address(hs)),
             address(this),
