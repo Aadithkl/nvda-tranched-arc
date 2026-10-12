@@ -23,6 +23,10 @@ import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
 import { StrategyModule } from "../../src/adapters/StrategyModule.sol";
 import { ERC4626Adapter } from "../../src/adapters/ERC4626Adapter.sol";
+import { MorphoLoopAdapter } from "../../src/adapters/MorphoLoopAdapter.sol";
+import { IMorpho } from "../../src/adapters/IMorpho.sol";
+import { MockMorpho } from "../../src/test-only/MockMorpho.sol";
+import { MockMorphoOracle } from "../../src/test-only/MockStrategyFakes.sol";
 import { IHookSharePipe } from "../../src/interfaces/IHookSharePipe.sol";
 import { MockERC4626 } from "../../src/test-only/MockERC4626.sol";
 import { VaultReadiness } from "../../src/vaults/VaultReadiness.sol";
@@ -480,6 +484,59 @@ contract ExpiryWithdrawalsTest is Test {
         // De-risking stays available.
         uint256 got = module.deallocate(address(lendAdapter), 10e6);
         assertEq(got, 10e6);
+    }
+
+    // ------------------------------------------------------------------
+    // Loop-sleeve settlement (C3 completeness)
+    // ------------------------------------------------------------------
+
+    /// @notice Regression (C3): with NO standing allowance on the vault, settlement
+    ///         must still fund `exitAll`'s loop-debt pull — it approves exactly
+    ///         `totalLoopDebt()`, unwinds, and resets the allowance to zero.
+    ///         (Earlier mock-vault tests hid this because the mock constructor
+    ///         granted a max approval to the module.)
+    function test_settlement_unwindsLoopDebt() public {
+        _depositJunior(400e6);
+        _depositSenior(1_000e6);
+
+        // Wire a loop sleeve and open a levered position.
+        MockMorpho morpho = new MockMorpho();
+        MockMorphoOracle morphOracle = new MockMorphoOracle(2e27); // $2000 NVDA, 1e36 scale
+        IMorpho.MarketParams memory mp = IMorpho.MarketParams({
+            loanToken: address(quote),
+            collateralToken: address(nvda),
+            oracle: address(morphOracle),
+            irm: address(0),
+            lltv: 0.86e18
+        });
+        MorphoLoopAdapter loop =
+            new MorphoLoopAdapter(address(module), address(morpho), mp, address(quote), 6_000, 1.2e18);
+        module.submitAdapter(address(loop), false, true, 1_000_000e6, 9_000);
+        module.executeAdapter(address(loop));
+
+        // Seed loan-side liquidity so the sleeve can borrow.
+        quote.mint(address(this), 10_000e6);
+        quote.approve(address(morpho), type(uint256).max);
+        morpho.supply(mp, 10_000e6, 0, address(this), "");
+
+        // Fund the collareral + borrow with one-shot keeper approvals only.
+        nvda.mint(address(vault), 10e18);
+        vault.approveStrategy(address(nvda), 0.7e18);
+        module.allocateCollateral(address(loop), 0.7e18);
+        module.borrow(address(loop), 700e6);
+        assertGt(loop.debt(), 0, "loop debt opened");
+        // No standing allowance sits on the vault (C3).
+        assertEq(quote.allowance(address(vault), address(module)), 0);
+
+        // Settle: pulls the book home, funds the loan repayment from the vault,
+        // unwinds the sleeve, and distributes the waterfall.
+        _warpToExpiry();
+        vault.finalizeSettlement();
+
+        assertTrue(vault.settled());
+        assertEq(loop.debt(), 0, "loop debt repaid by settlement");
+        assertEq(module.totalLoopDebt(), 0);
+        assertEq(quote.allowance(address(vault), address(module)), 0, "allowance reset after unwind");
     }
 }
 
