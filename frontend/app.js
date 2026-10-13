@@ -194,7 +194,9 @@ function paintExplinks() {
 }
 async function loadRepoJson() {
   try {
-    const res = await fetch("../deployments/robinhood-testnet.json");
+    // Relative to the page so it works both locally (`npm run frontend`,
+    // which mounts this exact path) and on GitHub Pages.
+    const res = await fetch("./deployments/robinhood-testnet.json");
     if (!res.ok) throw new Error(`HTTP ${res.status} (serve over http, not file://)`);
     const j = await res.json();
     const c = (j.contracts || {});

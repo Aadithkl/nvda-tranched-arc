@@ -1,7 +1,10 @@
 # Robinhood testnet bring-up (chain 46630)
 
 Target: deploy the static-fee book on Robinhood Chain Testnet and exercise it
-through `frontend/` (no build step: `npm run frontend` → http://127.0.0.1:5173).
+through the hosted console at **https://aadithkl.github.io/nvda-tranched-arc/**
+(auto-deployed from `frontend/` on every `static-fee` push via
+`.github/workflows/pages.yml`; local alternative: `npm run frontend` →
+http://127.0.0.1:5173).
 
 ## 0. Network facts (verified 2026-10-14)
 

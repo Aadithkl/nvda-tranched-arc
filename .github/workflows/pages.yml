@@ -1,0 +1,57 @@
+# Deploys frontend/ as the repo's GitHub Pages site
+# (https://aadithkl.github.io/nvda-tranched-arc/) plus the testnet deployment
+# record it reads. Runs on the static-fee branch; enable once in repo settings
+# (Pages -> Build and deployment -> GitHub Actions).
+name: Pages
+
+on:
+  push:
+    branches: [static-fee]
+    paths:
+      - "frontend/**"
+      - "deployments/robinhood-testnet.json"
+      - "scripts/check-frontend-*.mjs"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Verify frontend ABIs match compiled artifacts
+        run: |
+          forge build
+          node scripts/check-frontend-abis.mjs
+          node scripts/check-frontend-ids.mjs
+      - name: Assemble site
+        run: |
+          rm -rf site && mkdir -p site/deployments
+          cp frontend/index.html frontend/app.js frontend/config.js frontend/abis.js frontend/styles.css site/
+          cp deployments/robinhood-testnet.json site/deployments/
+          touch site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
