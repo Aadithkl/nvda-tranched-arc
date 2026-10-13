@@ -153,9 +153,11 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     /// @notice Called by a vault when a user claims fulfilled redemption assets. The locked
     ///         assets are no longer a liability of the tranche once they leave the vault, and
     ///         principal tracks exactly what was paid (not what was requested).
+    ///         Post-settlement the vault reports the FROZEN quote value directly (hook-share
+    ///         conversion is meaningless after the shares were burned) — use it 1:1.
     function onTrancheClaim(bool senior, uint256 hookShares) external override onlyVault {
         _checkVaultDirection(senior);
-        uint256 value = _valueOf(hookShares);
+        uint256 value = _expired() ? hookShares : _valueOf(hookShares);
         if (senior) {
             seniorPrincipal = value > seniorPrincipal ? 0 : seniorPrincipal - value;
             uint256 locked = claimableSenior;

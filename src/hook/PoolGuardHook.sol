@@ -7,6 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { BaseHook } from "uniswap-hooks/base/BaseHook.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
@@ -36,7 +37,7 @@ import { LiquidityAmounts } from "./libraries/LiquidityAmounts.sol";
 ///         against the base only (never a revert). A pulled guard re-arms lazily on the next EV+
 ///         swap, or via the permissionless time-based `recheckGuard()`. All strategy, capital
 ///         allocation and yield live one layer down in the vault (the hook owner).
-contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
+contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using LPFeeLibrary for uint24;
@@ -195,7 +196,12 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
 
     /// @notice One-shot: initializes the static-fee pool and deploys base (+ guard when enabled).
     ///         Guard params must be set first; the hook must already hold the token inventory.
-    function initializeBook(PoolKey calldata key, uint160 sqrtPriceX96) external onlyOwner returns (int24 tick) {
+    function initializeBook(PoolKey calldata key, uint160 sqrtPriceX96)
+        external
+        onlyOwner
+        nonReentrant
+        returns (int24 tick)
+    {
         if (poolInitialized) revert BookAlreadyInitialized();
         if (key.hooks != IHooks(address(this))) revert InvalidPool();
         if (key.fee.isDynamicFee()) revert DynamicFeeForbidden();
@@ -232,7 +238,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Deploys the guard band (strict; reverts if inventory is short).
-    function deployGuard() external onlyOwner {
+    function deployGuard() external onlyOwner nonReentrant {
         _requireLive();
         if (!deployEnabled) revert DeploymentsDisabled();
         if (guardPresent) revert GuardAlreadyPresent();
@@ -240,14 +246,14 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Pulls the guard (if present) and redeploys it centered on the current tick.
-    function recenterGuard() external onlyOwner {
+    function recenterGuard() external onlyOwner nonReentrant {
         _requireLive();
         if (!guardPresent && !deployEnabled) revert GuardNotPresent();
         poolManager.unlock(abi.encode(ACTION_RECENTER_GUARD));
     }
 
     /// @notice Pulls the guard and returns all hook inventory to the vault. Base stays deployed.
-    function recallToVault() external onlyOwner {
+    function recallToVault() external onlyOwner nonReentrant {
         if (!poolInitialized) revert BookNotInitialized();
         if (vault == address(0)) revert ZeroAddress();
         poolManager.unlock(abi.encode(ACTION_RECALL));
@@ -255,7 +261,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Moves exact idle amounts back to the vault (owner only, bounded by balances).
-    function withdrawInventory(uint256 quoteAmount, uint256 equityAmount) external onlyOwner {
+    function withdrawInventory(uint256 quoteAmount, uint256 equityAmount) external onlyOwner nonReentrant {
         address vault_ = vault;
         if (vault_ == address(0)) revert ZeroAddress();
         if (quoteAmount != 0) IERC20(quote).safeTransfer(vault_, quoteAmount);
@@ -286,7 +292,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Full exit: pulls guard + base and returns all inventory to the vault.
-    function pullAll() external onlyOwner {
+    function pullAll() external onlyOwner nonReentrant {
         if (!poolInitialized) revert BookNotInitialized();
         if (exited) revert BookIsExited();
         if (vault == address(0)) revert ZeroAddress();
@@ -297,7 +303,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Re-arms a pulled book: redeploys base (+ guard when enabled). Vault funds first.
-    function rearm() external onlyOwner {
+    function rearm() external onlyOwner nonReentrant {
         if (!poolInitialized) revert BookNotInitialized();
         if (!exited) revert GuardAlreadyPresent();
         exited = false;
@@ -309,7 +315,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     ///         guard re-arms if the market still makes sense (oracle valid, deviation in band).
     ///         H3: a skipped recheck records `lastRecheckAttempt` only — `pulledAt` is
     ///         untouched so grief-pushes cannot extend the outage.
-    function recheckGuard() external {
+    function recheckGuard() external nonReentrant {
         _requireLive();
         if (!deployEnabled) revert DeploymentsDisabled();
         if (guardPresent) revert GuardAlreadyPresent();
@@ -330,7 +336,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     }
 
     /// @notice Redeems this hook's ERC-6909 claims into idle inventory (permissionless).
-    function unwindClaims() external {
+    function unwindClaims() external nonReentrant {
         if (!poolInitialized) revert BookNotInitialized();
         poolManager.unlock(abi.encode(ACTION_UNWIND));
     }
@@ -478,6 +484,9 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
     ///         (unlike `recheckGuard`), so a manipulated tick gets the full guard.
     ///         Enforce the same `recheckMaxDeviationBps` band here — manipulated
     ///         ticks deploy nothing. A zero max disables the band check (docs).
+    ///         CEI: the position is published BEFORE touching the pool so a token
+    ///         callback (during settlement transfers) cannot re-enter and double-deploy
+    ///         the same salt; a failed non-strict open rolls the state back.
     function _tryDeployGuardInSwap() internal {
         uint16 maxDev = _params.recheckMaxDeviationBps;
         if (maxDev != 0) {
@@ -486,9 +495,13 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         }
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
-        if (!_openBand(GUARD_SALT, lo, hi, liquidity, false)) return;
         guardPosition = Position({ tickLower: lo, tickUpper: hi, liquidity: liquidity });
         guardPresent = true;
+        if (!_openBand(GUARD_SALT, lo, hi, liquidity, false)) {
+            guardPosition.liquidity = 0;
+            guardPresent = false;
+            return;
+        }
         pulledAt = 0;
         emit GuardDeployed(lo, hi, liquidity);
     }
@@ -497,9 +510,11 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         if (guardPresent) revert GuardAlreadyPresent();
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
-        _openBand(GUARD_SALT, lo, hi, liquidity, true);
+        // CEI: publish before the pool call; `_openBand` reverts on shortfall, which
+        // rolls the whole transaction back.
         guardPosition = Position({ tickLower: lo, tickUpper: hi, liquidity: liquidity });
         guardPresent = true;
+        _openBand(GUARD_SALT, lo, hi, liquidity, true);
         pulledAt = 0;
         emit GuardDeployed(lo, hi, liquidity);
     }
@@ -555,8 +570,9 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook {
         if (basePosition.liquidity != 0) return;
         (int24 lo, int24 hi) = _baseBounds(_currentTick());
         uint128 liquidity = _params.baseLiquidity;
-        _openBand(BASE_SALT, lo, hi, liquidity, true);
+        // CEI: publish before the pool call (strict open reverts roll everything back).
         basePosition = Position({ tickLower: lo, tickUpper: hi, liquidity: liquidity });
+        _openBand(BASE_SALT, lo, hi, liquidity, true);
         emit BaseDeployed(lo, hi, liquidity);
     }
 

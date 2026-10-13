@@ -90,7 +90,7 @@ contract TrancheVaultTest is Test {
         assertEq(senior.owner(), address(this));
         assertEq(senior.guardian(), address(this));
         assertEq(senior.accountant(), accountant);
-        assertEq(senior.decimals(), 21);
+        assertEq(senior.decimals(), 24);
     }
 
     function test_supportsInterface_7540() public view {

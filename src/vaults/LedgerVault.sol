@@ -95,6 +95,11 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     /// @notice Terminal halt flag (H12): once set after expiry, keeper re-enable /
     ///         redeploy paths stay closed — `_halt` cannot be undone into settlement.
     bool public halted;
+    /// @notice Medium: vault-level oracle freshness bound (seconds). The hook enforces
+    ///         its own `maxPriceAge` on swaps; pricing paths (`_oracleMid`) previously
+    ///         accepted anything the oracle itself called valid. Zero disables.
+    ///         Production wiring: set <= the hook's `maxPriceAge`.
+    uint32 public maxOracleAge;
 
     IVenuePool public venue;
     IERC20 public aToken;
@@ -297,6 +302,19 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function setMaxUnwrapDeviationBps(uint16 bps) external onlyOwner {
         if (bps > BPS) revert FeeTooHigh(bps);
         maxUnwrapDeviationBps = bps;
+    }
+
+    /// @notice Medium: vault-level oracle freshness bound (0 disables). Mirrors the
+    ///         hook's `maxPriceAge` so pricing paths cannot run on a feed the swap
+    ///         gate would already reject.
+    function setMaxOracleAge(uint32 seconds_) external onlyOwner {
+        maxOracleAge = seconds_;
+    }
+
+    /// @notice Current exit fee + decaying fine, in bps. Lets the ERC-7575 entry
+    ///         compute NET previews (gross-up) that match what `unwrapQuote` pays.
+    function currentExitFeeBps() external view returns (uint256) {
+        return uint256(redemptionFeeBps) + _fineBps();
     }
 
     /// @notice Registers the ERC-7575 entry point in the share token's vault lookup (EIP-7575).
@@ -585,12 +603,22 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
         uint256 supply = shareToken.totalSupply();
         if (supply == 0) revert InsufficientQuote(0, 0);
-        uint256 quoteUnits = quote.balanceOf(address(this)) + hook.quoteIdle();
+        // Medium: the old pro-rata omitted the deployed base/guard positions and the
+        // virtual offsets, underpaying redeemers and leaking value to those who stay.
+        // Include both positions (reachable through the recall ladder below) and use
+        // the same virtual offsets as `convertToQuote`.
+        (uint256 posQuote, uint256 posEquity) = _positionUnits();
+        uint256 quoteUnits = quote.balanceOf(address(this)) + hook.quoteIdle() + posQuote;
         if (address(aToken) != address(0)) quoteUnits += aToken.balanceOf(address(this));
-        uint256 equityUnits = equity.balanceOf(address(this)) + hook.equityIdle();
+        uint256 equityUnits = equity.balanceOf(address(this)) + hook.equityIdle() + posEquity;
 
-        quoteAmount = _deductExitFees(Math.mulDiv(quoteUnits, shares, supply));
-        equityAmount = _deductExitFees(Math.mulDiv(equityUnits, shares, supply));
+        uint256 scaledSupply = (supply + VIRTUAL_SHARES) * SHARE_SCALE;
+        quoteAmount = _deductExitFees(
+            Math.mulDiv(shares, quoteUnits * SHARE_SCALE + virtualAssets(), scaledSupply)
+        );
+        equityAmount = _deductExitFees(
+            Math.mulDiv(shares, equityUnits * SHARE_SCALE + virtualAssets(), scaledSupply)
+        );
         if (quoteAmount < minQuoteOut) revert SlippageExceeded(quoteAmount, minQuoteOut);
         if (equityAmount < minEquityOut) revert SlippageExceeded(equityAmount, minEquityOut);
 
@@ -776,6 +804,12 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function _oracleMid() internal view returns (uint256) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) return 0;
+        // Medium: mirror the hook's freshness gate on the pricing paths.
+        uint32 maxAge = maxOracleAge;
+        if (maxAge != 0) {
+            if (data.updatedAt == 0 || data.updatedAt > block.timestamp) return 0;
+            if (block.timestamp - data.updatedAt > maxAge) return 0;
+        }
         return uint256(uint192(data.mid));
     }
 

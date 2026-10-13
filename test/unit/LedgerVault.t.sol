@@ -9,6 +9,8 @@ import { Currency } from "v4-core/src/types/Currency.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
 import { Hooks } from "v4-core/src/libraries/Hooks.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
+import { StateLibrary } from "v4-core/src/libraries/StateLibrary.sol";
+import { LiquidityAmounts } from "../../src/hook/libraries/LiquidityAmounts.sol";
 import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { DemoRouter } from "../../src/router/DemoRouter.sol";
@@ -27,6 +29,7 @@ import { IHookSharePipe } from "../../src/interfaces/IHookSharePipe.sol";
 
 contract LedgerVaultTest is Test {
     using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
 
     IPoolManager internal manager;
     DemoRouter internal router;
@@ -250,14 +253,61 @@ contract LedgerVaultTest is Test {
         uint256 shares = _wrapAsSenior(400e6, address(this));
 
         uint256 supply = share.totalSupply();
-        uint256 quoteUnits = quote.balanceOf(address(vault)) + quote.balanceOf(address(hook));
-        uint256 equityUnits = nvda.balanceOf(address(vault)) + nvda.balanceOf(address(hook));
-        uint256 expectedUsdc = quoteUnits * shares / supply;
-        uint256 expectedEquity = equityUnits * shares / supply;
+        (uint256 posQuote, uint256 posEquity) = _testPositionUnits();
+        uint256 quoteUnits = quote.balanceOf(address(vault)) + quote.balanceOf(address(hook)) + posQuote;
+        uint256 equityUnits = nvda.balanceOf(address(vault)) + nvda.balanceOf(address(hook)) + posEquity;
+        // Same virtual-offset pro-rata the vault uses: deployed base/guard positions
+        // are part of the book (reachable through the recall ladder), so they must
+        // be counted — the old formula omitted them and underpaid redeemers.
+        uint256 scaledSupply = (supply + 1_000) * vault.SHARE_SCALE();
+        uint256 expectedUsdc =
+            shares * (quoteUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
+        uint256 expectedEquity =
+            shares * (equityUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
 
+        uint256 usdcBefore = quote.balanceOf(address(this));
+        uint256 nvdaBefore = nvda.balanceOf(address(this));
         (uint256 outUsdc, uint256 outEquity) = vault.unwrapProportional(shares, address(this), 0, 0);
         assertEq(outUsdc, expectedUsdc);
         assertEq(outEquity, expectedEquity);
+        assertEq(quote.balanceOf(address(this)) - usdcBefore, outUsdc, "quote actually received");
+        assertEq(nvda.balanceOf(address(this)) - nvdaBefore, outEquity, "equity actually received");
+    }
+
+    /// @notice Test-local position valuation: mirrors the vault's inclusion rule
+    ///         (idle + BOTH positions) using the pool math library directly, so the
+    ///         test fails if the vault ever drops positions from the pro-rata again.
+    function _testPositionUnits() internal view returns (uint256 quoteUnits, uint256 equityUnits) {
+        (uint160 sqrtPriceX96,,,) = manager.getSlot0(hook.activePoolId());
+        bool quoteIs0 = Currency.unwrap(key.currency0) == address(quote);
+        (int24 lo, int24 hi, uint128 liquidity) = hook.basePosition();
+        if (liquidity != 0) {
+            (uint256 a0, uint256 a1) = LiquidityAmounts.getAmountsForLiquidity(
+                sqrtPriceX96, TickMath.getSqrtPriceAtTick(lo), TickMath.getSqrtPriceAtTick(hi), liquidity
+            );
+            if (quoteIs0) {
+                quoteUnits += a0;
+                equityUnits += a1;
+            } else {
+                quoteUnits += a1;
+                equityUnits += a0;
+            }
+        }
+        if (hook.guardPresent()) {
+            (lo, hi, liquidity) = hook.guardPosition();
+            if (liquidity != 0) {
+                (uint256 b0, uint256 b1) = LiquidityAmounts.getAmountsForLiquidity(
+                    sqrtPriceX96, TickMath.getSqrtPriceAtTick(lo), TickMath.getSqrtPriceAtTick(hi), liquidity
+                );
+                if (quoteIs0) {
+                    quoteUnits += b0;
+                    equityUnits += b1;
+                } else {
+                    quoteUnits += b1;
+                    equityUnits += b0;
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------

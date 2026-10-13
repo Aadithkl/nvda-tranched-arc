@@ -305,8 +305,14 @@ contract TrancheEconomicsTest is Test {
         vault.finalizeSettlement();
 
         uint256 guarantee = accountant.seniorGuaranteeQuote();
+        // Bound the rate-floor dust BEFORE redeeming (the burn zeroes the supply).
+        uint256 dustBound = senior.totalSupply() / 1e18 + 2;
         vm.prank(user);
         (uint256 usdcOut,) = senior.redeemAtExpiry(srShares, user);
-        assertApproxEqAbs(usdcOut, guarantee, 100, "no fee haircut at settlement (dust only)");
+        // Fee-free, but NOT dust-free: the frozen rate is floored at 1e18 precision,
+        // so redemption loses up to `supply / 1e18` units (~ppm at offset-6 share
+        // granularity). A fee haircut would be 20bps+ (~200k units) — orders away.
+        assertLe(usdcOut, guarantee, "never overpays the guarantee");
+        assertGe(usdcOut, guarantee > dustBound ? guarantee - dustBound : 0, "no fee haircut at settlement");
     }
 }

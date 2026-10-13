@@ -25,6 +25,7 @@ interface ILedgerVaultPipe {
     function convertToQuote(uint256 shares) external view returns (uint256);
     function expired() external view returns (bool);
     function guardRecallOnWithdraw() external view returns (bool);
+    function currentExitFeeBps() external view returns (uint256);
     function SHARE_SCALE() external view returns (uint256);
     function virtualAssets() external view returns (uint256);
     function shareToken() external view returns (address);
@@ -53,6 +54,7 @@ contract LedgerEntry7575 is IERC7575 {
 
     /// @dev Must match LedgerVault's virtual-share offsets (consistency is asserted in tests).
     uint256 internal constant VIRTUAL_SHARES = 1e3;
+    uint256 internal constant BPS = 10_000;
 
     address public immutable vault;
     HookShareToken public immutable shareToken;
@@ -125,18 +127,21 @@ contract LedgerEntry7575 is IERC7575 {
     }
 
     /// @dev Rounded up (ERC-4626); mirrors the vault's share math for a given quote amount.
+    ///      Net of exit fees: the shares are sized so the post-fee payout covers `assets`.
     function previewWithdraw(uint256 assets) public view returns (uint256) {
+        uint256 gross = _grossUp(assets);
         uint256 scaledTotal = totalAssets() * shareScale;
         return Math.mulDiv(
-            assets * shareScale,
+            gross * shareScale,
             shareToken.totalSupply() + VIRTUAL_SHARES,
             scaledTotal + ILedgerVaultPipe(vault).virtualAssets(),
             Math.Rounding.Ceil
         );
     }
 
+    /// @dev Net of exit fees/fine — matches what `unwrapQuote` actually pays.
     function previewRedeem(uint256 shares) external view returns (uint256) {
-        return convertToAssets(shares);
+        return _netOfFees(convertToAssets(shares));
     }
 
     function maxDeposit(address) public view returns (uint256) {
@@ -148,7 +153,7 @@ contract LedgerEntry7575 is IERC7575 {
     }
 
     function maxWithdraw(address owner) public view returns (uint256) {
-        uint256 value = convertToAssets(shareToken.balanceOf(owner));
+        uint256 value = _netOfFees(convertToAssets(shareToken.balanceOf(owner)));
         uint256 available = maxWithdrawableQuote();
         return value < available ? value : available;
     }
@@ -157,6 +162,19 @@ contract LedgerEntry7575 is IERC7575 {
         uint256 balance = shareToken.balanceOf(owner);
         uint256 forLiquidity = convertToShares(maxWithdrawableQuote());
         return balance < forLiquidity ? balance : forLiquidity;
+    }
+
+    /// @dev Gross-up for the current fee+fine so a net withdrawal covers the request.
+    function _grossUp(uint256 assets) internal view returns (uint256) {
+        uint256 feeBps = ILedgerVaultPipe(vault).currentExitFeeBps();
+        if (feeBps == 0) return assets;
+        return Math.mulDiv(assets, BPS, BPS - feeBps, Math.Rounding.Ceil);
+    }
+
+    function _netOfFees(uint256 gross) internal view returns (uint256) {
+        uint256 feeBps = ILedgerVaultPipe(vault).currentExitFeeBps();
+        if (feeBps == 0) return gross;
+        return gross - Math.mulDiv(gross, feeBps, BPS);
     }
 
     /// @notice Quote units the book's redemption ladder can reach in one transaction (mirrors

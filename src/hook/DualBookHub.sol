@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Ownable2Step } from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
@@ -25,7 +26,7 @@ import { IBookHook } from "../interfaces/IBookHook.sol";
 ///         Book sweeps land here (each book's recorded vault is this hub), so every
 ///         mutating path ends with a sweep to the real vault — the hub never holds
 ///         between transactions and the box stays fully counted.
-contract DualBookHub is Ownable2Step, IBookHook {
+contract DualBookHub is Ownable2Step, IBookHook, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using CurrencyLibrary for Currency;
 
@@ -115,23 +116,23 @@ contract DualBookHub is Ownable2Step, IBookHook {
     // Active-book forwarders (IBookHook surface)
     // ---------------------------------------------------------------------
 
-    function setDeployEnabled(bool enabled) external override onlyOwnerOrKeeper {
+    function setDeployEnabled(bool enabled) external override onlyOwnerOrKeeper nonReentrant {
         _active().setDeployEnabled(enabled);
     }
 
-    function recenterGuard() external override onlyOwnerOrKeeper {
+    function recenterGuard() external override onlyOwnerOrKeeper nonReentrant {
         _active().recenterGuard();
     }
 
-    function deployGuard() external override onlyOwnerOrKeeper {
+    function deployGuard() external override onlyOwnerOrKeeper nonReentrant {
         _active().deployGuard();
     }
 
-    function rearm() external override onlyOwnerOrKeeper {
+    function rearm() external override onlyOwnerOrKeeper nonReentrant {
         _active().rearm();
     }
 
-    function setGuardParams(GuardParams.Params calldata params) external override onlyOwnerOrKeeper {
+    function setGuardParams(GuardParams.Params calldata params) external override onlyOwnerOrKeeper nonReentrant {
         _active().setGuardParams(params);
     }
 
@@ -141,6 +142,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
         external
         override
         onlyOwnerOrKeeper
+        nonReentrant
         returns (int24 tick)
     {
         if (address(key.hooks) == address(bookA)) return bookA.initializeBook(key, sqrtPriceX96);
@@ -156,7 +158,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
     /// @notice Pulls the guard and returns inventory to the vault on BOTH books (safe
     ///         stand-down). Skips books never initialized (staged deployments). Book sweeps
     ///         land here first; forwarded to the real vault at the end.
-    function recallToVault() external override onlyOwnerOrKeeper {
+    function recallToVault() external override onlyOwnerOrKeeper nonReentrant {
         if (bookA.poolInitialized()) bookA.recallToVault();
         if (bookB.poolInitialized()) bookB.recallToVault();
         _sweepToVault();
@@ -164,7 +166,12 @@ contract DualBookHub is Ownable2Step, IBookHook {
 
     /// @notice Exact idle amounts back to the vault, active book first, remainder from
     ///         inactive. Book pulls land here first; forwarded to the real vault at the end.
-    function withdrawInventory(uint256 quoteAmount, uint256 equityAmount) external override onlyOwnerOrKeeper {
+    function withdrawInventory(uint256 quoteAmount, uint256 equityAmount)
+        external
+        override
+        onlyOwnerOrKeeper
+        nonReentrant
+    {
         IdlePair memory idle = _idleOf(_active());
         uint256 qTake = quoteAmount < idle.quoteIdle ? quoteAmount : idle.quoteIdle;
         uint256 eTake = equityAmount < idle.equityIdle ? equityAmount : idle.equityIdle;
@@ -177,7 +184,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
 
     /// @notice Redeems pool-manager claims into idle inventory on both books (permissionless
     ///         upstream). Skips books never initialized.
-    function unwindClaims() external override {
+    function unwindClaims() external override nonReentrant {
         if (bookA.poolInitialized()) bookA.unwindClaims();
         if (bookB.poolInitialized()) bookB.unwindClaims();
     }
@@ -185,7 +192,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
     /// @notice Full exit on both books (halt/settlement path). Skips uninitialized books and
     ///         books already exited — halt must stay idempotent across migrations. Book sweeps
     ///         land here first; forwarded to the real vault at the end.
-    function pullAll() external override onlyOwnerOrKeeper {
+    function pullAll() external override onlyOwnerOrKeeper nonReentrant {
         if (bookA.poolInitialized() && !bookA.exited()) bookA.pullAll();
         if (bookB.poolInitialized() && !bookB.exited()) bookB.pullAll();
         _sweepToVault();
@@ -202,7 +209,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
     ///         never-initialized from-book (`BookNotInitialized`, stuck pointer).
     ///         Now skips uninitialized/exited from-books and requires the target book
     ///         to be initialized.
-    function pullInactiveAndActivate(uint8 to) external onlyOwnerOrKeeper {
+    function pullInactiveAndActivate(uint8 to) external onlyOwnerOrKeeper nonReentrant {
         if (to > 1) revert UnknownBook(to);
         uint8 from = activeBook;
         if (to == from) revert SameBook(to);
@@ -216,7 +223,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
     }
 
     /// @notice Forwards tokens transiently held here (vault funding) into the active book.
-    function pushToActive() external onlyOwnerOrKeeper {
+    function pushToActive() external onlyOwnerOrKeeper nonReentrant {
         PoolGuardHook b = _active();
         uint256 quoteBal = quote.balanceOf(address(this));
         uint256 equityBal = equity.balanceOf(address(this));
@@ -227,7 +234,7 @@ contract DualBookHub is Ownable2Step, IBookHook {
     /// @notice Arms the active book after funding: re-arms a previously pulled book
     ///         (restores base + guard from the pushed inventory) or deploys the guard on
     ///         a fresh book. The plain `deployGuard` stays a strict forward — no magic.
-    function activateAndDeploy() external onlyOwnerOrKeeper {
+    function activateAndDeploy() external onlyOwnerOrKeeper nonReentrant {
         PoolGuardHook b = _active();
         if (b.exited()) b.rearm();
         else b.deployGuard();

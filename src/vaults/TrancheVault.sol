@@ -293,7 +293,15 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (matured) _pendingMaturedShares = shares;
         super._withdraw(caller, receiver, sharesOwner, assets, shares);
         if (matured) _pendingMaturedShares = 0;
-        _notifyClaim(assets);
+        // Medium: matured payouts are the FROZEN quote value (the `assets` arg comes
+        // from hook-share accounting, which is ~0 after settlement). Notify with the
+        // frozen quote so the accountant's principal/claimable counters keep tracking
+        // what actually left the vault.
+        if (matured) {
+            _notifyClaim(shares.mulDiv(quotePerShare1e18, 1e18, Math.Rounding.Floor));
+        } else {
+            _notifyClaim(assets);
+        }
     }
 
     function _transferOut(address to, uint256 assets) internal virtual override {
@@ -473,7 +481,11 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         return super._requestRedeem(shares, controller, sharesOwner, requestId);
     }
 
+    /// @notice Medium (first-depositor inflation): the virtual-share offset scales the
+    ///         seed cost of an inflation attack against the hook-share base unit
+    ///         (1e15 shares per quote unit). Offset 6 raises the donation needed to
+    ///         move the first share price meaningfully. Share decimals become 24.
     function _decimalsOffset() internal view virtual override returns (uint8) {
-        return 3;
+        return 6;
     }
 }
