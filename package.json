@@ -10,7 +10,8 @@
     "agent:static": "node agent/static.mjs",
     "robinhood:verify": "node scripts/verify-robinhood.mjs",
     "robinhood:proxy": "node scripts/rpc-proxy.mjs",
-    "test:agent": "node --test agent/test/static.test.mjs"
+    "test:agent": "node --test agent/test/static.test.mjs",
+    "frontend": "node scripts/serve-frontend.mjs"
   },
   "dependencies": {
     "viem": "2.56.3"

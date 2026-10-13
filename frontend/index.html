@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Static book — Robinhood testnet console</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Static-fee book <span class="net">Robinhood testnet · 46630</span></h1>
+    <div class="row">
+      <button id="btnConnect">Connect wallet</button>
+      <select id="rpcSel" title="RPC endpoint"></select>
+      <button id="btnRefresh">Refresh</button>
+      <button id="btnAuto">Auto: off</button>
+      <span id="blockNum" class="muted"></span>
+    </div>
+    <div id="status" class="status">not connected</div>
+  </div>
+  <nav>
+    <a id="faucetLink" target="_blank" rel="noreferrer">Faucet ↗</a>
+    <a id="explorerLink" target="_blank" rel="noreferrer">Explorer ↗</a>
+  </nav>
+</header>
+
+<section class="panel">
+  <h2>Deployment</h2>
+  <p class="hint">Paste addresses from a <code>forge script</code> run (see Deploy tab), or load
+  <code>deployments/robinhood-testnet.json</code>. Saved in this browser only.</p>
+  <div id="depForm" class="dep-grid"></div>
+  <div class="row">
+    <button id="btnSaveDep">Save</button>
+    <button id="btnLoadRepo">Load repo JSON</button>
+    <button id="btnDlJson">Download JSON</button>
+    <button id="btnClearDep">Clear</button>
+  </div>
+</section>
+
+<nav class="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="faucet">Faucet</button>
+  <button data-tab="deposit">Deposit</button>
+  <button data-tab="redeem">Redeem</button>
+  <button data-tab="swap">Swap</button>
+  <button data-tab="keeper">Keeper</button>
+  <button data-tab="settle">Settle</button>
+  <button data-tab="deploy">Deploy</button>
+</nav>
+
+<section data-pane="overview" class="active"><div id="overview" class="cards"></div></section>
+
+<section data-pane="faucet">
+  <div class="card"><h3>Test tokens (open mint on mocks)</h3>
+    <div class="row"><input id="faucetQuoteAmt" value="10000" size="10"><button id="btnFaucetQ">Mint quote</button>
+    <button id="btnWatchQ">Add quote to wallet</button></div>
+    <div class="row"><input id="faucetEquityAmt" value="100" size="10"><button id="btnFaucetE">Mint equity</button>
+    <button id="btnWatchE">Add equity to wallet</button></div>
+    <p class="hint">Need gas? Claim 0.01 testnet ETH + stock tokens at the <a id="faucetLink2" href="https://faucet.testnet.chain.robinhood.com/" target="_blank" rel="noreferrer">official faucet ↗</a> (once / 24h).</p>
+  </div>
+</section>
+
+<section data-pane="deposit">
+  <div class="card"><h3>Senior tranche</h3>
+    <div class="row"><input id="depSeniorAmt" value="1000" size="10"><button id="btnDepS">Approve + depositQuote</button></div>
+  </div>
+  <div class="card"><h3>Junior tranche</h3>
+    <div class="row"><input id="depJuniorAmt" value="400" size="10"><button id="btnDepJ">Approve + depositQuote</button></div>
+  </div>
+  <p class="hint">Genesis must be junior-led (25% junior floor). Amounts are in quote units.</p>
+</section>
+
+<section data-pane="redeem">
+  <div class="card"><h3>Request exit (ERC-7540)</h3>
+    <div class="row"><input id="redSeniorAmt" placeholder="senior shares (empty = max)" size="26"><button id="btnReqS">requestRedeem senior</button></div>
+    <div class="row"><input id="redJuniorAmt" placeholder="junior shares (empty = max)" size="26"><button id="btnReqJ">requestRedeem junior</button></div>
+  </div>
+  <div class="card"><h3>Epochs (keeper pre-expiry, anyone after)</h3>
+    <div class="row"><button id="btnExecEpoch">executeEpoch</button><button id="btnRebalance">rebalance (keeper)</button></div>
+    <div class="row"><button id="btnFulS">fulfillRedeem senior</button><button id="btnFulJ">fulfillRedeem junior</button></div>
+    <div class="row"><button id="btnEpochS">claimEpoch senior</button><button id="btnEpochJ">claimEpoch junior</button></div>
+  </div>
+  <div class="card"><h3>Claim (uses amount boxes above; empty = max)</h3>
+    <div class="row"><button id="btnClaimUWS">claimAndUnwrapQuote senior</button><button id="btnClaimUWJ">claimAndUnwrapQuote junior</button></div>
+    <div class="row"><input id="unwrapAmt" placeholder="hook shares" size="16"><button id="btnUnwrap">unwrapQuote (hook shares)</button></div>
+  </div>
+  <div class="card"><h3>ERC-7575 entry (optional)</h3>
+    <div class="row"><input id="entryShares" placeholder="hook shares" size="16"><input id="entryAssets" placeholder="quote assets" size="16"><button id="btnEntryPrev">Preview (net of fees)</button></div>
+    <div class="row"><button id="btnEntryRedeem">Approve + redeem via entry</button><button id="btnEntryWithdraw">Approve + withdraw via entry</button></div>
+    <div id="entryOut" class="mono"></div>
+    <p class="hint">Previews are net of exit fees/fine. Withdraw rounds shares up (vault-favoring).</p>
+  </div>
+  <div class="card"><h3>Post-settlement</h3>
+    <div class="row">
+      <select id="maturedSide"><option value="senior">senior</option><option value="junior">junior</option></select>
+      <select id="maturedOp"><option value="fulfillRedeemMatured">fulfillRedeemMatured</option><option value="claimMatured">claimMatured</option><option value="redeemAtExpiry">redeemAtExpiry</option></select>
+      <button id="btnMatured">Run</button>
+    </div>
+  </div>
+</section>
+
+<section data-pane="swap">
+  <div class="card"><h3>Swap via DemoRouter (tests the guard)</h3>
+    <div class="row">
+      <select id="swapDir"><option value="buy">buy equity (pay quote)</option><option value="sell">sell equity (receive quote)</option></select>
+      <input id="swapAmt" value="10" size="10" title="input amount">
+      <input id="swapMinOut" value="0" size="10" title="min out">
+    </div>
+    <div class="row"><button id="btnSim">Preview EV (simulateEv)</button><button id="btnSwap">Approve + swap</button></div>
+    <div id="simOut" class="mono"></div>
+    <p class="hint">Toxic flow pulls the guard mid-swap (pool thins to base); the swap still goes through. Watch guard state on Overview.</p>
+  </div>
+</section>
+
+<section data-pane="keeper">
+  <div class="card"><h3>Guard params (keeper via vault)</h3>
+    <div class="grid2">
+      <label>guardTickWidth <input id="gp_gtw" size="8"></label>
+      <label>baseTickWidth <input id="gp_btw" size="8"></label>
+      <label>guardLiquidity <input id="gp_gl" size="16"></label>
+      <label>baseLiquidity <input id="gp_bl" size="16"></label>
+      <label>minEvBps <input id="gp_minev" size="8"></label>
+      <label>recheckMaxDeviationBps <input id="gp_dev" size="8"></label>
+      <label>recheckInterval <input id="gp_int" size="8"></label>
+      <label>maxPriceAge <input id="gp_age" size="8"></label>
+      <label>allowedSessionsMask <input id="gp_mask" size="8"></label>
+    </div>
+    <div class="row"><button id="btnLoadGP">Load current</button><button id="btnSetGP">setGuardParams</button></div>
+  </div>
+  <div class="card"><h3>Book ops</h3>
+    <div class="row"><button id="btnRecheck">recheckGuard (anyone)</button></div>
+    <div class="row"><input id="fundQ" placeholder="quote" size="10"><input id="fundE" placeholder="equity" size="10"><button id="btnFund">fundHook</button></div>
+    <div class="row"><button id="btnRecall">recallToVault</button><button id="btnDeployG">deployGuard</button><button id="btnRecenter">recenterGuard</button><button id="btnRearm">rearmHook</button></div>
+    <div class="row"><select id="deployEn"><option value="true">true</option><option value="false">false</option></select><button id="btnDeployEn">setHookDeployEnabled</button></div>
+    <div class="row"><input id="initTick" placeholder="init tick (e.g. 196260)" size="22"><button id="btnInit">initializeHook</button></div>
+  </div>
+  <div class="card"><h3>Venue / fees / oracle</h3>
+    <div class="row"><button id="btnSupply">supplyIdle (all)</button><input id="venueAmt" placeholder="amount" size="10"><button id="btnWithdrawV">withdrawFromVenue</button></div>
+    <div class="row"><input id="feeBps" value="20" size="6"><input id="fineBps" value="30" size="6"><button id="btnSetFees">setExitFees (owner, one-shot)</button></div>
+    <div class="row"><input id="oracleMid" placeholder="mid 1e8 (e.g. 20000000000)" size="24"><input id="oracleStatus" value="2" size="4" title="marketStatus"><button id="btnOraclePush">updatePrice (writer)</button></div>
+  </div>
+</section>
+
+<section data-pane="settle">
+  <div class="card"><h3>Wind-down</h3>
+    <div class="row"><button id="btnHalt">haltIfExpired (anyone)</button><button id="btnFinalize">finalizeSettlement (anyone)</button><button id="btnHaircut">finalizeSettlementHaircut (owner)</button></div>
+    <p class="hint">After settlement use Redeem → Post-settlement claims. Senior is paid first up to the guarantee.</p>
+  </div>
+</section>
+
+<section data-pane="deploy">
+  <div class="card"><h3>Bring-up checklist (Robinhood testnet, 46630)</h3>
+    <ol class="steps">
+      <li>Fund the deployer: claim <a href="https://faucet.testnet.chain.robinhood.com/" target="_blank" rel="noreferrer">0.01 testnet ETH ↗</a> to <code>DEPLOYER_ADDRESS</code> (once / 24h).</li>
+      <li>Deploy v4 + mocks (refuses mainnet by design):
+        <pre>forge script script/DeployV4Stack.s.sol --rpc-url $ROBINHOOD_TESTNET_RPC_URL --broadcast</pre>
+        Set <code>QUOTE_ADDRESS=mUSDC</code>, <code>NVDA_ADDRESS=mNVDA</code>, <code>V4_POOL_MANAGER=…</code> from the output.</li>
+      <li>Deploy the price oracle, authorize the writer, push the first price (writer only):
+        <pre>forge script script/DeployOracle.s.sol --rpc-url $ROBINHOOD_TESTNET_RPC_URL --broadcast
+cast send $NVDA_ORACLE "updatePrice(int192,uint32,uint32,bytes32)" 20000000000 2 $(date +%s) 0x0000000000000000000000000000000000000000000000000000000000000000 --rpc-url $ROBINHOOD_TESTNET_RPC_URL --private-key $ORACLE_WRITER_KEY</pre></li>
+      <li>Deploy the stack (book init off by default):
+        <pre>STATIC_INIT_BOOK=false forge script script/DeployStaticStack.s.sol --rpc-url $ROBINHOOD_TESTNET_RPC_URL --broadcast</pre></li>
+      <li>Paste every address into Deployment above → Save → fund the hook (Keeper tab) →
+        <code>initializeHook</code> with an in-band tick (calculator below) → Refresh.</li>
+      <li>Copy this page's saved JSON into <code>deployments/robinhood-testnet.json</code> and commit.</li>
+    </ol>
+  </div>
+  <div class="card"><h3>Init-tick calculator</h3>
+    <p class="hint">Target = oracle mid × 1e10. Rounded to tick spacing. Onchain <code>initializeBook</code> enforces the deviation band — confirm ~0 bps on Overview after init.</p>
+    <div class="row"><input id="tickPrice" placeholder="target price 1e18 (e.g. 200e18 → 200000000000000000000)" size="34"></div>
+    <div class="row">
+      <input id="tickQDec" value="6" size="4" title="quote decimals"><input id="tickEDec" value="18" size="4" title="equity decimals">
+      <input id="tickSpacing" value="60" size="5" title="tick spacing">
+      <select id="tickOrder"><option value="eq1">equity is token1</option><option value="eq0">equity is token0</option></select>
+      <button id="btnTickCalc">Suggest tick</button>
+    </div>
+    <div id="tickOut" class="mono"></div>
+  </div>
+</section>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
