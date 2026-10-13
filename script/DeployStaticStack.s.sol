@@ -40,11 +40,11 @@ contract DeployStaticStack is Script {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         (LedgerVault vault, PoolKey memory key, int24 initialTick, bool initBook, uint64 expiry) = _deployCore(deployer);
         VaultStrategyController controller = _deployControl(address(vault), deployer);
-        _deployTranches(address(vault), deployer, expiry);
+        (,, JuniorVault junior) = _deployTranches(address(vault), deployer, expiry);
         vault.setExitFees(
             uint16(vm.envOr("STATIC_EXIT_FEE_BPS", uint256(20))), uint16(vm.envOr("STATIC_MAX_FINE_BPS", uint256(30)))
         );
-        _bootstrapStack(vault, deployer);
+        _bootstrapStack(vault, junior, deployer);
         _wireStrategy(vault, controller);
         if (initBook) vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         vm.stopBroadcast();
@@ -147,13 +147,16 @@ contract DeployStaticStack is Script {
         console2.log("Keeper/Operator:", operator);
     }
 
-    function _deployTranches(address vaultAddr, address deployer, uint64 expiry) internal {
+    function _deployTranches(address vaultAddr, address deployer, uint64 expiry)
+        internal
+        returns (TrancheAccountant accountant, SeniorVault senior, JuniorVault junior)
+    {
         address quote = vm.envAddress("QUOTE_ADDRESS");
         address nvda = vm.envAddress("NVDA_ADDRESS");
-        TrancheAccountant accountant = new TrancheAccountant(deployer);
+        accountant = new TrancheAccountant(deployer);
         accountant.setKeeper(vm.envOr("AGENT_OPERATOR_ADDRESS", deployer));
         HookShareToken share = LedgerVault(vaultAddr).shareToken();
-        SeniorVault senior = new SeniorVault(
+        senior = new SeniorVault(
             IERC20(address(share)),
             IERC20(quote),
             IERC20(nvda),
@@ -162,7 +165,7 @@ contract DeployStaticStack is Script {
             address(accountant),
             expiry
         );
-        JuniorVault junior = new JuniorVault(
+        junior = new JuniorVault(
             IERC20(address(share)),
             IERC20(quote),
             IERC20(nvda),
@@ -184,19 +187,22 @@ contract DeployStaticStack is Script {
     }
 
     /// @notice Pre-mine invariant (anti-inflation-attack): the book must never start from
-    ///         dust. Wraps 0.1 quote units (10**(decimals-1): $0.10 on a 6-dec book, 0.1 WETH
-    ///         on an 18-dec book) from the deployer, who keeps the bootstrap shares. Deployer
-    ///         must hold the quote and the vault needs a live oracle (wrap reverts on
-    ///         invalid mid). Set STATIC_BOOTSTRAP=false to skip (not for production books).
-    function _bootstrapStack(LedgerVault vault, address deployer) internal {
+    ///         dust. Deposits 0.1 quote units (10**(decimals-1): $0.10 on a 6-dec book,
+    ///         0.1 WETH on an 18-dec book) through the JUNIOR tranche (genesis must be
+    ///         junior-led — senior deposits need 25% junior backing, and direct wraps
+    ///         revert once the accountant is wired). Deployer keeps the bootstrap
+    ///         shares. Deployer must hold the quote and the vault needs a live oracle
+    ///         (wrap reverts on invalid mid). Set STATIC_BOOTSTRAP=false to skip
+    ///         (not for production books).
+    function _bootstrapStack(LedgerVault vault, JuniorVault junior, address deployer) internal {
         if (!vm.envOr("STATIC_BOOTSTRAP", true)) return;
         address quote = vm.envAddress("QUOTE_ADDRESS");
         uint8 quoteDec = vault.quoteDecimals();
         require(quoteDec > 0, "bootstrap: bad quote decimals");
         uint256 bootAmount = 10 ** (quoteDec - 1);
         require(IERC20(quote).balanceOf(deployer) >= bootAmount, "bootstrap: fund deployer with quote");
-        IERC20(quote).approve(address(vault), bootAmount);
-        uint256 bootShares = vault.wrapQuote(bootAmount, deployer);
+        IERC20(quote).approve(address(junior), bootAmount);
+        uint256 bootShares = junior.depositQuote(bootAmount, deployer);
         console2.log("BootstrapQuote:", bootAmount);
         console2.log("BootstrapShares:", bootShares);
     }

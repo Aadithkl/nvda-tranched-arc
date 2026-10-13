@@ -47,9 +47,26 @@ const LS_KEY = "rh_static_deployment";
 const LS_RPC = "rh_static_rpc";
 
 export function defaultDeployment() {
-  const d = {};
-  for (const [k] of DEPLOYMENT_FIELDS) d[k] = "";
-  return d;
+  // Live testnet stack (deployments/robinhood-testnet.json, 2026-10-14) so the
+  // console works out of the box. Clear in the UI to start empty.
+  return {
+    poolManager: "0xe6EC071602Cc9483c518c7Ec746e10BAb555FE00",
+    router: "0xFaaf80ac538181DE26EC53Ea1a6cC363Ecf8744c",
+    quote: "0x2022D0876132E26f32Df4a3bDdF2cFcB96010B28",
+    equity: "0x071E67900B728370969eFF988085CF3D84195E31",
+    oracle: "0xF790D17103a81Bd62F54480B991f2Cdb374FCd74",
+    hook: "0xa5e5516233b2631B8982D543305c066204a72080",
+    vault: "0x30C6e6068EC44Bbe830E68B721dfCB691904325E",
+    senior: "0x0ad9A5A86972fF0A22092570d78C2DB411D0aD41",
+    junior: "0xD067D3E79aA5A05432734825c12a9C62d9543790",
+    accountant: "0xD0EAa0b95b03997E880a87Bc79cB2D576a0269A4",
+    entry: "0x94f4F95F6A8cB0aAeB90BeAE09C60C7A0bd60692",
+    controller: "0x1Be800E5Ab3196Fd1047d21f0eBc63F4A1E87A58",
+    agent: "0x1Aa9a13793A4E5A7c0C057d2e806CA0D491fA4b9",
+    strategyModule: "",
+    poolFee: "3000",
+    poolTickSpacing: "60",
+  };
 }
 
 export function loadDeployment() {

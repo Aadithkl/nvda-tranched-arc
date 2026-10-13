@@ -127,4 +127,6 @@ the tick lands near ±196260 depending on token order — do NOT hardcode it.
 | `NotTranche` on wrap | only senior/junior vaults (or owner pre-accountant) may wrap |
 | Swaps revert when market closed | `allowedSessionsMask`/oracle session gate — push `marketStatus=2`, or set mask 0 |
 | `FloorBreach` on senior deposit | deposit junior first (25% floor) |
+| `OracleInvalid` mid-broadcast | oracle price older than `maxStaleness` (300s): re-push right before the timed txs |
+| Foul `.env` line without `=` | breaks dotenv parsing for every var below it — forge then silently falls back to script defaults (seen: keeper/writer became deployer/zero). Keep `.env` strictly `KEY=value` |
 | Deploy runs out of gas | faucet drip is 0.01 ETH — split deploys across days/keys |
