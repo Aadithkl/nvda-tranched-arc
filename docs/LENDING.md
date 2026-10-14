@@ -79,7 +79,7 @@ node scripts/lending-admin.mjs --deposit-nvda <wei18> # supply NVDA
 node scripts/lending-admin.mjs --borrow-nvda <wei18>  # variable-rate borrow of NVDA (rate mode 2)
 ```
 
-Live markets on Arc (2026-09-13 redeploy): **USDC + NVDA**, strategy base `0`, slope1 `9%`, slope2 `60%`,
+Live markets on Robinhood Chain (2026-09-13 redeploy): **USDC + NVDA**, strategy base `0`, slope1 `9%`, slope2 `60%`,
 optimal `80%`.
 - USDC: supplied 230, borrowed 160 â†’ utilization 69.6%, supply 4.90% / borrow 7.83%.
 - NVDA: supplied 2, borrowed 1.2 â†’ utilization 60.0%, supply 3.64% / borrow 6.75%.

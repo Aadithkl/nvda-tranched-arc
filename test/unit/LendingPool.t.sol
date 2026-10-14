@@ -56,9 +56,9 @@ contract LendingPoolTest is Test {
         strategy = new DefaultReserveInterestRateStrategy(0, 0.04e27, 0.6e27, 0.8e27);
 
         (address aUsdcAddr, address dUsdcAddr) =
-            configurator.initReserve(address(quote), 6, "Aave Arc QUOTE", "aUSDC", address(strategy));
+            configurator.initReserve(address(quote), 6, "Aave RH QUOTE", "aUSDC", address(strategy));
         (address aNvdaAddr, address dNvdaAddr) =
-            configurator.initReserve(address(nvda), 18, "Aave Arc NVDA", "aNVDA", address(strategy));
+            configurator.initReserve(address(nvda), 18, "Aave RH NVDA", "aNVDA", address(strategy));
         aUsdc = AToken(aUsdcAddr);
         aNvda = AToken(aNvdaAddr);
         dUsdc = VariableDebtToken(dUsdcAddr);

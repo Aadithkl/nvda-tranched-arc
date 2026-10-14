@@ -5,7 +5,7 @@ static-fee Uniswap v4 pool guarded by an onchain IL guard, tranche Senior/Junior
 a bounded strategy module (Morpho lending + a levered junior sleeve) — all with onchain risk limits.
 
 **Version model:** this branch (`static-fee`) is the static-fee book. The dynamic-fee v3 book
-(`TrancheJITHook`, Arc testnet) is preserved on `main` — nothing is removed from GitHub.
+(`TrancheJITHook`) is preserved on `main` — nothing is removed from GitHub.
 
 ## Architecture
 

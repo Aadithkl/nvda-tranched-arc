@@ -6,7 +6,7 @@ Veda **Boring Vault** (Teller/Accountant/ManagerWithMerkleVerification) and **Mo
 
 ## Decisions (locked)
 
-1. **Single-chain strategy** on **Robinhood Chain** (4663) — the static book moves off Arc.
+1. **Single-chain strategy** on **Robinhood Chain** (4663) — the static book is Robinhood-Chain-only.
 2. **Fixed-function adapters** (allocate/deallocate/realAssets; only the module may call them) —
    deliberately stricter than Boring's merkle-whitelisted arbitrary calls.
 3. **Morpho Blue (Robinhood, era-2 `0x9D53…1010`) is the primary lend venue**; loop sleeve =

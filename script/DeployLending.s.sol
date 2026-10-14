@@ -43,8 +43,8 @@ contract DeployLending is Script {
             new DefaultReserveInterestRateStrategy(baseRate, slope1, slope2, optimal);
 
         (address aUsdc, address dUsdc) =
-            configurator.initReserve(quote, 6, "Aave Arc QUOTE", "aUSDC", address(strategy));
-        (address aNvda, address dNvda) = configurator.initReserve(nvda, 18, "Aave Arc NVDA", "aNVDA", address(strategy));
+            configurator.initReserve(quote, 6, "Aave RH QUOTE", "aUSDC", address(strategy));
+        (address aNvda, address dNvda) = configurator.initReserve(nvda, 18, "Aave RH NVDA", "aNVDA", address(strategy));
 
         configurator.configureReserveAsCollateral(quote, ltv, liquidationThreshold, liquidationBonus);
         configurator.enableBorrowingOnReserve(quote, true);

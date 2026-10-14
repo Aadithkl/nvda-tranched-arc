@@ -64,7 +64,7 @@ after expiry; de-risking (deallocate/repay/deleverage) and settlement `exitAll` 
 | Branch | `main` (frozen, live) | `static-fee` (this build) |
 | Execution layer | `TrancheJITHook` — dynamic fee + JIT | `PoolGuardHook` — static fee, guard-only + `RegimeVault` |
 | Liquidity layer | hook-managed JIT, Aave rest, v3 share pipe | vault-owned base + window positions; native share + ERC-7575 entry |
-| Status | live on Arc testnet; ops/deploy fixes only | built 2026-10-11/12 (see header + `DUAL_BOOK_PLAN.md` §7.3); §5 boxes audited, one open |
+| Status | live on Robinhood Chain; ops/deploy fixes only | built 2026-10-11/12 (see header + `DUAL_BOOK_PLAN.md` §7.3); §5 boxes audited, one open |
 
 Rules:
 
@@ -88,7 +88,7 @@ Rules:
   PRs to `main` already run CI.
 - Pages: `main` only. No second Pages site; the static UI runs locally until promotion.
 - Deployments: `deployments/robinhood-{mainnet,testnet}.json` are the static book records on this
-  branch; the v3 Arc record stays on `main`.
+  branch; the v3 record stays on `main`.
 - No force-pushes; `main` is never deleted; the branch is deleted only after a deliberate promotion.
 
 ## 3. File-level plan (branch `static-fee` only)
@@ -149,7 +149,7 @@ Rules:
 
 **P2 — deploy + data**
 
-1. Deploy on Arc testnet alongside live v3 (second pool/hook; shared oracle + lending).
+1. Deploy on Robinhood Chain testnet alongside live v3 (second pool/hook; shared oracle + lending).
 2. `staticBook` section in deployments; subgraph datasource; agent heartbeat dry-run first.
 3. Frontend preview locally (not Pages).
 
