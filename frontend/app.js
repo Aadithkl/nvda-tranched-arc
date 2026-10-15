@@ -319,10 +319,13 @@ async function refreshAll() {
 
   // Vault
   if (isAddr(d.vault)) {
-    const [exp, set, halt, tma, ke, ow] = await Promise.all([
+    const [exp, set, halt, dep, thr, chk, tma, ke, ow] = await Promise.all([
       read(d.vault, vaultABI, "expired"),
       read(d.vault, vaultABI, "settled"),
       read(d.vault, vaultABI, "halted"),
+      read(d.vault, vaultABI, "depegPaused"),
+      read(d.vault, vaultABI, "depegThresholdBps"),
+      read(d.vault, vaultABI, "lastDepegCheck"),
       read(d.vault, vaultABI, "totalManagedAssets"),
       read(d.vault, vaultABI, "keeper"),
       read(d.vault, vaultABI, "owner"),
@@ -333,6 +336,8 @@ async function refreshAll() {
     out.push(
       card("Vault", [
         ["expired / settled / halted", `${yn(exp)} / ${yn(set)} / ${yn(halt)}`],
+        ["depeg paused / threshold", `${yn(dep)} / ${thr === null ? "—" : thr + " bps"}`],
+        ["last depeg check", chk === null || chk === 0n ? "—" : new Date(Number(chk) * 1000).toLocaleString()],
         ["totalManagedAssets", tma === null ? "—" : formatUnits(tma, qd)],
         ["keeper", ke ? short(ke) : "—"],
         ["your roles", roles.length ? roles.join(", ") : "none"],
@@ -750,6 +755,8 @@ function init() {
   on("btnSetFees", "click", doSetExitFees);
   const k = (id, fn, addr, abi, args, label) => on(id, "click", () => doSimple(fn, addr(), abi, args(), label));
   k("btnRecall", "recallFromHook", () => S.dep.vault, vaultABI, () => []);
+  k("btnCheckDepeg", "checkDepeg", () => S.dep.vault, vaultABI, () => []);
+  k("btnResumeDepeg", "resumeFromDepeg", () => S.dep.vault, vaultABI, () => []);
   k("btnDeployG", "deployGuard", () => S.dep.vault, vaultABI, () => []);
   k("btnRecenter", "recenterGuard", () => S.dep.vault, vaultABI, () => []);
   k("btnRearm", "rearmHook", () => S.dep.vault, vaultABI, () => []);
