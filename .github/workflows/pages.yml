@@ -1,12 +1,12 @@
 # Deploys frontend/ as the repo's GitHub Pages site
 # (https://aadithkl.github.io/nvda-tranched-arc/) plus the testnet deployment
-# record it reads. Runs on the static-fee branch; enable once in repo settings
+# record it reads. Runs on the main branch; enable once in repo settings
 # (Pages -> Build and deployment -> GitHub Actions).
 name: Pages
 
 on:
   push:
-    branches: [static-fee]
+    branches: [main]
     paths:
       - "frontend/**"
       - "deployments/robinhood-testnet.json"

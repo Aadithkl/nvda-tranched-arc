@@ -4,8 +4,8 @@ Stablecoin-native RWA capital structuring for **NVDA stock tokens on Robinhood C
 static-fee Uniswap v4 pool guarded by an onchain IL guard, tranche Senior/Junior vaults on top, and
 a bounded strategy module (Morpho lending + a levered junior sleeve) — all with onchain risk limits.
 
-**Version model:** this branch (`static-fee`) is the static-fee book. The dynamic-fee v3 book
-(`TrancheJITHook`) is preserved on `main` — nothing is removed from GitHub.
+**Version model:** this branch (`main`) is the static-fee book. The dynamic-fee v3 book
+(`TrancheJITHook`) is preserved on `jit` — nothing is removed from GitHub.
 
 ## Architecture
 

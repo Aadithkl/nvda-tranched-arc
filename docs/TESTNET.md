@@ -2,7 +2,7 @@
 
 Target: deploy the static-fee book on Robinhood Chain Testnet and exercise it
 through the hosted console at **https://aadithkl.github.io/nvda-tranched-arc/**
-(auto-deployed from `frontend/` on every `static-fee` push via
+(auto-deployed from `frontend/` on every `main` push via
 `.github/workflows/pages.yml`; local alternative: `npm run frontend` →
 http://127.0.0.1:5173).
 
@@ -116,7 +116,7 @@ the tick lands near ±196260 depending on token order — do NOT hardcode it.
 ## 7. Record + verify
 
 - Download the deployment JSON from the frontend and merge into
-  `deployments/robinhood-testnet.json`; commit on `static-fee`.
+  `deployments/robinhood-testnet.json`; commit on `main`.
 - Verify sources on
   `https://explorer.testnet.chain.robinhood.com` (contract → Verify).
 

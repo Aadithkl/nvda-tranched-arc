@@ -1,5 +1,5 @@
 // Minimal ABIs for the Robinhood testnet frontend. Hand-written to match
-// src/ (static-fee branch). Overloaded functions are included only once
+// src/ (main branch). Overloaded functions are included only once
 // (4-arg redeemAtExpiry, 3-arg unwrapQuote, 5-arg swapExactIn) so viem can
 // use short names.
 
