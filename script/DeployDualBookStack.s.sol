@@ -206,7 +206,7 @@ contract DeployDualBookStack is Script {
             guardLiquidity: uint128(vm.envOr(string.concat(prefix, "_GUARD_LIQUIDITY"), uint256(50e12))),
             baseLiquidity: uint128(vm.envOr(string.concat(prefix, "_BASE_LIQUIDITY"), uint256(0.5e12))),
             minEvBps: uint16(vm.envOr(string.concat(prefix, "_MIN_EV_BPS"), uint256(0))),
-            recheckMaxDeviationBps: uint16(vm.envOr(string.concat(prefix, "_RECHECK_MAX_DEV_BPS"), uint256(50))),
+            recheckMaxDeviationBps: uint16(vm.envOr(string.concat(prefix, "_RECHECK_MAX_DEV_BPS"), uint256(200))),
             recheckInterval: uint32(vm.envOr(string.concat(prefix, "_RECHECK_INTERVAL"), uint256(300))),
             maxPriceAge: uint32(vm.envOr(string.concat(prefix, "_MAX_PRICE_AGE"), uint256(300))),
             allowedSessionsMask: uint8(vm.envOr(string.concat(prefix, "_ALLOWED_SESSIONS_MASK"), uint256(0)))

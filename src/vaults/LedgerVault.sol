@@ -91,10 +91,25 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     /// @notice Max |spot − oracle| deviation (bps) allowed on wrap/unwrap.
     ///         Guards the thin-book pump: spot inflated far above oracle cannot mint
     ///         cheap shares or `unwrapQuote` at inflated `convertToQuote`. Zero disables.
-    uint16 public maxUnwrapDeviationBps = 500;
+    ///         Default matches the depeg gate (200bps); tighten/loosen via
+    ///         `setMaxUnwrapDeviationBps`.
+    uint16 public maxUnwrapDeviationBps = 200;
     /// @notice Terminal halt flag: once set after expiry, keeper re-enable /
     ///         redeploy paths stay closed — `_halt` cannot be undone into settlement.
     bool public halted;
+    /// @notice Depeg latch: set by `checkDepeg()` when |pool − oracle| exceeds
+    ///         `depegThresholdBps`. While set, risk-increasing keeper paths
+    ///         (guard admin, funding, strategy approvals, venue supply, rebalance
+    ///         pulls) stay closed; exits and recalls stay open. Cleared by
+    ///         `resumeFromDepeg()` (manual override until the next check) or by a
+    ///         clean `checkDepeg()` read. Base position stays deployed as the
+    ///         price tracker throughout.
+    bool public depegPaused;
+    /// @notice Depeg threshold in bps (default 200 = 2%). Zero disables the latch
+    ///         (checks always read clean).
+    uint16 public depegThresholdBps = 200;
+    /// @notice Last `checkDepeg()` timestamp (heartbeat bookkeeping).
+    uint256 public lastDepegCheck;
     /// @notice Vault-level oracle freshness bound (seconds). The hook enforces
     ///         its own `maxPriceAge` on swaps; without this the pricing paths
     ///         (`_oracleMid`) would accept anything the oracle itself calls valid.
@@ -114,6 +129,9 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     event GuardRecallOnWithdrawSet(bool enabled);
     event GuardRecalledForWithdrawal(uint256 shortfall);
     event Halted(uint256 timestamp);
+    event DepegTripped(uint256 deviationBps, uint16 thresholdBps);
+    event DepegResumed(uint256 timestamp);
+    event DepegThresholdUpdated(uint16 thresholdBps);
     event ConversionFeeBpsUpdated(uint16 bps);
     event ExitFeesUpdated(uint16 feeBps, uint16 fineBps);
     event HookFunded(uint256 quoteAmount, uint256 equityAmount);
@@ -152,6 +170,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     error InvalidOracleDecimals(uint8 decimals);
     error SpotDeviation(uint256 deviationBps, uint16 maxDeviationBps);
     error IsHalted();
+    error IsDepegPaused();
 
     /// @notice Keeper-only once a keeper is set; before that (deploy bootstrap) the owner
     ///         may act. Owner recovery is replacing the keeper, never acting around it —
@@ -286,8 +305,10 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     /// @notice One-shot exact approval for the strategy module (keeper-gated).
     ///         Approves `amount` on top of zero — never a standing max. Revoke by
-    ///         approving zero.
+    ///         approving zero. Closed while depeg-paused (no new Morpho risk on a
+    ///         broken peg; de-risking flows need no approval).
     function approveStrategy(address token, uint256 amount) external onlyKeeper {
+        _requireNotDepegged();
         if (token != address(quote) && token != address(equity)) revert ZeroAddress();
         if (strategyModule == address(0)) revert ZeroAddress();
         IERC20(token).forceApprove(strategyModule, amount);
@@ -309,6 +330,54 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     ///         gate would already reject.
     function setMaxOracleAge(uint32 seconds_) external onlyOwner {
         maxOracleAge = seconds_;
+    }
+
+    /// @notice Tunes the depeg latch threshold (0 disables the latch: checks
+    ///         always read clean). Bounded to 100%.
+    function setDepegThresholdBps(uint16 bps) external onlyOwner {
+        if (bps > BPS) revert FeeTooHigh(bps);
+        depegThresholdBps = bps;
+        emit DepegThresholdUpdated(bps);
+    }
+
+    /// @notice Permissionless depeg heartbeat: latches `depegPaused` when
+    ///         |pool − oracle| exceeds `depegThresholdBps`, clears it when back
+    ///         in band. Unavailable reads (uninitialized/stale/disabled) leave
+    ///         the latch untouched. Called by the hourly keeper run; anyone may
+    ///         trip it early.
+    function checkDepeg() external returns (bool paused_) {
+        lastDepegCheck = block.timestamp;
+        uint16 threshold = depegThresholdBps;
+        if (threshold == 0) {
+            if (depegPaused) {
+                depegPaused = false;
+                emit DepegResumed(block.timestamp);
+            }
+            return false;
+        }
+        (bool ok, uint256 deviationBps) = hook.oracleDeviationBps();
+        if (!ok) return depegPaused;
+        if (deviationBps > threshold) {
+            if (!depegPaused) {
+                depegPaused = true;
+                hook.setDeployEnabled(false);
+                emit DepegTripped(deviationBps, threshold);
+            }
+            return true;
+        }
+        if (depegPaused) {
+            depegPaused = false;
+            emit DepegResumed(block.timestamp);
+        }
+        return false;
+    }
+
+    /// @notice Manual override: clears the latch until the next `checkDepeg()`.
+    ///         Keeper-gated (controller relays the keeper). Does not redeploy —
+    ///         re-arming stays an explicit keeper step after review.
+    function resumeFromDepeg() external onlyKeeper {
+        depegPaused = false;
+        emit DepegResumed(block.timestamp);
     }
 
     /// @notice Current exit fee + decaying fine, in bps. Lets the ERC-7575 entry
@@ -350,10 +419,16 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         }
     }
 
+    function _requireNotDepegged() internal view {
+        if (depegPaused) revert IsDepegPaused();
+    }
+
     /// @notice Keeper-only pull for the controller's bottom-layer swap: gathers `amount`
     ///         of `token` through the usual ladder and sends it to the keeper, which swaps
     ///         and returns the proceeds to this vault. Swap math lives in the controller.
+    ///         Closed while depeg-paused (no swaps on a broken peg).
     function pullForRebalance(address token, uint256 amount) external onlyKeeper nonReentrant {
+        _requireNotDepegged();
         if (token != address(quote) && token != address(equity)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
         if (token == address(quote)) _ensureQuote(amount);
@@ -384,6 +459,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     function setGuardParams(GuardParams.Params calldata params) external onlyKeeper {
         if (halted) revert IsHalted();
+        _requireNotDepegged();
         // Bound the riskiest knob — minEvBps == 10_000 means "never defend".
         // Hard cap at 5_000 (50%) so a fat-finger cannot silently disable the guard.
         if (params.minEvBps > 5_000) revert ConversionFeeTooHigh(params.minEvBps);
@@ -393,21 +469,26 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function setHookDeployEnabled(bool enabled) external onlyKeeper {
         // Halted books never re-enable deployments.
         if (enabled && halted) revert IsHalted();
+        // Depegged books never re-enable deployments; standing down stays open.
+        if (enabled) _requireNotDepegged();
         hook.setDeployEnabled(enabled);
     }
 
     function recenterGuard() external onlyKeeper {
         if (halted) revert IsHalted();
+        _requireNotDepegged();
         hook.recenterGuard();
     }
 
     function deployGuard() external onlyKeeper {
         if (halted) revert IsHalted();
+        _requireNotDepegged();
         hook.deployGuard();
     }
 
     function rearmHook() external onlyKeeper {
         if (halted) revert IsHalted();
+        _requireNotDepegged();
         hook.rearm();
     }
 
@@ -422,7 +503,9 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     }
 
     /// @notice Pushes vault capital into the hook's inventory for deployment.
+    ///         Closed while depeg-paused (no new hook risk on a broken peg).
     function fundHook(uint256 quoteAmount, uint256 equityAmount) external onlyKeeper {
+        _requireNotDepegged();
         if (quoteAmount != 0) quote.safeTransfer(address(hook), quoteAmount);
         if (equityAmount != 0) equity.safeTransfer(address(hook), equityAmount);
         emit HookFunded(quoteAmount, equityAmount);

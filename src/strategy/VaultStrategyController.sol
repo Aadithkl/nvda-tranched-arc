@@ -20,6 +20,9 @@ interface IVaultStrategy {
     function fundHook(uint256 quoteAmount, uint256 equityAmount) external;
     function pullForRebalance(address token, uint256 amount) external;
     function approveStrategy(address token, uint256 amount) external;
+    function checkDepeg() external returns (bool paused_);
+    function resumeFromDepeg() external;
+    function depegPaused() external view returns (bool);
     function equityToQuote(uint256 equityAmount) external view returns (uint256);
     function quoteToEquity(uint256 quoteAmount) external view returns (uint256);
     function quote() external view returns (IERC20);
@@ -73,6 +76,12 @@ contract VaultStrategyController is ReentrancyGuard {
         int24 maxBaseTickWidth;
         uint128 maxGuardLiquidity;
         uint128 maxBaseLiquidity;
+        /// @notice Lower clamps so the book cannot be set invisible (dust base)
+        ///         or left without a guard by accident. Zero = no floor.
+        int24 minGuardTickWidth;
+        int24 minBaseTickWidth;
+        uint128 minGuardLiquidity;
+        uint128 minBaseLiquidity;
         uint16 maxMinEvBps;
         uint32 minRecheckInterval;
         uint32 maxRecheckInterval;
@@ -190,6 +199,10 @@ contract VaultStrategyController is ReentrancyGuard {
     error BaseWidthTooLarge(int24 width, int24 bound);
     error GuardLiquidityTooLarge(uint128 liquidity, uint128 bound);
     error BaseLiquidityTooLarge(uint128 liquidity, uint128 bound);
+    error GuardWidthTooSmall(int24 width, int24 bound);
+    error BaseWidthTooSmall(int24 width, int24 bound);
+    error GuardLiquidityTooSmall(uint128 liquidity, uint128 bound);
+    error BaseLiquidityTooSmall(uint128 liquidity, uint128 bound);
     error MinEvTooHigh(uint16 minEvBps, uint16 bound);
     error RecheckIntervalOutOfRange(uint32 interval, uint32 min, uint32 max);
     error RecheckDeviationTooHigh(uint16 deviationBps, uint16 bound);
@@ -220,6 +233,7 @@ contract VaultStrategyController is ReentrancyGuard {
     error NothingPending(bytes32 key);
     error TimelockActive(uint64 executableAt);
     error KnobExecutionFailed();
+    error DepegPaused();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -248,9 +262,13 @@ contract VaultStrategyController is ReentrancyGuard {
         guardian = owner;
         bounds = Bounds({
             maxGuardTickWidth: 3_000,
-            maxBaseTickWidth: 30_000,
+            maxBaseTickWidth: 6_000,
             maxGuardLiquidity: 5_000e12,
             maxBaseLiquidity: 500e12,
+            minGuardTickWidth: 0,
+            minBaseTickWidth: 6_000,
+            minGuardLiquidity: 0,
+            minBaseLiquidity: 0,
             maxMinEvBps: 100,
             minRecheckInterval: 60,
             maxRecheckInterval: 3_600,
@@ -468,6 +486,7 @@ contract VaultStrategyController is ReentrancyGuard {
 
     function submitGuardParams(GuardParams.Params calldata params) external onlyAgent whenNotPaused {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         _checkBounds(params);
         _vault().setGuardParams(params);
         emit GuardParamsSubmitted(msg.sender, params);
@@ -475,6 +494,7 @@ contract VaultStrategyController is ReentrancyGuard {
 
     function submitRecenter() external onlyAgent whenNotPaused {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         Bounds memory b = bounds;
         if (lastRecenterAt != 0 && block.timestamp < lastRecenterAt + b.recenterCooldown) {
             revert RecenterCooldownActive(lastRecenterAt + b.recenterCooldown);
@@ -489,6 +509,7 @@ contract VaultStrategyController is ReentrancyGuard {
     function submitDeployEnabled(bool enabled) external onlyAgent {
         if (enabled && paused) revert IsPaused();
         if (enabled && switchFrozen) revert SwitchFrozen();
+        if (enabled) _requireNotDepegged();
         _vault().setHookDeployEnabled(enabled);
         emit DeployEnabledSubmitted(msg.sender, enabled);
     }
@@ -499,8 +520,20 @@ contract VaultStrategyController is ReentrancyGuard {
         emit RecallSubmitted(msg.sender);
     }
 
+    /// @notice Depeg heartbeat relay: runs the vault's peg check (permissionless
+    ///         upstream). Anyone may also call the vault directly to trip it early.
+    function submitCheckDepeg() external onlyAgent returns (bool paused_) {
+        return _vault().checkDepeg();
+    }
+
+    /// @notice Manual override relay: clears the depeg latch until the next check.
+    function submitResumeFromDepeg() external onlyAgent {
+        _vault().resumeFromDepeg();
+    }
+
     function submitFund(uint256 quoteAmount, uint256 equityAmount) external onlyAgent whenNotPaused {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         Bounds memory b = bounds;
         if (quoteAmount == 0 && equityAmount == 0) revert NothingToFund();
         if (quoteAmount > b.maxFundQuotePerCall) revert FundTooLarge(quoteAmount, b.maxFundQuotePerCall);
@@ -517,6 +550,7 @@ contract VaultStrategyController is ReentrancyGuard {
     ///         still be funded (it moves no funds by itself).
     function submitApproveStrategy(address token, uint256 amount) external onlyAgent nonReentrant {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         if (amount == 0) revert ZeroAmount();
         if (amount > 1e36) revert AllocateTooLarge(amount, 1e36);
         _vault().approveStrategy(token, amount);
@@ -527,6 +561,7 @@ contract VaultStrategyController is ReentrancyGuard {
     ///         call here; the module enforces absolute + relative caps and expiry gating.
     function submitAllocate(address adapter, uint256 amount) external onlyAgent whenNotPaused nonReentrant {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         address module_ = _module();
         if (amount == 0) revert ZeroAmount();
         if (amount > bounds.maxAllocatePerCall) revert AllocateTooLarge(amount, bounds.maxAllocatePerCall);
@@ -601,6 +636,7 @@ contract VaultStrategyController is ReentrancyGuard {
     ///         paused or frozen; bounded per call here plus exposure caps inside the module.
     function submitAllocateCollateral(address adapter, uint256 amount) external onlyAgent whenNotPaused nonReentrant {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         address module_ = _module();
         if (amount == 0) revert ZeroAmount();
         if (amount > bounds.maxCollateralPerCall) revert CollateralTooLarge(amount, bounds.maxCollateralPerCall);
@@ -613,6 +649,7 @@ contract VaultStrategyController is ReentrancyGuard {
     ///         per-call cap is the brake — size it tight.
     function submitBorrow(address adapter, uint256 amount) external onlyAgent whenNotPaused nonReentrant {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         address module_ = _module();
         if (amount == 0) revert ZeroAmount();
         if (amount > bounds.maxBorrowPerCall) revert BorrowTooLarge(amount, bounds.maxBorrowPerCall);
@@ -639,6 +676,7 @@ contract VaultStrategyController is ReentrancyGuard {
         if (target == address(0)) revert UnknownBook(to);
         if (to == activeBook) revert SameBook(to);
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         IVaultStrategy vault_ = _vault();
         if (vault_.expired()) revert TradingClosed();
         if (!vault_.oracleValid()) revert OracleInvalid();
@@ -674,6 +712,7 @@ contract VaultStrategyController is ReentrancyGuard {
         nonReentrant
     {
         if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
         if (amountIn == 0) revert ZeroAmount();
         if (block.timestamp > deadline) revert DeadlineExpired(deadline);
         IVaultStrategy vault_ = _vault();
@@ -740,6 +779,11 @@ contract VaultStrategyController is ReentrancyGuard {
         return IVaultStrategy(vault_);
     }
 
+    function _requireNotDepegged() internal view {
+        address vault_ = vault;
+        if (vault_ != address(0) && IVaultStrategy(vault_).depegPaused()) revert DepegPaused();
+    }
+
     function _module() internal view returns (address module_) {
         module_ = strategyModule;
         if (module_ == address(0)) revert ModuleUnset();
@@ -749,11 +793,13 @@ contract VaultStrategyController is ReentrancyGuard {
         if (
             b.maxGuardTickWidth <= 0 || b.maxGuardTickWidth > MAX_TICK_WIDTH || b.maxBaseTickWidth <= 0
                 || b.maxBaseTickWidth > MAX_TICK_WIDTH || b.maxGuardLiquidity == 0 || b.maxBaseLiquidity == 0
-                || b.maxMinEvBps > MAX_BPS || b.minRecheckInterval == 0 || b.maxRecheckInterval < b.minRecheckInterval
-                || b.maxRecheckInterval > MAX_RECHECK_INTERVAL || b.maxRecheckMaxDeviationBps > MAX_BPS
-                || b.maxMaxPriceAge == 0 || b.maxMaxPriceAge > MAX_PRICE_AGE || b.maxFundQuotePerCall == 0
-                || b.maxRebalanceSwapQuote == 0 || b.maxAllocatePerCall == 0 || b.maxCollateralPerCall == 0
-                || b.maxBorrowPerCall == 0
+                || b.minGuardTickWidth < 0 || b.minGuardTickWidth > b.maxGuardTickWidth || b.minBaseTickWidth < 0
+                || b.minBaseTickWidth > b.maxBaseTickWidth || b.minGuardLiquidity > b.maxGuardLiquidity
+                || b.minBaseLiquidity > b.maxBaseLiquidity || b.maxMinEvBps > MAX_BPS || b.minRecheckInterval == 0
+                || b.maxRecheckInterval < b.minRecheckInterval || b.maxRecheckInterval > MAX_RECHECK_INTERVAL
+                || b.maxRecheckMaxDeviationBps > MAX_BPS || b.maxMaxPriceAge == 0 || b.maxMaxPriceAge > MAX_PRICE_AGE
+                || b.maxFundQuotePerCall == 0 || b.maxRebalanceSwapQuote == 0 || b.maxAllocatePerCall == 0
+                || b.maxCollateralPerCall == 0 || b.maxBorrowPerCall == 0
                 // Rebalance swaps need a real cooldown — 0 means unlimited/block.
                 || b.rebalanceCooldown < MIN_REBALANCE_COOLDOWN
         ) {
@@ -764,11 +810,19 @@ contract VaultStrategyController is ReentrancyGuard {
     function _checkBounds(GuardParams.Params calldata p) internal view {
         Bounds memory b = bounds;
         if (p.guardTickWidth > b.maxGuardTickWidth) revert GuardWidthTooLarge(p.guardTickWidth, b.maxGuardTickWidth);
+        if (p.guardTickWidth < b.minGuardTickWidth) revert GuardWidthTooSmall(p.guardTickWidth, b.minGuardTickWidth);
         if (p.baseTickWidth > b.maxBaseTickWidth) revert BaseWidthTooLarge(p.baseTickWidth, b.maxBaseTickWidth);
+        if (p.baseTickWidth < b.minBaseTickWidth) revert BaseWidthTooSmall(p.baseTickWidth, b.minBaseTickWidth);
         if (p.guardLiquidity > b.maxGuardLiquidity) {
             revert GuardLiquidityTooLarge(p.guardLiquidity, b.maxGuardLiquidity);
         }
+        if (p.guardLiquidity < b.minGuardLiquidity) {
+            revert GuardLiquidityTooSmall(p.guardLiquidity, b.minGuardLiquidity);
+        }
         if (p.baseLiquidity > b.maxBaseLiquidity) revert BaseLiquidityTooLarge(p.baseLiquidity, b.maxBaseLiquidity);
+        if (p.baseLiquidity < b.minBaseLiquidity) {
+            revert BaseLiquidityTooSmall(p.baseLiquidity, b.minBaseLiquidity);
+        }
         if (p.minEvBps > b.maxMinEvBps) revert MinEvTooHigh(p.minEvBps, b.maxMinEvBps);
         if (p.recheckInterval < b.minRecheckInterval || p.recheckInterval > b.maxRecheckInterval) {
             revert RecheckIntervalOutOfRange(p.recheckInterval, b.minRecheckInterval, b.maxRecheckInterval);

@@ -125,6 +125,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     error OracleStale(uint256 updatedAt);
     error SessionNotAllowed(uint8 session);
     error InitPriceOffMarket(uint256 deviationBps, uint16 maxDeviationBps);
+    error GuardOffBand(uint256 deviationBps, uint16 maxDeviationBps);
 
     constructor(
         IPoolManager poolManager_,
@@ -507,6 +508,14 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
 
     function _deployGuardStrict() internal {
         if (guardPresent) revert GuardAlreadyPresent();
+        // Band check (same semantics as in-swap deploys and rechecks): never land the
+        // guard on a manipulated tick. Zero max disables. Skips when the read is
+        // unavailable (uninitialized/stale) so init-time deploys keep working.
+        uint16 maxDev = _params.recheckMaxDeviationBps;
+        if (maxDev != 0) {
+            (bool ok, uint256 deviationBps) = oracleDeviationBps();
+            if (ok && deviationBps > maxDev) revert GuardOffBand(deviationBps, maxDev);
+        }
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
         // CEI: publish before the pool call; `_openBand` reverts on shortfall, which
