@@ -395,7 +395,7 @@ contract StrategyModuleTest is Test {
         quote.mint(address(vault), 1_000e6);
         uint256 baseBefore = vault.baseManagedAssets();
 
-        // C3: no standing allowance — one-shot keeper approval per pull.
+        // No standing allowance — one-shot keeper approval per pull.
         vault.approveStrategy(address(quote), 400e6);
         vm.prank(allocator);
         module.allocate(address(lendAdapter), 400e6);

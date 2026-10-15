@@ -346,10 +346,9 @@ contract ExpiryWithdrawalsTest is Test {
         vault.haltIfExpired();
         vault.finalizeSettlement();
 
-        // Frozen rates cover pending shares too. C1 regression lock: the payout must
-        // distribute the FULL settlement leg the senior vault received. The pre-fix
-        // denominator double-counted pending shares (ERC7540.totalSupply already
-        // includes them) and paid ~half, stranding the rest in the vault.
+        // Frozen rates cover pending shares too: the payout must distribute the
+        // FULL settlement leg the senior vault received (every pending share is
+        // still entitled once the books close).
         uint256 seniorLeg = quote.balanceOf(address(senior));
         assertGt(seniorLeg, 1_000e6, "senior leg covers the principal");
         assertGt(senior.quotePerShare1e18(), 0);
@@ -431,7 +430,7 @@ contract ExpiryWithdrawalsTest is Test {
         uint256 payout = idleUsdc + 20e6; // shortfall the guard must cover
 
         // Drain the vault into the strategy, then disable the adapter so it cannot fund redemptions.
-        // C3: no standing allowance — one-shot keeper approval per pull.
+        // No standing allowance — one-shot keeper approval per pull.
         vault.approveStrategy(address(quote), quote.balanceOf(address(vault)));
         module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
         module.disableAdapter(address(lendAdapter));
@@ -487,12 +486,12 @@ contract ExpiryWithdrawalsTest is Test {
     }
 
     // ------------------------------------------------------------------
-    // Loop-sleeve settlement (C3 completeness)
+    // Loop-sleeve settlement funding
     // ------------------------------------------------------------------
 
-    /// @notice Regression (C3): with NO standing allowance on the vault, settlement
-    ///         must still fund `exitAll`'s loop-debt pull — it approves exactly
-    ///         `totalLoopDebt()`, unwinds, and resets the allowance to zero.
+    /// @notice With NO standing allowance on the vault, settlement must still fund
+    ///         `exitAll`'s loop-debt pull — it approves exactly `totalLoopDebt()`,
+    ///         unwinds, and resets the allowance to zero.
     ///         (Earlier mock-vault tests hid this because the mock constructor
     ///         granted a max approval to the module.)
     function test_settlement_unwindsLoopDebt() public {
@@ -525,7 +524,7 @@ contract ExpiryWithdrawalsTest is Test {
         module.allocateCollateral(address(loop), 0.7e18);
         module.borrow(address(loop), 700e6);
         assertGt(loop.debt(), 0, "loop debt opened");
-        // No standing allowance sits on the vault (C3).
+        // No standing allowance sits on the vault.
         assertEq(quote.allowance(address(vault), address(module)), 0);
 
         // Settle: pulls the book home, funds the loan repayment from the vault,

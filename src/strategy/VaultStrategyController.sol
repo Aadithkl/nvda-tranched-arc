@@ -61,11 +61,11 @@ contract VaultStrategyController is ReentrancyGuard {
     uint16 public constant MAX_BPS = 10_000;
     uint32 public constant MAX_RECHECK_INTERVAL = 86_400;
     uint32 public constant MAX_PRICE_AGE = 86_400;
-    /// @notice H11: bottom-layer rebalance swaps are sandwichable to the `minOut`
+    /// @notice Bottom-layer rebalance swaps are sandwichable to the `minOut`
     ///         floor with no cooldown — require at least 1h between swaps so each
     ///         sandwich needs its own block window.
     uint32 public constant MIN_REBALANCE_COOLDOWN = 1 hours;
-    /// @notice H11: rolling 24h volume cap window for rebalance swaps.
+    /// @notice Rolling 24h volume cap window for rebalance swaps.
     uint256 public constant REBALANCE_DAY = 24 hours;
 
     struct Bounds {
@@ -86,7 +86,7 @@ contract VaultStrategyController is ReentrancyGuard {
         uint256 maxBorrowPerCall;
         uint32 recenterCooldown;
         uint32 rebalanceCooldown;
-        /// @notice H11: rolling-24h cap on rebalance-swap quote volume (0 = uncapped).
+        /// @notice Rolling-24h cap on rebalance-swap quote volume (0 = uncapped).
         uint256 maxRebalanceQuotePerDay;
     }
 
@@ -108,7 +108,7 @@ contract VaultStrategyController is ReentrancyGuard {
     bool public paused;
     uint256 public lastRecenterAt;
     uint256 public lastRebalanceAt;
-    /// @notice H11: rolling-24h rebalance-swap spend (quote units) + window start.
+    /// @notice Rolling-24h rebalance-swap spend (quote units) + window start.
     uint256 public rebalanceDayStart;
     uint256 public rebalanceDaySpent;
 
@@ -405,7 +405,7 @@ contract VaultStrategyController is ReentrancyGuard {
     }
 
     function setMaxRebalanceSlippageBps(uint16 bps) external onlySelf {
-        // H11: the old 10% cap let every rebalance be sandwiched to a 10%-off floor,
+        // The old 10% cap let every rebalance be sandwiched to a 10%-off floor,
         // unlimited per block. Cap the operator floor at 1% — deep moves go through
         // governance-quorum repricing, not per-block swaps.
         if (bps > 100) revert ConversionFeeTooHigh(bps);
@@ -441,7 +441,7 @@ contract VaultStrategyController is ReentrancyGuard {
 
     /// @notice Tightens/loosens the per-call strategy caps without rewriting the whole
     ///         Bounds struct. Zero disables that path (deallocate/repay stay open).
-    ///         Validates against overflow-scale values (audit: previously unvalidated).
+    ///         Validates against overflow-scale values.
     function setAllocateCaps(uint256 maxAllocate_, uint256 maxCollateral_, uint256 maxBorrow_) external onlySelf {
         if (maxAllocate_ > 1e36 || maxCollateral_ > 1e36 || maxBorrow_ > 1e36) revert InvalidBounds();
         bounds.maxAllocatePerCall = maxAllocate_;
@@ -509,7 +509,7 @@ contract VaultStrategyController is ReentrancyGuard {
         emit FundSubmitted(msg.sender, quoteAmount, equityAmount);
     }
 
-    /// @notice One-shot exact approval for the strategy module's next pull (C3).
+    /// @notice One-shot exact approval for the strategy module's next pull.
     ///         The vault holds NO standing allowance; every `allocate` /
     ///         `allocateCollateral` / `repay` must be preceded by this (agent-gated,
     ///         per-call bounded below by the module's own absolute + relative caps).
@@ -695,7 +695,7 @@ contract VaultStrategyController is ReentrancyGuard {
         if (oracleOut == 0) revert OracleInvalid();
         uint256 floor = Math.mulDiv(oracleOut, MAX_BPS - maxRebalanceSlippageBps, MAX_BPS);
         if (minOut < floor) revert SlippageBoundUnmet(minOut, floor);
-        // H11: per-epoch (rolling 24h) volume cap — bounds the repeated-drain loop
+        // Per-epoch (rolling 24h) volume cap — bounds the repeated-drain loop
         // even if each individual swap respects the per-call cap + cooldown.
         if (b.maxRebalanceQuotePerDay != 0) {
             if (rebalanceDayStart == 0 || block.timestamp >= rebalanceDayStart + REBALANCE_DAY) {
@@ -754,7 +754,7 @@ contract VaultStrategyController is ReentrancyGuard {
                 || b.maxMaxPriceAge == 0 || b.maxMaxPriceAge > MAX_PRICE_AGE || b.maxFundQuotePerCall == 0
                 || b.maxRebalanceSwapQuote == 0 || b.maxAllocatePerCall == 0 || b.maxCollateralPerCall == 0
                 || b.maxBorrowPerCall == 0
-                // H11: rebalance swaps need a real cooldown — 0 means unlimited/block.
+                // Rebalance swaps need a real cooldown — 0 means unlimited/block.
                 || b.rebalanceCooldown < MIN_REBALANCE_COOLDOWN
         ) {
             revert InvalidBounds();

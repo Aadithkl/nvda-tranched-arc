@@ -4,7 +4,7 @@ Status: plan of record for implementation (handoff doc) · Branch: `static-fee` 
 Supersedes nothing; extends `docs/STATIC_FEE.md` (design freeze) + `docs/STRATEGY_MODULE_PLAN.md`.
 Decisions locked 2026-10-11: **assets = WETH + NVDA**, **fee tiers = init-time parameters (immutable)**.
 
-## 0. Current state (audited from code + this build)
+## 0. Current state (verified from code + this build)
 
 | Piece | File | State |
 |---|---|---|
@@ -44,7 +44,7 @@ keeper/agent (volume stats via graph/onchain Swap events) ── switchBook(L<->
 - **One active book at a time.** The inactive hook is always fully pulled (policy-enforced), so
   vault NAV/ladder stay correct and there is no split-brain liquidity.
 - **Fee tiers are init-time pool parameters, immutable after pool creation** — both hooks run the
-  identical audited `PoolGuardHook` bytecode (two mined instances); only the `PoolKey.fee` differs.
+  identical `PoolGuardHook` bytecode (two mined instances); only the `PoolKey.fee` differs.
   Values come from env at deploy (`STATIC_FEE_LOW` / `STATIC_FEE_HIGH`), never hardcoded in Solidity.
 - **Routing decision is offchain** (agent: volume via The Graph `Swap` events or RPC eth_logs),
   **execution is onchain-gated** (dwell, oracle-valid, not expired, freeze). No per-day flip
@@ -55,7 +55,7 @@ keeper/agent (volume stats via graph/onchain Swap events) ── switchBook(L<->
 1. **`DualBookHub` owns both hooks; LedgerVault owns the hub.** The vault's `hook` immutable becomes
    the hub address. The hub is duck-type-compatible with the `PoolGuardHook` surface the vault
    already calls, plus aggregated views. Rationale: vault is 67 B under EIP-170 — all new logic
-   MUST live in fresh contracts; the audited vault stays near-identical.
+   MUST live in fresh contracts; the vault stays near-identical.
 2. **Vault slimming pays for the additions.** Move the 12 keeper/owner hook-admin proxies
    (`setGuardParams`, `deployGuard`, `recenterGuard`, `rearmHook`, `recallFromHook`, `exitHook`,
    `setHookDeployEnabled`, `initializeHook`, `acceptHookOwnership`, …) OFF the vault onto the hub
@@ -77,7 +77,7 @@ keeper/agent (volume stats via graph/onchain Swap events) ── switchBook(L<->
    (owner/guardian — terminal wind-down for final withdrawal: blocks ALL controller risk-up,
    exits only), require `!vault.expired()` and oracle-valid. Lives on the controller today
    (dwell + freeze, no flip budget); moves with the hub at atomic-migrate time. Events log
-   evidence; the agent's decision data stays offchain and auditable via the keeper's
+   evidence; the agent's decision data stays offchain and reviewable via the keeper's
    controller tx trail.
 6. **Strategies stay in `StrategyModule`** — moving between lending/looping is live
    `allocate`/`deallocate` under caps (already built). This plan adds nothing except the new

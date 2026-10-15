@@ -150,7 +150,7 @@ contract RatioSessionOracle {
 
         uint256 updatedAt = nvdaUpdatedAt < ethUpdatedAt ? nvdaUpdatedAt : ethUpdatedAt;
         int192 mid;
-        // H5: either leg dated in the future must fail closed, not underflow-revert.
+        // Either leg dated in the future must fail closed, not underflow-revert.
         bool nvdaFresh =
             nvdaUpdatedAt != 0 && nvdaUpdatedAt <= block.timestamp && block.timestamp - nvdaUpdatedAt <= maxPriceAge;
         bool ethFresh =

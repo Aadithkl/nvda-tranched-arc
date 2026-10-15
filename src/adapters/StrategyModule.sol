@@ -48,7 +48,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     address public allocator;
     address public sentinel;
     uint256 public timelock = 24 hours;
-    /// @notice Pending timelock decrease (C6): increases take effect immediately,
+    /// @notice Pending timelock decrease: increases take effect immediately,
     ///         decreases wait out the current timelock so `setTimelock(0)` cannot
     ///         bypass the adapter queue.
     uint256 public pendingTimelock;
@@ -58,10 +58,10 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     mapping(address => PendingAdapter) public pending;
     mapping(address => bool) internal _listed;
     address[] public adapterList;
-    /// @notice C7/C9: canonical Morpho singleton (zero = any, for tests). When set,
+    /// @notice Canonical Morpho singleton (zero = any, for tests). When set,
     ///         loop adapters must point at it.
     address public canonicalMorpho;
-    /// @notice C9: allowlisted Morpho oracles. When `oracleAllowlistOn` is true,
+    /// @notice Allowlisted Morpho oracles. When `oracleAllowlistOn` is true,
     ///         loop adapters may only use listed oracles (curator-chosen oracles
     ///         with fake `price()=10x` drained via inflated `maxDebtAllowed`).
     mapping(address => bool) public allowedOracles;
@@ -159,19 +159,19 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         emit SentinelUpdated(sentinel_);
     }
 
-    /// @notice Pins the canonical Morpho singleton (C7). Zero = any (test mode).
+    /// @notice Pins the canonical Morpho singleton. Zero = any (test mode).
     function setCanonicalMorpho(address morpho_) external onlyOwner {
         canonicalMorpho = morpho_;
         emit CanonicalMorphoUpdated(morpho_);
     }
 
-    /// @notice Allow/disallow a Morpho oracle for loop sleeves (C9).
+    /// @notice Allow/disallow a Morpho oracle for loop sleeves.
     function setOracleAllowed(address oracle, bool allowed) external onlyOwner {
         allowedOracles[oracle] = allowed;
         emit OracleAllowlistUpdated(oracle, allowed);
     }
 
-    /// @notice Turns oracle-allowlist enforcement on/off (C9). Off by default so
+    /// @notice Turns oracle-allowlist enforcement on/off. Off by default so
     ///         existing tests with mock oracles keep passing; production deploys
     ///         must enable it after listing the canonical oracles.
     function setOracleAllowlistOn(bool on) external onlyOwner {
@@ -181,7 +181,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
 
     function setTimelock(uint256 timelock_) external onlyOwner {
         if (timelock_ > MAX_TIMELOCK) revert TimelockTooLong(timelock_);
-        // C6: risk-increasing direction (longer delay) applies immediately;
+        // Risk-increasing direction (longer delay) applies immediately;
         // shortening the delay is itself timelocked so it cannot fast-path evil adapters.
         // Exception: bootstrap wiring — before ANY adapter has ever been listed the
         // curator may still tune freely (no liquidity is gated yet; tests use this).
@@ -214,8 +214,8 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice Schedules enabling an adapter (timelocked; risk-increasing).
-    ///         C7: validates the loop sleeve's market params (canonical Morpho,
-    ///         loanToken == asset, sane LLTV); C9: oracle allowlist.
+    ///         Validates the loop sleeve's market params (canonical Morpho,
+    ///         loanToken == asset, sane LLTV); oracle allowlist.
     function submitAdapter(
         address adapter,
         bool redemptionSafe,
@@ -234,7 +234,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         emit AdapterSubmitted(adapter, absoluteCap, relativeCapBps, executableAt);
     }
 
-    /// @notice C7/C9 validation for loop sleeves: canonical singleton, loanToken
+    /// @notice Validation for loop sleeves: canonical singleton, loanToken
     ///         policy, LLTV sanity, oracle allowlist.
     function _validateLoopAdapter(address adapter) internal view {
         MorphoLoopAdapter loop = MorphoLoopAdapter(adapter);
@@ -297,7 +297,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         return adapterList.length;
     }
 
-    /// @notice NAV contribution of ALL listed adapters, enabled or disabled (C7):
+    /// @notice NAV contribution of ALL listed adapters, enabled or disabled:
     ///         excluding a disabled sleeve from NAV hides losses and craters payouts.
     ///         Loop sleeves report equity: collateral value − debt, floored at zero.
     function totalAssets() public view returns (uint256 total) {
@@ -328,7 +328,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
             adapters[adapter].isLoop ? IMorphoLoopAdapter(adapter).exposure() : IStrategyAdapter(adapter).realAssets();
     }
 
-    /// @notice Outstanding loop-sleeve debt across ALL listed loop adapters (C7):
+    /// @notice Outstanding loop-sleeve debt across ALL listed loop adapters:
     ///         disabled sleeves still owe — settlement readiness must not hide them.
     function totalLoopDebt() external view returns (uint256 debt) {
         uint256 count = adapterList.length;
@@ -382,7 +382,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     }
 
     /// @notice Best-effort full unwind of every enabled adapter to the vault (settlement path).
-    ///         H9: approves the exact repayment need per loop sleeve (never max) and
+    ///         Approves the exact repayment need per loop sleeve (never max) and
     ///         resets to zero so a malicious adapter cannot `transferFrom` the next
     ///         sleeve's funding.
     function exitAll() external onlyVault nonReentrant {
@@ -438,7 +438,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         if (!cfg.isLoop) revert AdapterKindMismatch(true);
         if (amount == 0) revert ZeroAmount();
         if (IVaultBaseAssets(vault).expired()) revert BookExpired();
-        // C8: borrows were uncapped — repeat `borrow(maxBorrowPerCall)` drained to
+        // Borrows were uncapped — repeat `borrow(maxBorrowPerCall)` drained to
         // `targetLtvOfLltv`. Enforce the same absolute + relative caps as allocates.
         uint256 predictedDebt = IMorphoLoopAdapter(adapter).debt() + amount;
         if (predictedDebt > cfg.absoluteCap) revert CapExceeded(predictedDebt, cfg.absoluteCap);

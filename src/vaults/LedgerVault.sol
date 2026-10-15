@@ -88,17 +88,17 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     /// @notice When true, redemptions that exhaust idle/hook/venue/strategy liquidity recall the
     ///         guard position (and claims) as a last resort. Base stays until halt/settlement.
     bool public guardRecallOnWithdraw = true;
-    /// @notice H6: max |spot − oracle| deviation (bps) allowed on wrap/unwrap.
+    /// @notice Max |spot − oracle| deviation (bps) allowed on wrap/unwrap.
     ///         Guards the thin-book pump: spot inflated far above oracle cannot mint
     ///         cheap shares or `unwrapQuote` at inflated `convertToQuote`. Zero disables.
     uint16 public maxUnwrapDeviationBps = 500;
-    /// @notice Terminal halt flag (H12): once set after expiry, keeper re-enable /
+    /// @notice Terminal halt flag: once set after expiry, keeper re-enable /
     ///         redeploy paths stay closed — `_halt` cannot be undone into settlement.
     bool public halted;
-    /// @notice Medium: vault-level oracle freshness bound (seconds). The hook enforces
-    ///         its own `maxPriceAge` on swaps; pricing paths (`_oracleMid`) previously
-    ///         accepted anything the oracle itself called valid. Zero disables.
-    ///         Production wiring: set <= the hook's `maxPriceAge`.
+    /// @notice Vault-level oracle freshness bound (seconds). The hook enforces
+    ///         its own `maxPriceAge` on swaps; without this the pricing paths
+    ///         (`_oracleMid`) would accept anything the oracle itself calls valid.
+    ///         Zero disables. Production wiring: set <= the hook's `maxPriceAge`.
     uint32 public maxOracleAge;
 
     IVenuePool public venue;
@@ -267,11 +267,11 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         emit VenueUpdated(lendingPool, aToken_);
     }
 
-    /// @notice Attaches the strategy module with NO standing allowances (C3).
-    ///         The old code granted `type(uint).max` to an instantly-swappable module,
-    ///         so `setStrategyModule(evil)` drained the vault via `transferFrom`.
-    ///         Allocator flow is now: keeper `approveStrategy(token, amount)` (exact) ->
-    ///         allocator `StrategyModule.allocate/...` (consumes it) -> keeper revokes
+    /// @notice Attaches the strategy module with NO standing allowances.
+    ///         A standing max approval would let a swapped-in module drain the vault
+    ///         via `transferFrom`, so the allocator flow is: keeper
+    ///         `approveStrategy(token, amount)` (exact) -> allocator
+    ///         `StrategyModule.allocate/...` (consumes it) -> keeper revokes
     ///         any remainder. Set to zero to detach (revokes both).
     function setStrategyModule(address module) external onlyOwner {
         // Revoke from the old module first (effects before interactions below).
@@ -284,7 +284,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         emit StrategyModuleUpdated(module);
     }
 
-    /// @notice One-shot exact approval for the strategy module (keeper-gated, C3).
+    /// @notice One-shot exact approval for the strategy module (keeper-gated).
     ///         Approves `amount` on top of zero — never a standing max. Revoke by
     ///         approving zero.
     function approveStrategy(address token, uint256 amount) external onlyKeeper {
@@ -298,13 +298,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         emit GuardRecallOnWithdrawSet(enabled);
     }
 
-    /// @notice Tunes the H6 spot-vs-oracle band (0 disables). Bounded to 100%.
+    /// @notice Tunes the spot-vs-oracle band (0 disables). Bounded to 100%.
     function setMaxUnwrapDeviationBps(uint16 bps) external onlyOwner {
         if (bps > BPS) revert FeeTooHigh(bps);
         maxUnwrapDeviationBps = bps;
     }
 
-    /// @notice Medium: vault-level oracle freshness bound (0 disables). Mirrors the
+    /// @notice Vault-level oracle freshness bound (0 disables). Mirrors the
     ///         hook's `maxPriceAge` so pricing paths cannot run on a feed the swap
     ///         gate would already reject.
     function setMaxOracleAge(uint32 seconds_) external onlyOwner {
@@ -339,7 +339,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     }
 
     function _halt() internal {
-        // H12: once halted after expiry, the book stays halted — keeper
+        // Once halted after expiry, the book stays halted — keeper
         // `setHookDeployEnabled(true)+rearm()` must not redeploy terminal capital.
         if (halted) return;
         if (expired()) halted = true;
@@ -370,7 +370,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         hook.acceptHookOwnership();
     }
 
-    /// @notice H8: completes a two-step `DualBookHub` ownership transfer to this vault
+    /// @notice Completes a two-step `DualBookHub` ownership transfer to this vault
     ///         (the hub is `Ownable2Step`; without this relay the transfer would strand
     ///         with the deployer as owner). Deploy wiring: `hub.transferOwnership(vault)`
     ///         then this. Owner-only, use once at deploy.
@@ -384,14 +384,14 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     function setGuardParams(GuardParams.Params calldata params) external onlyKeeper {
         if (halted) revert IsHalted();
-        // H8: bound the riskiest knob — minEvBps == 10_000 means "never defend".
+        // Bound the riskiest knob — minEvBps == 10_000 means "never defend".
         // Hard cap at 5_000 (50%) so a fat-finger cannot silently disable the guard.
         if (params.minEvBps > 5_000) revert ConversionFeeTooHigh(params.minEvBps);
         hook.setGuardParams(params);
     }
 
     function setHookDeployEnabled(bool enabled) external onlyKeeper {
-        // H12: halted books never re-enable deployments.
+        // Halted books never re-enable deployments.
         if (enabled && halted) revert IsHalted();
         hook.setDeployEnabled(enabled);
     }
@@ -432,7 +432,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     // Yield venue
     // ---------------------------------------------------------------------
 
-    /// @notice Sweeps the entire idle balance into the venue. Medium: to keep a
+    /// @notice Sweeps the entire idle balance into the venue. To keep a
     ///         redemption buffer, prefer `supplyIdleAmount`; this zero-arg form is
     ///         retained for the agent's existing call plan.
     function supplyIdle() external onlyKeeper returns (uint256 supplied) {
@@ -557,7 +557,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         nonReentrant
         returns (uint256 quoteAmount)
     {
-        // H6: terminal exits go through settlement/matured paths only — post-expiry
+        // Terminal exits go through settlement/matured paths only — post-expiry
         // `unwrapQuote` at a pumped spot NAV drains real quote and bricks the waterfall.
         if (expired()) revert TradingClosed();
         if (shares == 0) revert ZeroAmount();
@@ -603,22 +603,17 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
         uint256 supply = shareToken.totalSupply();
         if (supply == 0) revert InsufficientQuote(0, 0);
-        // Medium: the old pro-rata omitted the deployed base/guard positions and the
-        // virtual offsets, underpaying redeemers and leaking value to those who stay.
-        // Include both positions (reachable through the recall ladder below) and use
-        // the same virtual offsets as `convertToQuote`.
+        // The pro-rata covers deployed base/guard positions as well as idle (all
+        // reachable through the recall ladder below) and uses the same virtual
+        // offsets as `convertToQuote`, so redeemers are paid their full share.
         (uint256 posQuote, uint256 posEquity) = _positionUnits();
         uint256 quoteUnits = quote.balanceOf(address(this)) + hook.quoteIdle() + posQuote;
         if (address(aToken) != address(0)) quoteUnits += aToken.balanceOf(address(this));
         uint256 equityUnits = equity.balanceOf(address(this)) + hook.equityIdle() + posEquity;
 
         uint256 scaledSupply = (supply + VIRTUAL_SHARES) * SHARE_SCALE;
-        quoteAmount = _deductExitFees(
-            Math.mulDiv(shares, quoteUnits * SHARE_SCALE + virtualAssets(), scaledSupply)
-        );
-        equityAmount = _deductExitFees(
-            Math.mulDiv(shares, equityUnits * SHARE_SCALE + virtualAssets(), scaledSupply)
-        );
+        quoteAmount = _deductExitFees(Math.mulDiv(shares, quoteUnits * SHARE_SCALE + virtualAssets(), scaledSupply));
+        equityAmount = _deductExitFees(Math.mulDiv(shares, equityUnits * SHARE_SCALE + virtualAssets(), scaledSupply));
         if (quoteAmount < minQuoteOut) revert SlippageExceeded(quoteAmount, minQuoteOut);
         if (equityAmount < minEquityOut) revert SlippageExceeded(equityAmount, minEquityOut);
 
@@ -782,13 +777,12 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function _withdrawFromVenue(uint256 amount) internal returns (uint256 withdrawn) {
         if (address(venue) == address(0)) revert VenueUnset();
         withdrawn = venue.withdraw(address(quote), amount, address(this));
-        // Medium: the old code ignored the venue's return — a shortfall silently
-        // propagated into settlement. Fail closed here.
+        // Fail closed on short venue withdrawals instead of propagating them.
         if (withdrawn < amount) revert InsufficientQuote(amount, withdrawn);
         emit Withdrawn(withdrawn);
     }
 
-    /// @notice H6 spot-vs-oracle band: reverts when the pool spot has been pumped
+    /// @notice Spot-vs-oracle band: reverts when the pool spot has been pumped
     ///         far from the oracle (thin-book manipulation). Skips when the band is
     ///         disabled or the book reports no deviation (uninitialized/stale).
     ///         Reads the book's own deviation (same oracle + slot0 math the guard
@@ -804,7 +798,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function _oracleMid() internal view returns (uint256) {
         INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
         if (!data.valid || data.mid <= 0) return 0;
-        // Medium: mirror the hook's freshness gate on the pricing paths.
+        // Mirror the hook's freshness gate on the pricing paths.
         uint32 maxAge = maxOracleAge;
         if (maxAge != 0) {
             if (data.updatedAt == 0 || data.updatedAt > block.timestamp) return 0;

@@ -123,9 +123,9 @@ contract AToken is IAToken {
         _scaledBalances[from] = balance - scaled;
         _scaledBalances[to] += scaled;
         emit Transfer(from, to, amount);
-        // C4: aToken transfers move collateral. With no liquidation engine, a
-        // collateral transfer that leaves debt unbacked must revert (same HF gate
-        // as `borrow`/`withdraw`). Self-transfers and debt-free senders skip it.
+        // aToken transfers move collateral, so a transfer that leaves debt
+        // unbacked must revert (same HF gate as `borrow`/`withdraw`).
+        // Self-transfers and debt-free senders skip it.
         if (from != to) _requireHealthy(from);
     }
 

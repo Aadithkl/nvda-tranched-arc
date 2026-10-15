@@ -34,7 +34,7 @@ interface IBookHook {
     function equityIdle() external view returns (uint256);
     /// @notice Redeemable pool-manager claims for a token (ERC-6909 balances).
     function claims(address token) external view returns (uint256);
-    /// @notice H6: |pool − oracle| deviation in bps (ok=false when the oracle/pool
+    /// @notice |pool − oracle| deviation in bps (ok=false when the oracle/pool
     ///         read is unavailable). The vault enforces its unwrap band on this.
     function oracleDeviationBps() external view returns (bool ok, uint256 deviationBps);
 }

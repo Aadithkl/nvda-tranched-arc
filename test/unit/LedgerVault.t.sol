@@ -260,10 +260,8 @@ contract LedgerVaultTest is Test {
         // are part of the book (reachable through the recall ladder), so they must
         // be counted — the old formula omitted them and underpaid redeemers.
         uint256 scaledSupply = (supply + 1_000) * vault.SHARE_SCALE();
-        uint256 expectedUsdc =
-            shares * (quoteUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
-        uint256 expectedEquity =
-            shares * (equityUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
+        uint256 expectedUsdc = shares * (quoteUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
+        uint256 expectedEquity = shares * (equityUnits * vault.SHARE_SCALE() + vault.virtualAssets()) / scaledSupply;
 
         uint256 usdcBefore = quote.balanceOf(address(this));
         uint256 nvdaBefore = nvda.balanceOf(address(this));
@@ -428,7 +426,7 @@ contract LedgerVaultTest is Test {
 
         // Destroy quote value TWAP-style: many small swaps into equity (each inside the
         // 1% oracle floor), then crash equity. Must clear ~1400e6 of quote leg.
-        // H11: rebalance swaps carry a 1h cooldown — step a local clock forward
+        // Rebalance swaps carry a 1h cooldown — step a local clock forward
         // between chunks (NB: `block.timestamp + x` inside a loop is hoisted by the
         // optimizer, so the clock is threaded manually) and re-stamp the oracle.
         int192 midBefore = oracle.getPrice().mid;

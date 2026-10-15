@@ -191,7 +191,7 @@ contract DeployDualBookStack is Script {
 
     function _envOracle() internal view returns (address priceOracle) {
         priceOracle = vm.envOr("NVDA_ORACLE", address(0));
-        // Audit: on Robinhood Chain the demo-oracle fallback is forbidden (H4).
+        // Deploy guard: on Robinhood Chain the demo-oracle fallback is forbidden.
         if (block.chainid == 4663) {
             require(priceOracle != address(0), "NVDA_ORACLE required on Robinhood Chain");
         } else if (priceOracle == address(0)) {

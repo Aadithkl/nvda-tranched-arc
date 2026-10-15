@@ -246,9 +246,10 @@ contract LendingPool is IAaveV2Pool {
         aToken.burn(msg.sender, amountToWithdraw);
         aToken.transferUnderlyingTo(to, amountToWithdraw);
 
-        // C4: withdrawals must not leave debt unbacked. `borrow` gates on HF but
-        // `withdraw` did not — deposit 100, borrow 75, withdraw 100 walked with 175.
-        // Enforce the same post-action HF gate (no-op when the user holds no debt).
+        // Withdrawals must not leave debt unbacked: `borrow` gates on HF, so a
+        // deposit-borrow-withdraw round trip that walks away with both the
+        // collateral and the loan reverts here instead. Same post-action HF gate
+        // (no-op when the user holds no debt).
         (uint256 cBase, uint256 dBase,,,, uint256 hf) = getUserAccountData(msg.sender);
         if (dBase != 0 && hf < 1e18) revert HealthFactorTooLow(hf);
         // Silence unused warnings without extra sloads.
@@ -316,8 +317,8 @@ contract LendingPool is IAaveV2Pool {
         return repayAmount;
     }
 
-    /// @notice C5: basic liquidation — clears undercollateralized debt (the fork
-    ///         shipped with NO `liquidationCall`, so C4/C5 debt was uncollectable).
+    /// @notice Basic liquidation — clears undercollateralized debt so unhealthy
+    ///         positions stay collectable instead of lingering unbacked.
     ///         Close factor 50%: one call covers at most half the user's debt.
     ///         Collateral seized = debt value × (1 + liquidationBonus) in collateral
     ///         units, capped at the user's aToken balance.

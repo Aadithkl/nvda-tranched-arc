@@ -120,7 +120,7 @@ contract VaultStrategyAgent {
         emit AllocateSubmitted(adapter, amount);
     }
 
-    /// @notice One-shot exact approval for the strategy module's next pull (C3 relay).
+    /// @notice One-shot exact approval for the strategy module's next pull.
     function submitApproveStrategy(address token, uint256 amount) external onlyOperator {
         controller.submitApproveStrategy(token, amount);
         emit ApproveStrategySubmitted(token, amount);

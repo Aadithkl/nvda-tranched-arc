@@ -81,7 +81,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     Position public guardPosition;
     bool public guardPresent;
     uint256 public pulledAt;
-    /// @notice H3: last failed-recheck timestamp. Failed rechecks must NOT touch
+    /// @notice Last failed-recheck timestamp. Failed rechecks must NOT touch
     ///         `pulledAt`, or a griefer can keep the guard out forever by pushing
     ///         price outside the band once per interval.
     uint256 public lastRecheckAttempt;
@@ -224,10 +224,9 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         if (quoteDecimals > 18) revert InvalidQuoteDecimals(quoteDecimals);
 
         _key = key;
-        // Medium: `initializeBook(sqrtPriceX96)` took any price — an off-market init
-        // before `vault.initializeHook` lets the first observer dust-LP the real tick
-        // (audit §5-min #1). When the oracle is live, the init price must sit inside
-        // the recheck band (zero max = band check disabled, docs).
+        // An off-market init lets the first observer dust-LP the real tick before
+        // `vault.initializeHook`. When the oracle is live, the init price must sit
+        // inside the recheck band (zero max = band check disabled, docs).
         _requireInitPriceInBand(sqrtPriceX96);
         activePoolId = key.toId();
         poolInitialized = true;
@@ -313,7 +312,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
 
     /// @notice Permissionless time-based recheck: after `recheckInterval` with no EV+ swap, the
     ///         guard re-arms if the market still makes sense (oracle valid, deviation in band).
-    ///         H3: a skipped recheck records `lastRecheckAttempt` only — `pulledAt` is
+    ///         A skipped recheck records `lastRecheckAttempt` only — `pulledAt` is
     ///         untouched so grief-pushes cannot extend the outage.
     function recheckGuard() external nonReentrant {
         _requireLive();
@@ -356,7 +355,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         _requireActivePool(key);
-        // H4: after `pullAll()` the book is out — swaps must not brick on a dead
+        // After `pullAll()` the book is out — swaps must not brick on a dead
         // oracle/session. Exit mode skips the oracle gate and guard logic entirely.
         if (exited) {
             emit SwapGuarded(PoolId.unwrap(key.toId()), sender, block.timestamp);
@@ -369,7 +368,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
             if (!ok) {
                 if (guardPresent) _pullGuard(true);
             } else {
-                // H1: whale-LP dilution — a flash-minted 100x position shrinks our
+                // Whale-LP dilution — a flash-minted 100x position shrinks our
                 // share to ~0, so pro-rata EV reads ~0 (no-op) while the flow is
                 // deeply toxic. Gate on the UNSCALED total-flow edge too: pull when
                 // the whole swap is deeply negative regardless of share.
@@ -480,7 +479,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         }
     }
 
-    /// @notice H2: in-swap redeploys center on the spot tick with no deviation check
+    /// @notice In-swap redeploys center on the spot tick with no deviation check
     ///         (unlike `recheckGuard`), so a manipulated tick gets the full guard.
     ///         Enforce the same `recheckMaxDeviationBps` band here — manipulated
     ///         ticks deploy nothing. A zero max disables the band check (docs).

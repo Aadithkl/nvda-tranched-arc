@@ -29,7 +29,7 @@ interface IPoolGuardSimulator {
         bool ok;
         int256 ev;
         uint256 ourNotional;
-        /// @notice H1: unscaled total-flow edge (oracleValue(in) − oracleValue(out)
+        /// @notice Unscaled total-flow edge (oracleValue(in) − oracleValue(out)
         ///         across the whole swap). Lets the hook pull on toxic flow even when
         ///         the guard's pro-rata share is ~0 (whale-LP dilution).
         int256 totalEv;

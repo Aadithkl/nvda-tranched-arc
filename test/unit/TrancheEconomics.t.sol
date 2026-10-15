@@ -222,7 +222,7 @@ contract TrancheEconomicsTest is Test {
 
     /// @notice Underwater book: senior shares the loss, no top-up mid-life.
     function test_seniorUnderwater_paysNAV() public {
-        // H6 spot band models dislocation protection: this scenario crashes the
+        // Spot band models dislocation protection: this scenario crashes the
         // oracle with no arbitrageur to realign spot, so exits open via band-off
         // (production: arb realigns spot in seconds, then exits flow).
         vault.setMaxUnwrapDeviationBps(0);

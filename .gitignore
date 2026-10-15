@@ -12,7 +12,7 @@ broadcast/
 node_modules/
 agent/.cache/
 
-# Audit raw outputs (summary + text report are committed)
+# Static-analysis raw output (regenerable via slither; reports are not committed)
 slither-static.json
 
 # OS

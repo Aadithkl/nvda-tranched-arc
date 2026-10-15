@@ -41,7 +41,7 @@ interface ILedgerVaultPipe {
 /// @notice ERC-7575 (multi-asset ERC-4626) entry point for the book's USDG side. Stateless
 ///         pass-through: it implements the standard surface by piping through `LedgerVault`'s
 ///         existing wrap/unwrap functions and the share token's standard ERC-20 allowances, so
-///         the audited vault stays untouched. Deposits/redemptions require approving this entry
+///         the vault stays untouched. Deposits/redemptions require approving this entry
 ///         (QUOTE for entries, shares for exits); acting for another `owner` requires that owner's
 ///         share allowance to this entry. The share token's `vault(USDG)` lookup is pointed here
 ///         by the vault owner (`LedgerVault.setShareVault`), per EIP-7575.
@@ -261,7 +261,7 @@ contract LedgerEntry7575 is IERC7575 {
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    /// @notice Medium: `mint` pulls ceiling-rounded assets, so a dust remainder can
+    /// @notice `mint` pulls ceiling-rounded assets, so a dust remainder can
     ///         strand here across many mints. Anyone may sweep dust to the vault.
     function sweepDust() external {
         uint256 dust = quote.balanceOf(address(this));

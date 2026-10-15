@@ -64,7 +64,7 @@ after expiry; de-risking (deallocate/repay/deleverage) and settlement `exitAll` 
 | Branch | `main` (frozen, live) | `static-fee` (this build) |
 | Execution layer | `TrancheJITHook` — dynamic fee + JIT | `PoolGuardHook` — static fee, guard-only + `RegimeVault` |
 | Liquidity layer | hook-managed JIT, Aave rest, v3 share pipe | vault-owned base + window positions; native share + ERC-7575 entry |
-| Status | live on Robinhood Chain; ops/deploy fixes only | built 2026-10-11/12 (see header + `DUAL_BOOK_PLAN.md` §7.3); §5 boxes audited, one open |
+| Status | live on Robinhood Chain; ops/deploy fixes only | built 2026-10-11/12 (see header + `DUAL_BOOK_PLAN.md` §7.3); §5 boxes verified, one open |
 
 Rules:
 
@@ -157,7 +157,7 @@ Rules:
 
 Surge pool only if rejected notional is material; hooklist entry; dynamic-fee path (design §11.7).
 
-## 5. Acceptance checklist (design §10) — audited 2026-10-12
+## 5. Acceptance checklist (design §10) — reviewed 2026-10-12
 
 - [x] Quotes available at all times with base present; guard reverts only on stale/closed oracle
   (`test_swap_reverts_whenOracleStale/Invalid`, `test_swap_sessionMask_enforced`,

@@ -205,10 +205,9 @@ contract DualBookHub is Ownable2Step, IBookHook, ReentrancyGuard {
     /// @notice Pulls the from-book fully out, sweeps everything to the vault (counted),
     ///         and flips the pointer. Fund + arm the new book afterwards (vault funds hub,
     ///         pushToActive forwards, activateAndDeploy arms). Both pools stay initialized.
-    ///         Medium: the old code flipped first then called `pullAll()` on a possibly
-    ///         never-initialized from-book (`BookNotInitialized`, stuck pointer).
-    ///         Now skips uninitialized/exited from-books and requires the target book
-    ///         to be initialized.
+    ///         Skips uninitialized/exited from-books and requires the target book
+    ///         to be initialized (pulling a never-initialized from-book would revert
+    ///         with `BookNotInitialized` on a flipped pointer).
     function pullInactiveAndActivate(uint8 to) external onlyOwnerOrKeeper nonReentrant {
         if (to > 1) revert UnknownBook(to);
         uint8 from = activeBook;
@@ -285,15 +284,15 @@ contract DualBookHub is Ownable2Step, IBookHook, ReentrancyGuard {
             + poolManager.balanceOf(address(bookB), Currency.wrap(token).toId());
     }
 
-    /// @notice H6: deviation of the ACTIVE book (the only one with positions —
+    /// @notice Deviation of the ACTIVE book (the only one with positions —
     ///         migration pulls the from-book fully before flipping).
     function oracleDeviationBps() external view override returns (bool ok, uint256 deviationBps) {
         return _active().oracleDeviationBps();
     }
 
     function inventory() external view returns (uint256 quoteUnits, uint256 equityUnits) {
-        // Medium: the old view missed hub balances — transient migration funding
-        // (fundHub -> pushToActive) was uncounted. Include `address(this)`.
+        // Transient migration funding (fundHub -> pushToActive) sits here between
+        // transactions — include `address(this)` so the box stays fully counted.
         quoteUnits = quote.balanceOf(address(bookA)) + quote.balanceOf(address(bookB)) + quote.balanceOf(address(this));
         equityUnits =
             equity.balanceOf(address(bookA)) + equity.balanceOf(address(bookB)) + equity.balanceOf(address(this));

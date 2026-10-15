@@ -90,7 +90,7 @@ contract PoolGuardSimulator is IPoolGuardSimulator {
                     uint256 shareE18 = Math.mulDiv(ourL, 1e18, liquidity);
                     ev += (int256(inValue) - int256(outValue)) * int256(shareE18) / 1e18;
                     notional += Math.mulDiv(inValue, shareE18, 1e18);
-                    // H1: unscaled totals — toxic flow is toxic even if our share is ~0.
+                    // Unscaled totals — toxic flow is toxic even if our share is ~0.
                     totalEv += int256(inValue) - int256(outValue);
                     totalNotional += inValue;
                 } else if (amountIn != 0 || amountOut != 0) {

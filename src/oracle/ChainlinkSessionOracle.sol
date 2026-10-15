@@ -137,7 +137,7 @@ contract ChainlinkSessionOracle {
         data.sourceTimestamp = uint32(updatedAt);
         data.updatedAt = updatedAt;
         data.paymentRef = bytes32(0);
-        // H5: future-dated feed must read invalid, not underflow-revert.
+        // Future-dated feed must read invalid, not underflow-revert.
         bool fresh = updatedAt != 0 && updatedAt <= block.timestamp && block.timestamp - updatedAt <= maxPriceAge;
         data.valid = mid > 0 && fresh && session != Session.None;
     }

@@ -212,11 +212,11 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         return effectivePool() >= seniorPrincipal + _escrowTarget();
     }
 
-    /// @notice H13: senior dust (1 wei) must not lock juniors forever. Priority
+    /// @notice Senior dust (1 wei) must not lock juniors forever. Priority
     ///         applies only above the dust threshold; frozen wind-down skips it.
     uint256 public constant SENIOR_PRIORITY_DUST = 1e6;
 
-    /// @notice H7: permissionless `rebalance()` on oracle NAV let anyone pump spot,
+    /// @notice Permissionless `rebalance()` on oracle NAV let anyone pump spot,
     ///         move shares to the attacker tranche, then let the price revert.
     ///         Now keeper-only; epoch/fulfill paths use the internal `_rebalance()`.
     function rebalance() external override returns (uint256 movedToSenior, uint256 movedToJunior) {
@@ -258,7 +258,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     function fulfillRedeem(bool senior, address user) external {
         if (msg.sender != keeper && !_expired()) revert NotKeeper(msg.sender);
         if (seniorVault == address(0)) revert VaultsNotSet();
-        // H13: dust + frozen bypass — 1 wei of senior pending no longer bricks juniors.
+        // Dust + frozen bypass — 1 wei of senior pending no longer bricks juniors.
         if (!senior && !frozen) {
             uint256 seniorPending = TrancheVault(seniorVault).totalPendingRedeemShares();
             if (seniorPending > SENIOR_PRIORITY_DUST) revert SeniorPriority();
@@ -332,7 +332,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     /// @notice Senior side: fill up to demand and backing; rate is hook-per-tranche at the boundary.
-    ///         C10: a zero-rate epoch (stale oracle / zeroed NAV) must roll (fBps=0),
+    ///         A zero-rate epoch (stale oracle / zeroed NAV) must roll (fBps=0),
     ///         never burn shares for ~nothing.
     function _seniorFill(TrancheVault senior, uint256 reqT, uint256 avail)
         internal
@@ -351,7 +351,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     /// @notice Junior side: demand, backing, floor (lifted when frozen), then equal-ratio.
-    ///         C10: zero-rate epochs roll (fBps=0), never burn.
+    ///         Zero-rate epochs roll (fBps=0), never burn.
     function _juniorFill(
         TrancheVault junior,
         uint256 reqT,
@@ -391,7 +391,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     /// @notice Claims the caller's pending exit at the latest snapshot (permissionless): fills
     ///         their fraction at the epoch rate through the same caps as keeper fulfills.
     ///         Refuses once expired — matured paths own exits after that.
-    ///         C10: zero-rate / zero-fill snapshots roll (revert), never burn for ~nothing.
+    ///         Zero-rate / zero-fill snapshots roll (revert), never burn for ~nothing.
     function claimEpoch(bool senior, address user) external {
         if (_expired()) revert Expired();
         if (seniorVault == address(0)) revert VaultsNotSet();

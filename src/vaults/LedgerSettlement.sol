@@ -17,8 +17,8 @@ interface ILedgerMaturedVault {
 }
 
 /// @notice One-shot settlement engine for `LedgerVault`, extracted as a delegatecall
-///         library so the vault stays inside EIP-170 (the vault was at 24,244/24,576
-///         before the audit hardening). Invoked exactly once per book, after expiry:
+///         library so the vault stays inside EIP-170 (it sat at 24,244/24,576 before
+///         the split). Invoked exactly once per book, after expiry:
 ///         pulls the book out of the hook, unwinds every strategy adapter and the
 ///         lending venue, then hands the senior guarantee first, remaining QUOTE plus
 ///         all equity to junior, and freezes each tranche's terminal rates.
@@ -63,12 +63,12 @@ library LedgerSettlement {
         if (!hook.exited()) hook.pullAll();
 
         if (strategyModule != address(0)) {
-            // C3 completes here: `exitAll` funds loop-debt repayment by pulling from
-            // the vault, and the vault carries NO standing allowance (if it did, a
-            // swapped module could drain it). Approve the exact upper bound (all
-            // loop debt), unwind, then reset to zero — no residual allowance
-            // survives settlement either way, since a mid-flight revert rolls the
-            // whole transaction back.
+            // Funding for the loop-debt pull lives here: `exitAll` repays loop debt
+            // by pulling from the vault, and the vault carries NO standing allowance
+            // (a standing approval would let a swapped module drain it). Approve the
+            // exact upper bound (all loop debt), unwind, then reset to zero — no
+            // residual allowance survives settlement either way, since a mid-flight
+            // revert rolls the whole transaction back.
             uint256 loopNeed = IStrategyModule(strategyModule).totalLoopDebt();
             quote.forceApprove(strategyModule, loopNeed);
             IStrategyModule(strategyModule).exitAll();

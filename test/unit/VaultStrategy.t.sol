@@ -311,7 +311,7 @@ contract VaultStrategyTest is Test {
 
     function test_controllerAllocate_movesToModule() public {
         (, ERC4626Adapter adapter) = _wireModule();
-        // C3: no standing allowance — each pull needs a one-shot keeper approval.
+        // No standing allowance — each pull needs a one-shot keeper approval.
         vm.prank(agent);
         controller.submitApproveStrategy(address(quote), 500e6);
         vm.prank(agent);

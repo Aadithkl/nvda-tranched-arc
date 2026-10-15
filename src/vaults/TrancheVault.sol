@@ -30,7 +30,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     address public accountant;
     bool public depositsPaused;
     uint256 public maxTotalAssets;
-    /// @notice Timelocked accountant rotation (C2): instant swaps let a malicious
+    /// @notice Timelocked accountant rotation: instant swaps let a malicious
     ///         accountant drain both tranches via `moveShares`. Non-zero -> non-zero
     ///         rotations must wait ACCOUNTANT_TIMELOCK.
     address public pendingAccountant;
@@ -156,7 +156,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         emit AccountantUpdated(newAccountant);
     }
 
-    /// @notice Schedules an accountant rotation (C2). Executable after 24h.
+    /// @notice Schedules an accountant rotation. Executable after 24h.
     function submitAccountant(address newAccountant) external onlyOwner {
         if (newAccountant == address(0)) revert ZeroAddress();
         if (accountant == address(0)) revert NothingPending();
@@ -203,7 +203,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (matured) revert Matured();
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
-        // C2: sibling-only — an evil accountant must not send shares to anyone.
+        // Sibling-only — an evil accountant must not send shares to anyone.
         // The sibling is the other tranche vault registered in the accountant.
         address sibling =
             isSenior ? ITrancheAccountant(accountant).juniorVault() : ITrancheAccountant(accountant).seniorVault();
@@ -293,7 +293,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         if (matured) _pendingMaturedShares = shares;
         super._withdraw(caller, receiver, sharesOwner, assets, shares);
         if (matured) _pendingMaturedShares = 0;
-        // Medium: matured payouts are the FROZEN quote value (the `assets` arg comes
+        // Matured payouts are the FROZEN quote value (the `assets` arg comes
         // from hook-share accounting, which is ~0 after settlement). Notify with the
         // frozen quote so the accountant's principal/claimable counters keep tracking
         // what actually left the vault.
@@ -334,7 +334,7 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         settledAt = block.timestamp;
         // `totalSupply()` already includes pending redeem shares (ERC7540:
         // totalSupply = superSupply + pending). Do NOT add pending again —
-        // that would halve every payout (C1).
+        // that would halve every payout.
         uint256 supply = totalSupply();
         if (supply != 0) {
             quotePerShare1e18 = quoteAmount.mulDiv(1e18, supply);

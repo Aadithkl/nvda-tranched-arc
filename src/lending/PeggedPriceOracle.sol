@@ -8,9 +8,9 @@ import { IPriceOracleGetter } from "./interfaces/IPriceOracleGetter.sol";
 contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     uint256 public constant BASE_CURRENCY_UNIT = 1e8;
     bytes32 public constant BASE_CURRENCY = "USD";
-    /// @notice C5: owner-priced oracle with instant updates let one tx print
-    ///         `1_000_000e8`, borrow the pool, then reset. Updates are now
-    ///         timelocked with a per-update deviation bound.
+    /// @notice Owner-priced oracle with timelocked updates: an instant print-and-reset
+    ///         (e.g. `1_000_000e8`, borrow the pool, then reset) cannot clear in one
+    ///         transaction. Updates wait out the timelock with a per-update deviation bound.
     uint256 public constant PRICE_TIMELOCK = 24 hours;
     uint256 public constant MAX_DEVIATION_BPS = 2_000; // 20% per update
     uint256 internal constant BPS = 10_000;
@@ -37,7 +37,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
 
     constructor(address owner_) Ownable(owner_) { }
 
-    /// @notice Schedules a price update (C5). The FIRST price for an asset seeds
+    /// @notice Schedules a price update. The FIRST price for an asset seeds
     ///         immediately (deploy bootstrap — no liquidity exists to borrow against
     ///         yet); every CHANGE waits out the timelock + deviation bound at execute.
     function setAssetPrice(address asset, uint256 price) external onlyOwner {
