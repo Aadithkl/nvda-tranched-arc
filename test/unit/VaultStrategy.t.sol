@@ -162,10 +162,10 @@ contract VaultStrategyTest is Test {
         controller.submitGuardParams(p);
 
         p = _defaultParams();
-        p.baseTickWidth = 30_001;
+        p.baseTickWidth = 6_001;
         vm.prank(agent);
         vm.expectRevert(
-            abi.encodeWithSelector(VaultStrategyController.BaseWidthTooLarge.selector, int24(30_001), int24(30_000))
+            abi.encodeWithSelector(VaultStrategyController.BaseWidthTooLarge.selector, int24(6_001), int24(6_000))
         );
         controller.submitGuardParams(p);
 
@@ -325,9 +325,13 @@ contract VaultStrategyTest is Test {
             controller.proposeBounds(
                 VaultStrategyController.Bounds({
                     maxGuardTickWidth: 3_000,
-                    maxBaseTickWidth: 30_000,
+                    maxBaseTickWidth: 6_000,
                     maxGuardLiquidity: 5_000e12,
                     maxBaseLiquidity: 500e12,
+                    minGuardTickWidth: 0,
+                    minBaseTickWidth: 6_000,
+                    minGuardLiquidity: 0,
+                    minBaseLiquidity: 0,
                     maxMinEvBps: 100,
                     minRecheckInterval: 60,
                     maxRecheckInterval: 3_600,

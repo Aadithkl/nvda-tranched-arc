@@ -128,7 +128,7 @@ contract DeployStaticStack is Script {
             guardLiquidity: uint128(vm.envOr("STATIC_GUARD_LIQUIDITY", uint256(50e12))),
             baseLiquidity: uint128(vm.envOr("STATIC_BASE_LIQUIDITY", uint256(0.5e12))),
             minEvBps: uint16(vm.envOr("STATIC_MIN_EV_BPS", uint256(0))),
-            recheckMaxDeviationBps: uint16(vm.envOr("STATIC_RECHECK_MAX_DEV_BPS", uint256(50))),
+            recheckMaxDeviationBps: uint16(vm.envOr("STATIC_RECHECK_MAX_DEV_BPS", uint256(200))),
             recheckInterval: uint32(vm.envOr("STATIC_RECHECK_INTERVAL", uint256(300))),
             maxPriceAge: uint32(vm.envOr("STATIC_MAX_PRICE_AGE", uint256(300))),
             allowedSessionsMask: uint8(vm.envOr("STATIC_ALLOWED_SESSIONS_MASK", uint256(0)))
