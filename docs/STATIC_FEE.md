@@ -140,7 +140,7 @@ Both are owned by `RegimeVault`. Tranche shares claim on vault NAV; senior targe
 
 ## 8. Prohibited patterns (escalate if "needed")
 
-Dynamic fee override · `updateDynamicLPFee` · return deltas · bad-quote traps · caller-dependent behavior · deviation gate without a price anchor · leverage in pool inventory · external LPs (unless deliberately opened) · custom `hookData` requirement · `0x91` address · proxy upgrades.
+Dynamic fee override · `updateDynamicLPFee` · return deltas · bad-quote traps · caller-dependent behavior · deviation gate without a price anchor · leverage in pool inventory · external LPs (pool is book-private) · custom `hookData` requirement · `0x91` address · proxy upgrades.
 
 ## 9. Migration from `TrancheJITHook` v3
 
@@ -204,9 +204,10 @@ Dynamic fee override · `updateDynamicLPFee` · return deltas · bad-quote traps
 
 Where the sections above conflict, the implementation is authoritative:
 
-1. **Open LP.** The pool is public � anyone may add/remove their own liquidity. The hook holds its own
-   positions (v4 caller-scoped keys, salts `poolguard.base.v1` / `poolguard.guard.v1`) and cannot be
-   drained by third parties.
+1. **Private LP.** The pool is book-private: `beforeAddLiquidity` / `beforeRemoveLiquidity`
+   reject every caller except the hook itself. The hook holds the base/guard positions
+   (v4 caller-scoped keys, salts `poolguard.base.v1` / `poolguard.guard.v1`), so external
+   LPs cannot dilute the book, capture its fees, or grief the EV simulator with dust ticks.
 2. **Two protocol positions.** *Base*: wide band, always present, the discovery anchor; removed only at
    full exit. *Guard*: the bulk, width configured in `GuardParams`, centered on the current tick at
    every (re)deploy; toggled present/absent per swap.

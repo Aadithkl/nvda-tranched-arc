@@ -124,6 +124,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     error OracleInvalid();
     error OracleStale(uint256 updatedAt);
     error SessionNotAllowed(uint8 session);
+    error PrivateLiquidity(address caller);
     error InitPriceOffMarket(uint256 deviationBps, uint16 maxDeviationBps);
     error GuardOffBand(uint256 deviationBps, uint16 maxDeviationBps);
 
@@ -150,6 +151,8 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory permissions) {
         permissions.beforeInitialize = true;
+        permissions.beforeAddLiquidity = true;
+        permissions.beforeRemoveLiquidity = true;
         permissions.beforeSwap = true;
     }
 
@@ -348,6 +351,32 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     function _beforeInitialize(address sender, PoolKey calldata, uint160) internal view override returns (bytes4) {
         if (sender != address(this) && sender != owner()) revert UnauthorizedInitialization(sender);
         return this.beforeInitialize.selector;
+    }
+
+    /// @notice Private-LP enforcement: only this hook may add liquidity. The hook owns
+    ///         the base + guard positions, so external LPs cannot dilute the book or
+    ///         grief the EV simulator with dust ticks.
+    function _beforeAddLiquidity(address sender, PoolKey calldata key, ModifyLiquidityParams calldata, bytes calldata)
+        internal
+        view
+        override
+        returns (bytes4)
+    {
+        _requireActivePool(key);
+        if (sender != address(this)) revert PrivateLiquidity(sender);
+        return this.beforeAddLiquidity.selector;
+    }
+
+    /// @notice Only this hook may remove liquidity (its own re-centering / recall paths).
+    function _beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata key,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal view override returns (bytes4) {
+        _requireActivePool(key);
+        if (sender != address(this)) revert PrivateLiquidity(sender);
+        return this.beforeRemoveLiquidity.selector;
     }
 
     function _beforeSwap(address sender, PoolKey calldata key, SwapParams calldata swapParams, bytes calldata)

@@ -75,7 +75,10 @@ contract DualBookTest is Test {
         address token1 = token0 == address(quote) ? address(nvda) : address(quote);
         initialTick = token0 == address(quote) ? int24(196260) : int24(-196260);
 
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args = abi.encode(manager, simulator, address(oracle), address(nvda), address(0), address(this));
         (address expectedA, bytes32 saltA) =
             HookMiner.find(address(this), flags, type(PoolGuardHook).creationCode, args);

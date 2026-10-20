@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { IMorpho, IMorphoOracle } from "./IMorpho.sol";
+import { IMorpho, IMorphoOracle, IIrm } from "./IMorpho.sol";
 import { IStrategyAdapter } from "./IStrategyAdapter.sol";
 
 interface IMorphoLoopAdapter {
@@ -31,6 +31,8 @@ interface IMorphoLoopAdapter {
     function healthFactor() external view returns (uint256);
 
     function badDebt() external view returns (uint256);
+
+    function borrowAprBps() external view returns (uint256);
 }
 
 /// @notice Morpho Blue levered sleeve: collateralizes the vault's equity sleeve (stock token) and
@@ -152,6 +154,19 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
         if (debt_ == 0) return type(uint256).max;
         uint256 maxDebt = Math.mulDiv(collateralValue(), _marketParams.lltv, WAD);
         return Math.mulDiv(maxDebt, WAD, debt_);
+    }
+
+    /// @notice Current Morpho borrow APR in bps (simple annualization of the IRM's
+    ///         per-second WAD rate). Returns 0 when the market has no IRM or the read
+    ///         is unavailable, so callers treat it as unknown rather than reverting NAV.
+    function borrowAprBps() public view returns (uint256) {
+        address irm = _marketParams.irm;
+        if (irm == address(0)) return 0;
+        try IIrm(irm).borrowRateView(_marketParams, morpho.market(marketId)) returns (uint256 ratePerSecondWad) {
+            return Math.mulDiv(ratePerSecondWad, 365 days * 10_000, WAD);
+        } catch {
+            return 0;
+        }
     }
 
     /// @notice Sleeve equity: idle quote + collateral value − debt, floored at zero.

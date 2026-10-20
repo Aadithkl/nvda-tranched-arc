@@ -130,6 +130,11 @@ contract VaultStrategyAgent {
         controller.submitResumeFromDepeg();
     }
 
+    /// @notice Current loop borrow APR (bps), for the operator's carry calculation.
+    function loopBorrowAprBps() external view returns (uint256) {
+        return controller.loopBorrowAprBps();
+    }
+
     function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline) external onlyOperator {
         controller.submitRebalance(equityOut, amountIn, minOut, deadline);
         emit RebalanceSubmitted(equityOut, amountIn, minOut, deadline);

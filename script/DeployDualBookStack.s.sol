@@ -65,7 +65,10 @@ contract DeployDualBookStack is Script {
     using PoolIdLibrary for PoolKey;
 
     address internal constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-    uint160 internal constant HOOK_FLAGS = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+    uint160 internal constant HOOK_FLAGS = uint160(
+        Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+            | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+    );
 
     function run() external {
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));

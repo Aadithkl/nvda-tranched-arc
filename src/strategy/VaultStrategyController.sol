@@ -435,6 +435,13 @@ contract VaultStrategyController is ReentrancyGuard {
         maxRebalanceSlippageBps = bps;
     }
 
+    /// @notice Current debt-weighted loop borrow APR in bps (0 when unset/no debt).
+    ///         Read by the offchain agent before deciding whether the carry is positive.
+    function loopBorrowAprBps() external view returns (uint256) {
+        address module_ = strategyModule;
+        return module_ == address(0) ? 0 : IStrategyModule(module_).loopBorrowAprBps();
+    }
+
     /// @notice Wires the quote-asset Morpho module this controller allocates through.
     ///         The module owner must separately set this controller as allocator/sentinel.
     function setStrategyModule(address module_) external onlyOwner {

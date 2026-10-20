@@ -98,11 +98,28 @@ export function decideStrategy(state) {
     maxUtilizationBps = 9500,
     guardPresent = false,
     deployEnabled = true,
+    loopDebt = 0,
+    borrowAprBps = null,
+    deployYieldBps = null,
+    maxNegativeCarryBps = 0,
   } = state;
 
   if (capBreached) return { action: "DEALLOCATE", reason: "risk cap breached; sentinel de-risk" };
   if (healthFactorWad !== null && healthFactorWad < minHealthFactorWad) {
     return { action: "DELEVERAGE", reason: `loop health ${healthFactorWad} below floor ${minHealthFactorWad}` };
+  }
+  // Carry gate: borrowed quote is only worth carrying while its deployed yield beats
+  // the borrow APR. `deployYieldBps` is the realized fee + lend yield of the quote
+  // currently funded by the loop (operator/keeper input), not the whole book's APR.
+  if (loopDebt > 0 && borrowAprBps !== null && deployYieldBps !== null) {
+    const netCarryBps = deployYieldBps - borrowAprBps;
+    if (netCarryBps < -maxNegativeCarryBps) {
+      return {
+        action: "DELEVERAGE",
+        reason: `negative carry ${netCarryBps}bps (yield ${deployYieldBps} < borrow ${borrowAprBps}); repay and pull collateral`,
+        netCarryBps,
+      };
+    }
   }
   if (!sessionOpen) {
     return deployEnabled || guardPresent
@@ -216,7 +233,8 @@ if (invokedDirectly) {
 state fields: exited, recheckDue, deployEnabled, guardPresent, deviationBps,
               recheckMaxDeviationBps, tick, guardLo, guardHi, edgeBandBps
 strategy fields: sessionOpen, capBreached, healthFactorWad, minHealthFactorWad,
-                 utilizationBps, maxUtilizationBps, guardPresent, deployEnabled
+                 utilizationBps, maxUtilizationBps, guardPresent, deployEnabled,
+                 loopDebt, borrowAprBps, deployYieldBps, maxNegativeCarryBps
 winddown fields: expired, settled, halted, deployEnabled, guardPresent, usdcUnits,
                   seniorGuarantee, loopDebtUsdg, inWinddownWindow
 route fields: activeBook, feeA_bps, feeB_bps, volumeA, volumeB, dwellElapsed,

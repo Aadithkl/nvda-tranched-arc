@@ -24,7 +24,7 @@ depositors → Senior/Junior tranche vaults (ERC-7540) → TrancheAccountant (wa
       PoolGuardSimulator (SwapMath EV walk)  ·  ChainlinkSessionOracle (mid + sessions)
 ```
 
-- **PoolGuardHook** — open pool (public LP welcome); holds a wide *base* band (discovery anchor)
+- **PoolGuardHook** — private-LP pool (only the hook may add/remove liquidity); holds a wide *base* band (discovery anchor)
   and a moving *guard* band; `beforeSwap` simulates the swap with SwapMath and pulls the guard when
   the oracle edge turns negative (the swap then prices against base only — never a revert). Pulled
   guards re-arm on the next EV+ swap or via the permissionless time-based `recheckGuard()`;
@@ -64,7 +64,7 @@ hook idle → venue → strategy adapters → **guard recall** as the last resor
 ## Quickstart
 
 ```shell
-forge build && forge test            # 265 tests: hook, vault, strategy, tranches, oracle, E2E
+forge build && forge test            # 266 tests: hook, vault, strategy, tranches, oracle, E2E
 forge fmt --check
 npm install && npm run test:agent    # offchain agent decisions (node:test)
 npm run agent:static -- --help       # recheck/recenter + strategy park/resume decisions

@@ -104,6 +104,24 @@ test("decideStrategy: high utilization reallocates, standby resumes on open", ()
   assert.equal(decideStrategy({ sessionOpen: true, deployEnabled: false }).action, "RESUME");
 });
 
+test("decideStrategy: negative loop carry repays and pulls collateral", () => {
+  const losing = decideStrategy({ loopDebt: 1_000e6, borrowAprBps: 900, deployYieldBps: 500 });
+  assert.equal(losing.action, "DELEVERAGE");
+  assert.match(losing.reason, /negative carry/);
+  assert.equal(losing.netCarryBps, -400);
+
+  assert.equal(
+    decideStrategy({ loopDebt: 1_000e6, borrowAprBps: 900, deployYieldBps: 1_100 }).action,
+    "HOLD",
+  );
+  assert.equal(decideStrategy({ loopDebt: 0, borrowAprBps: 900, deployYieldBps: 0 }).action, "HOLD");
+  assert.equal(decideStrategy({ loopDebt: 1_000e6, borrowAprBps: 900, deployYieldBps: 800 }).action, "DELEVERAGE");
+  assert.equal(
+    decideStrategy({ loopDebt: 1_000e6, borrowAprBps: 900, deployYieldBps: 850, maxNegativeCarryBps: 100 }).action,
+    "HOLD",
+  );
+});
+
 test("sessionStandbyPlan maps the session clock to park/resume", () => {
   assert.deepEqual(sessionStandbyPlan(false), parkPlan());
   const resume = sessionStandbyPlan(true, { withdrawQuote: 500e6, fundQuote: 100e6, fundEquity: 0 });

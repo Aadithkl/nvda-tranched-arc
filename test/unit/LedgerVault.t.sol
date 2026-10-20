@@ -179,7 +179,10 @@ contract LedgerVaultTest is Test {
     }
 
     function _mineAndDeploy() internal returns (PoolGuardHook deployed) {
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args = abi.encode(
             IPoolManager(address(manager)), simulator, address(oracle), address(nvda), address(0), address(this)
         );

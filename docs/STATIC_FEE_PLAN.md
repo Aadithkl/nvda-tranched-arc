@@ -14,7 +14,7 @@ minus ERC-20, `0x2f0a18c5`; share token carries the `0xf815c03d` lookup), `Vault
 (recheck/recenter + strategy park/resume/deleverage decisions), and deploy scripts. **Target chain moved
 to Robinhood Chain (4663; USDG quote; Morpho Blue; canonical v4)** — see `docs/STRATEGY_MODULE_PLAN.md`
 and `deployments/robinhood-{mainnet,testnet}.json`. Implemented mechanics supersede where in conflict:
-open LP, hook-held base/guard, per-swap SwapMath EV via external simulator, pull-thin (never revert),
+private LP, hook-held base/guard, per-swap SwapMath EV via external simulator, pull-thin (never revert),
 sticky pull + lazy EV+ redeploy + permissionless time recheck, session-gated market-open guard.
 Security pass (slither) on the hook/vault/hub: all actionable findings fixed (hub: pointer
 flip before the from-book pull, checks-effects-interactions; rest is lib noise or intentional).
@@ -42,7 +42,7 @@ Price-dependent ops (`wrapUSDC` / `unwrapUSDC` / `unwrapEquity`) require a valid
 **Slow halt** — soft step at `T−Δ` (agent `decideWinddown`: deployments off, optional guard recall),
 then the **permissionless `haltIfExpired()`** at `T`: deployments stay off and `hook.pullAll()` returns
 **base + guard** to the vault (`exited` ⇒ the hook can never redeploy; base is removed too). Owner
-`halt()` remains for early exits. Public LPs are untouched.
+`halt()` remains for early exits. External LPs cannot add positions; the book owns base + guard.
 
 **Settlement** — the `VaultReadiness` view (`src/vaults/VaultReadiness.sol`) reports units / senior
 guarantee / shortfall / loop debt / pending requests; `finalizeSettlement()` requires the senior
@@ -166,8 +166,8 @@ Surge pool only if rejected notional is material; hooklist entry; dynamic-fee pa
   itself is NOT wired, so the box as literally written stays open if UR integration is wanted
 - [x] Deploy → pull → redeploy re-centers (`test_recenter_guard`, `test_pullAll_and_rearm`,
   `DualBook.t.sol` round-trip rearm; post-redeploy tick vs oracle covered in P1 E2E)
-- [x] SUPERSEDED — "external `addLiquidity` reverts": implemented mechanics moved to **open LP**
-  (status header); `test_publicLp_open` covers it, vault ops throughout the suite
+- [x] SUPERSEDED — "external `addLiquidity` reverts": implemented mechanics moved to **private LP**
+  (status header); `test_publicLp_blocked` covers it, vault ops throughout the suite
 - [ ] Deploy blocked when venue effective withdrawable < needed — no test pins this; still open
 - [x] Invariants (`test_staticFee_afterAllFlows` + `TrancheInvariant.t.sol` 7 invariants:
   senior-claim cap, claims conservation, escrow formula, share peg, locked backing, no stray

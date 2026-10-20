@@ -23,6 +23,11 @@ self-deploys v4 (`DeployV4Stack`), mock quote/equity (`mUSDC` 6-dec / `mNVDA`
 18-dec), a writer-owned `NVDAPriceOracle`, then the static stack. Lending uses
 the in-repo Aave semi-fork, not Morpho.
 
+> **Private LP:** current `PoolGuardHook` mines `beforeAddLiquidity` /
+> `beforeRemoveLiquidity` flags and rejects external LPs. The hook recorded in
+> `deployments/robinhood-testnet.json` predates that change (old flag set); deploy
+> a fresh stack with the current script to get a book-private pool.
+
 ## 1. Fund the deployer
 
 The deploy in §3 needs testnet ETH for gas. Claim the faucet to

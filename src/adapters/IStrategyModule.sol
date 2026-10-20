@@ -42,6 +42,9 @@ interface IStrategyModule {
 
     /// @notice Outstanding loop-sleeve debt across ALL listed loop adapters (asset units).
     function totalLoopDebt() external view returns (uint256);
+
+    /// @notice Debt-weighted loop borrow APR in bps (0 when no debt/IRM unavailable).
+    function loopBorrowAprBps() external view returns (uint256);
 }
 
 /// @notice View the vault exposes to the module for relative-cap math and expiry gating.

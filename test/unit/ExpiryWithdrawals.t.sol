@@ -75,7 +75,10 @@ contract ExpiryWithdrawalsTest is Test {
         int24 initialTick = token0 == address(quote) ? int24(196260) : int24(-196260);
         expiry = uint64(block.timestamp + 1 days);
 
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args = abi.encode(manager, simulator, address(oracle), address(nvda), address(0), address(this));
         (address expectedHook, bytes32 salt) =
             HookMiner.find(address(this), flags, type(PoolGuardHook).creationCode, args);

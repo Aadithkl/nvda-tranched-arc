@@ -351,6 +351,25 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         }
     }
 
+    /// @notice Debt-weighted borrow APR across listed loop sleeves, in bps. The agent
+    ///         compares this with the realized deployed yield; a negative carry triggers
+    ///         deleverage/repay. Returns 0 when there is no loop debt or the IRM read is
+    ///         unavailable.
+    function loopBorrowAprBps() external view returns (uint256) {
+        uint256 count = adapterList.length;
+        uint256 totalDebt;
+        uint256 weighted;
+        for (uint256 i = 0; i < count; ++i) {
+            address adapter = adapterList[i];
+            if (!adapters[adapter].isLoop) continue;
+            uint256 debt = IMorphoLoopAdapter(adapter).debt();
+            if (debt == 0) continue;
+            totalDebt += debt;
+            weighted += IMorphoLoopAdapter(adapter).borrowAprBps() * debt;
+        }
+        return totalDebt == 0 ? 0 : weighted / totalDebt;
+    }
+
     // ---------------------------------------------------------------------
     // Allocation (Allocator)
     // ---------------------------------------------------------------------

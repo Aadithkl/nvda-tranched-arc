@@ -73,6 +73,6 @@
       "testJuniorDepositQuote": 100000000,
       "testJuniorShares": "141649313307154000000"
     },
-    "note": "Deployed via DeployStaticStack (STATIC_INIT_BOOK=false) + agent.submitFund(40e6, 1e18) + vault.initializeHook @ tick -223320. Heartbeat build: depeg latch 200bps, GuardOffBand band check. Lending adapter uses the in-repo Aave semi-fork (not yet wired: strategyModule null)."
+    "note": "Deployed via DeployStaticStack (STATIC_INIT_BOOK=false) + agent.submitFund(40e6, 1e18) + vault.initializeHook @ tick -223320. Heartbeat build: depeg latch 200bps, GuardOffBand band check. Lending adapter uses the in-repo Aave semi-fork (not yet wired: strategyModule null). This hook predates private LP (beforeAdd/beforeRemove flags); redeploy with the current script for a book-private pool."
   }
 }

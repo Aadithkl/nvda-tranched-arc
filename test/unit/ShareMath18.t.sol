@@ -39,7 +39,10 @@ contract ShareMath18Test is Test {
         oracle.setMaxStaleness(1 hours);
         oracle.updatePrice(8e6, 2, uint32(block.timestamp), bytes32(0)); // ~$0.08/equity, any nonzero mid
 
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args = abi.encode(
             IPoolManager(address(manager)), simulator, address(oracle), address(equity), address(0), address(this)
         );

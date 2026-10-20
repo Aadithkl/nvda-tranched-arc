@@ -118,7 +118,10 @@ contract PoolGuardHookTest is Test {
         internal
         returns (PoolGuardHook deployed)
     {
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args =
             abi.encode(IPoolManager(address(manager)), simulator, oracle_, equity_, vault_, address(this));
         (address expected, bytes32 salt) = HookMiner.find(address(this), flags, type(PoolGuardHook).creationCode, args);
@@ -175,8 +178,8 @@ contract PoolGuardHookTest is Test {
         Hooks.Permissions memory p = hook.getHookPermissions();
         assertTrue(p.beforeInitialize);
         assertTrue(p.beforeSwap);
-        assertFalse(p.beforeAddLiquidity);
-        assertFalse(p.beforeRemoveLiquidity);
+        assertTrue(p.beforeAddLiquidity);
+        assertTrue(p.beforeRemoveLiquidity);
         assertFalse(p.afterSwap);
         assertFalse(p.beforeSwapReturnDelta);
         assertFalse(p.afterSwapReturnDelta);
@@ -233,11 +236,13 @@ contract PoolGuardHookTest is Test {
     }
 
     // ------------------------------------------------------------------
-    // Public LP stays open
+    // Private LP
     // ------------------------------------------------------------------
 
-    function test_publicLp_open() public {
-        uint128 before = hook.effectiveLiquidity();
+    function test_publicLp_blocked() public {
+        // The pool is book-private: external LPs cannot add dust ticks that dilute the
+        // guard or grief the EV simulator.
+        vm.expectRevert();
         router.addLiquidity(
             key,
             initialTick - 6000,
@@ -247,9 +252,6 @@ contract PoolGuardHookTest is Test {
             type(uint256).max,
             address(this)
         );
-        assertEq(hook.effectiveLiquidity(), before + 1e12);
-
-        router.removeLiquidity(key, initialTick - 6000, initialTick + 6000, -int256(uint256(1e12)), address(this));
         assertEq(hook.effectiveLiquidity(), uint128(GUARD_L + BASE_L));
         assertTrue(_guardPresent());
     }

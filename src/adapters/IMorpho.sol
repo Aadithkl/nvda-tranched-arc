@@ -73,3 +73,12 @@ interface IMorphoOracle {
     /// @dev Collateral price in loan-token units, scaled by 1e36 (decimals included).
     function price() external view returns (uint256);
 }
+
+/// @notice Minimal Morpho IRM surface. `borrowRateView` is the non-accruing read used by
+///         adapters to expose the current borrow APR to the strategy layer.
+interface IIrm {
+    function borrowRateView(IMorpho.MarketParams memory marketParams, IMorpho.Market memory market)
+        external
+        view
+        returns (uint256);
+}

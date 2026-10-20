@@ -37,6 +37,7 @@ contract StrategyModuleTest is Test {
     MockERC4626 internal venue4626;
     ERC4626Adapter internal lendAdapter;
     MockMorphoOracle internal loopOracle;
+    MockIrm internal loopIrm;
 
     address internal allocator = makeAddr("allocator");
     address internal sentinel = makeAddr("sentinel");
@@ -54,6 +55,7 @@ contract StrategyModuleTest is Test {
 
         venue4626 = new MockERC4626(address(quote));
         lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(quote));
+        loopIrm = new MockIrm(uint256(1e17) / uint256(365 days)); // 10% simple APR
 
         quote.mint(address(mockVault), 10_000e6);
         mockVault.setBaseAssets(10_000e6);
@@ -212,7 +214,11 @@ contract StrategyModuleTest is Test {
 
     function _morphoMarketParams(address oracle) internal view returns (IMorpho.MarketParams memory) {
         return IMorpho.MarketParams({
-            loanToken: address(quote), collateralToken: address(nvda), oracle: oracle, irm: address(0), lltv: 0.86e18
+            loanToken: address(quote),
+            collateralToken: address(nvda),
+            oracle: oracle,
+            irm: address(loopIrm),
+            lltv: 0.86e18
         });
     }
 
@@ -357,6 +363,18 @@ contract StrategyModuleTest is Test {
         assertEq(module.totalAssets(), 0);
     }
 
+    function test_loop_borrowAprView() public {
+        MorphoLoopAdapter loop = _loopSetup();
+        vm.prank(allocator);
+        module.allocateCollateral(address(loop), 1e18);
+        vm.prank(allocator);
+        module.borrow(address(loop), 500e6);
+
+        // 10% simple APR from the mock IRM.
+        assertApproxEqAbs(loop.borrowAprBps(), 1_000, 1);
+        assertApproxEqAbs(module.loopBorrowAprBps(), 1_000, 1);
+    }
+
     // ------------------------------------------------------------------
     // Real vault integration
     // ------------------------------------------------------------------
@@ -379,7 +397,10 @@ contract StrategyModuleTest is Test {
         address token1 = token0 == address(quote) ? address(nvda) : address(quote);
         int24 initialTick = token0 == address(quote) ? int24(196260) : int24(-196260);
 
-        uint160 flags = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+        );
         bytes memory args = abi.encode(manager, simulator, address(oracle), address(nvda), address(0), address(this));
         (address expectedHook, bytes32 salt) =
             HookMiner.find(address(this), flags, type(PoolGuardHook).creationCode, args);
@@ -487,6 +508,18 @@ contract StrategyModuleTest is Test {
         vm.prank(address(vault));
         module.exitAll();
         assertEq(lendAdapter.realAssets(), 0);
+    }
+}
+
+contract MockIrm {
+    uint256 public immutable ratePerSecondWad;
+
+    constructor(uint256 ratePerSecondWad_) {
+        ratePerSecondWad = ratePerSecondWad_;
+    }
+
+    function borrowRateView(IMorpho.MarketParams memory, IMorpho.Market memory) external view returns (uint256) {
+        return ratePerSecondWad;
     }
 }
 
