@@ -36,6 +36,7 @@ contract StrategyModuleTest is Test {
     MockVaultBase internal mockVault;
     MockERC4626 internal venue4626;
     ERC4626Adapter internal lendAdapter;
+    MockMorphoOracle internal loopOracle;
 
     address internal allocator = makeAddr("allocator");
     address internal sentinel = makeAddr("sentinel");
@@ -101,6 +102,26 @@ contract StrategyModuleTest is Test {
         vm.prank(allocator);
         vm.expectRevert(abi.encodeWithSelector(StrategyModule.NotOwnerOrSentinel.selector, allocator));
         module.disableAdapter(address(lendAdapter));
+    }
+
+    function test_disabledLendAdapter_remainsRecoverable() public {
+        _enableLendAdapter();
+        vm.prank(allocator);
+        module.allocate(address(lendAdapter), 500e6);
+
+        vm.prank(sentinel);
+        module.disableAdapter(address(lendAdapter));
+
+        // Withdrawals are de-risking and must survive the disable.
+        vm.prank(allocator);
+        assertEq(module.deallocate(address(lendAdapter), 200e6), 200e6);
+        assertEq(lendAdapter.realAssets(), 300e6);
+
+        // Settlement must unwind the remaining disabled sleeve, not skip it.
+        vm.prank(address(mockVault));
+        module.exitAll();
+        assertEq(lendAdapter.realAssets(), 0);
+        assertEq(quote.balanceOf(address(mockVault)), 10_000e6);
     }
 
     function test_cancelPending() public {
@@ -225,8 +246,8 @@ contract StrategyModuleTest is Test {
 
     function _loopSetup() internal returns (MorphoLoopAdapter loop) {
         MockMorpho morpho = new MockMorpho();
-        MockMorphoOracle oracle = new MockMorphoOracle(2e27); // $2000 NVDA, loan 6-dec, coll 18-dec
-        IMorpho.MarketParams memory params = _morphoMarketParams(address(oracle));
+        loopOracle = new MockMorphoOracle(2e27); // $2000 NVDA, loan 6-dec, coll 18-dec
+        IMorpho.MarketParams memory params = _morphoMarketParams(address(loopOracle));
         loop = new MorphoLoopAdapter(address(module), address(morpho), params, address(quote), 6_000, 1.2e18);
         module.submitAdapter(address(loop), false, true, 1_000_000e6, 9_000);
         module.executeAdapter(address(loop));
@@ -295,6 +316,45 @@ contract StrategyModuleTest is Test {
         assertEq(nvda.balanceOf(address(mockVault)), 10e18);
         // vault paid back the 500e6 debt from its own (borrowed) balance
         assertApproxEqAbs(quote.balanceOf(address(mockVault)), 10_000e6, 10);
+    }
+
+    function test_disabledLoop_repayDeleverageAndExit() public {
+        MorphoLoopAdapter loop = _loopSetup();
+        vm.prank(allocator);
+        module.allocateCollateral(address(loop), 1e18);
+        vm.prank(allocator);
+        module.borrow(address(loop), 500e6);
+
+        vm.prank(sentinel);
+        module.disableAdapter(address(loop));
+
+        vm.prank(sentinel);
+        module.repay(address(loop), 100e6);
+        assertLt(loop.debt(), 500e6);
+
+        vm.prank(sentinel);
+        module.deleverage(address(loop), 100e6, 0.1e18);
+        assertEq(loop.collateralBalance(), 0.9e18);
+
+        vm.prank(address(mockVault));
+        module.exitAll();
+        assertEq(loop.debt(), 0);
+        assertEq(loop.collateralBalance(), 0);
+    }
+
+    function test_loop_badDebt_isReported() public {
+        MorphoLoopAdapter loop = _loopSetup();
+        vm.prank(allocator);
+        module.allocateCollateral(address(loop), 1e18);
+        vm.prank(allocator);
+        module.borrow(address(loop), 500e6);
+
+        // $100 collateral against $500 debt -> $400 unsecured.
+        loopOracle.setPrice(1e26);
+        assertEq(loop.realAssets(), 0);
+        assertEq(loop.badDebt(), 400e6);
+        assertEq(module.badDebt(), 400e6);
+        assertEq(module.totalAssets(), 0);
     }
 
     // ------------------------------------------------------------------

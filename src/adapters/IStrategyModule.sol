@@ -5,6 +5,10 @@ pragma solidity ^0.8.26;
 interface IStrategyModule {
     function totalAssets() external view returns (uint256);
 
+    /// @notice Unsecured loop shortfall that `totalAssets()` floors away at the adapter level.
+    ///         The vault subtracts this from managed NAV.
+    function badDebt() external view returns (uint256);
+
     /// @notice Liquidity-aware amount the redemption-safe adapters could return right now.
     function pullableAssets() external view returns (uint256);
 
@@ -24,7 +28,8 @@ interface IStrategyModule {
     /// @notice Moves up to `amount` back to the vault using redemption-safe adapters only.
     function pullToVault(uint256 amount) external returns (uint256 pulled);
 
-    /// @notice Best-effort full unwind of every enabled adapter to the vault.
+    /// @notice Best-effort full unwind of EVERY listed adapter to the vault, including
+    ///         disabled ones.
     function exitAll() external;
 
     function allocateCollateral(address adapter, uint256 amount) external;
@@ -35,7 +40,7 @@ interface IStrategyModule {
 
     function deleverage(address adapter, uint256 repayAmount, uint256 withdrawCollateral) external;
 
-    /// @notice Outstanding loop-sleeve debt across enabled loop adapters (asset units).
+    /// @notice Outstanding loop-sleeve debt across ALL listed loop adapters (asset units).
     function totalLoopDebt() external view returns (uint256);
 }
 

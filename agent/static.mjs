@@ -69,14 +69,14 @@ export function parkPlan() {
   return [
     "controller.submitDeployEnabled(false)",
     "controller.submitRecall()",
-    "vault.supplyIdle()",
+    "controller.submitSupplyIdle()",
   ];
 }
 
 /** Ordered operator calls to bring capital back from lending and re-arm the guard. */
 export function resumePlan({ withdrawQuote, fundQuote, fundEquity }) {
   return [
-    `vault.withdrawFromVenue(${withdrawQuote})`,
+    `controller.submitWithdrawFromVenue(${withdrawQuote})`,
     `controller.submitFund(${fundQuote}, ${fundEquity})`,
     "controller.submitDeployEnabled(true)",
     "controller.submitRecenter()",

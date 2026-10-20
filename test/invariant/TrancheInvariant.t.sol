@@ -26,6 +26,18 @@ contract InvariantHookValue is ITrancheHookValue {
     function expired() external pure returns (bool) {
         return false;
     }
+
+    function oracleValid() external pure returns (bool) {
+        return true;
+    }
+
+    function spotDeviationBps() external pure returns (bool, uint256) {
+        return (true, 0);
+    }
+
+    function maxUnwrapDeviationBps() external pure returns (uint16) {
+        return 200;
+    }
 }
 
 /// @notice Randomised operation surface for the tranche stack: deposits, redeem requests,

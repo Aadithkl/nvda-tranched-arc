@@ -493,6 +493,9 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
             (bool ok, uint256 deviationBps) = oracleDeviationBps();
             if (!ok || deviationBps > maxDev) return;
         }
+        // In-swap pulls mint ERC-6909 claims, not idle tokens. Redeem them before
+        // opening the band or the deploy silently fails on an empty idle balance.
+        _unwindClaims();
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
         guardPosition = Position({ tickLower: lo, tickUpper: hi, liquidity: liquidity });
@@ -508,6 +511,9 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
 
     function _deployGuardStrict() internal {
         if (guardPresent) revert GuardAlreadyPresent();
+        // A previous in-swap pull may have left the principal in ERC-6909 claims.
+        // Redeem them before checking inventory so recheck/deploy is not one-shot.
+        _unwindClaims();
         // Band check (same semantics as in-swap deploys and rechecks): never land the
         // guard on a manipulated tick. Zero max disables. Skips when the read is
         // unavailable (uninitialized/stale) so init-time deploys keep working.

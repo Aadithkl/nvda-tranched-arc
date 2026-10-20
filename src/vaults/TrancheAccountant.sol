@@ -70,6 +70,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     error NothingToFulfill();
     error EpochNotReady(uint256 id);
     error Expired();
+    error OracleInvalid();
 
     modifier onlyKeeper() {
         if (msg.sender != keeper) revert NotKeeper(msg.sender);
@@ -157,15 +158,22 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     ///         conversion is meaningless after the shares were burned) — use it 1:1.
     function onTrancheClaim(bool senior, uint256 hookShares) external override onlyVault {
         _checkVaultDirection(senior);
-        uint256 value = _expired() ? hookShares : _valueOf(hookShares);
+        bool expired_ = _expired();
+        uint256 value = expired_ ? hookShares : _valueOf(hookShares);
         if (senior) {
             seniorPrincipal = value > seniorPrincipal ? 0 : seniorPrincipal - value;
-            uint256 locked = claimableSenior;
-            claimableSenior = hookShares > locked ? 0 : locked - hookShares;
+            // Post-settlement `hookShares` is a QUOTE amount; claimableSenior is in
+            // hook-share units. Do not mix them after settlement.
+            if (!expired_) {
+                uint256 locked = claimableSenior;
+                claimableSenior = hookShares > locked ? 0 : locked - hookShares;
+            }
         } else {
             juniorPrincipal = value > juniorPrincipal ? 0 : juniorPrincipal - value;
-            uint256 locked = claimableJunior;
-            claimableJunior = hookShares > locked ? 0 : locked - hookShares;
+            if (!expired_) {
+                uint256 locked = claimableJunior;
+                claimableJunior = hookShares > locked ? 0 : locked - hookShares;
+            }
         }
         emit ClaimReported(senior, hookShares);
     }
@@ -225,6 +233,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     function _rebalance() internal returns (uint256 movedToSenior, uint256 movedToJunior) {
+        if (!_expired()) _requireAccountingOracle();
         IERC20 share = _hookShare();
         if (address(share) == address(0)) return (0, 0);
 
@@ -277,6 +286,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     ///         earlier locks) + value cap (senior promise-proportioned, junior residual).
     ///         Floor-rounding favors whoever stays. Emits the fulfillment.
     function _applyFill(bool senior, TrancheVault vault, address user, uint256 shares, uint256 assets) internal {
+        if (!_expired()) _requireAccountingOracle();
         IERC20 share = _hookShare();
         uint256 balance = share.balanceOf(address(vault));
         uint256 locked = senior ? claimableSenior : claimableJunior;
@@ -418,6 +428,20 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     ///         settlement waterfall, which must not depend on a live oracle.
     function seniorGuaranteeQuote() public view returns (uint256) {
         return seniorPrincipal + _escrowTarget();
+    }
+
+    /// @notice Accounting paths mark NAV from pool spot; refuse to move tranche shares or
+    ///         fill redemptions while the oracle is invalid or the spot is outside the
+    ///         vault's deviation band. Permissionless `executeEpoch`/`claimEpoch` otherwise
+    ///         let anyone time a manipulated mark.
+    function _requireAccountingOracle() internal view {
+        address valueSource = hook;
+        if (valueSource == address(0)) return;
+        ITrancheHookValue source = ITrancheHookValue(valueSource);
+        if (!source.oracleValid()) revert OracleInvalid();
+        (bool ok, uint256 deviationBps) = source.spotDeviationBps();
+        uint16 maxDeviation = source.maxUnwrapDeviationBps();
+        if (maxDeviation != 0 && (!ok || deviationBps > maxDeviation)) revert OracleInvalid();
     }
 
     function _expired() internal view returns (bool) {

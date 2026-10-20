@@ -18,6 +18,9 @@ interface IVaultStrategy {
     function setHookDeployEnabled(bool enabled) external;
     function recallFromHook() external;
     function fundHook(uint256 quoteAmount, uint256 equityAmount) external;
+    function supplyIdle() external returns (uint256 supplied);
+    function supplyIdleAmount(uint256 amount) external returns (uint256 supplied);
+    function withdrawFromVenue(uint256 amount) external returns (uint256 withdrawn);
     function pullForRebalance(address token, uint256 amount) external;
     function approveStrategy(address token, uint256 amount) external;
     function checkDepeg() external returns (bool paused_);
@@ -162,6 +165,8 @@ contract VaultStrategyController is ReentrancyGuard {
     event DeployEnabledSubmitted(address indexed agent, bool enabled);
     event RecallSubmitted(address indexed agent);
     event FundSubmitted(address indexed agent, uint256 quoteAmount, uint256 equityAmount);
+    event SupplyIdleSubmitted(address indexed agent, uint256 supplied);
+    event VenueWithdrawSubmitted(address indexed agent, uint256 requested, uint256 withdrawn);
     event RebalanceSubmitted(address indexed agent, bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline);
     event RebalanceVenueUpdated(address indexed router, bytes32 indexed poolId);
     event RebalancedSwap(bool equityOut, uint256 amountIn, uint256 amountOut);
@@ -533,13 +538,37 @@ contract VaultStrategyController is ReentrancyGuard {
 
     function submitFund(uint256 quoteAmount, uint256 equityAmount) external onlyAgent whenNotPaused {
         if (switchFrozen) revert SwitchFrozen();
+        IVaultStrategy vault_ = _vault();
+        if (vault_.expired()) revert TradingClosed();
         _requireNotDepegged();
         Bounds memory b = bounds;
         if (quoteAmount == 0 && equityAmount == 0) revert NothingToFund();
         if (quoteAmount > b.maxFundQuotePerCall) revert FundTooLarge(quoteAmount, b.maxFundQuotePerCall);
         if (equityAmount > b.maxFundEquityPerCall) revert FundTooLarge(equityAmount, b.maxFundEquityPerCall);
-        _vault().fundHook(quoteAmount, equityAmount);
+        vault_.fundHook(quoteAmount, equityAmount);
         emit FundSubmitted(msg.sender, quoteAmount, equityAmount);
+    }
+
+    /// @notice Parks idle quote in the configured lending venue. Risk-increasing, so
+    ///         blocked while paused/frozen/depegged. Required by the session standby plan.
+    function submitSupplyIdle() external onlyAgent whenNotPaused returns (uint256 supplied) {
+        if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
+        supplied = _vault().supplyIdle();
+        emit SupplyIdleSubmitted(msg.sender, supplied);
+    }
+
+    function submitSupplyIdleAmount(uint256 amount) external onlyAgent whenNotPaused returns (uint256 supplied) {
+        if (switchFrozen) revert SwitchFrozen();
+        _requireNotDepegged();
+        supplied = _vault().supplyIdleAmount(amount);
+        emit SupplyIdleSubmitted(msg.sender, supplied);
+    }
+
+    /// @notice Pulls quote back from the lending venue. De-risking call: allowed while paused.
+    function submitWithdrawFromVenue(uint256 amount) external onlyAgent returns (uint256 withdrawn) {
+        withdrawn = _vault().withdrawFromVenue(amount);
+        emit VenueWithdrawSubmitted(msg.sender, amount, withdrawn);
     }
 
     /// @notice One-shot exact approval for the strategy module's next pull.
@@ -690,8 +719,10 @@ contract VaultStrategyController is ReentrancyGuard {
             IDualBookHub(hub).pullInactiveAndActivate(to);
             address vaultAddr = address(vault_);
             uint256 quoteBal = vault_.quote().balanceOf(vaultAddr);
+            uint256 loopDebt = strategyModule == address(0) ? 0 : IStrategyModule(strategyModule).totalLoopDebt();
+            uint256 freeQuote = quoteBal > loopDebt ? quoteBal - loopDebt : 0;
             uint256 equityBal = vault_.equity().balanceOf(vaultAddr);
-            vault_.fundHook(quoteBal, equityBal);
+            vault_.fundHook(freeQuote, equityBal);
             IDualBookHub(hub).pushToActive();
             IDualBookHub(hub).activateAndDeploy();
         }

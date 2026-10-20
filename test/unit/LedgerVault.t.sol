@@ -340,6 +340,17 @@ contract LedgerVaultTest is Test {
         assertTrue(hook.guardPresent());
     }
 
+    function test_fundHook_afterHalt_reverts() public {
+        vm.warp(expiry + 1);
+        vault.haltIfExpired();
+        assertTrue(vault.halted());
+
+        quote.mint(address(vault), 1e6);
+        vm.prank(keeper);
+        vm.expectRevert(LedgerVault.IsHalted.selector);
+        vault.fundHook(1e6, 0);
+    }
+
     function test_recenter_viaVault_keeper() public {
         vm.prank(keeper);
         vault.recenterGuard();

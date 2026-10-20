@@ -266,7 +266,9 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         emit AdapterEnabled(adapter);
     }
 
-    /// @notice Sentinel/curator de-risk: instantly disable an adapter (no new allocations).
+    /// @notice Sentinel/curator de-risk: instantly disable an adapter for NEW risk.
+    ///         Disabling never blocks exits: deallocate/repay/deleverage/exitAll stay
+    ///         callable so the emergency brake cannot strand funds.
     function disableAdapter(address adapter) external onlyOwnerOrSentinel {
         if (!adapters[adapter].enabled) revert AdapterNotEnabled(adapter);
         adapters[adapter].enabled = false;
@@ -305,6 +307,17 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
             total += IStrategyAdapter(adapter).realAssets();
+        }
+    }
+
+    /// @notice Unsecured loop shortfall across ALL listed loop adapters. `totalAssets()`
+    ///         floors an underwater sleeve at zero; the vault subtracts this number so
+    ///         NAV reflects the negative equity instead of ignoring it.
+    function badDebt() external view returns (uint256 total) {
+        uint256 count = adapterList.length;
+        for (uint256 i = 0; i < count; ++i) {
+            address adapter = adapterList[i];
+            if (adapters[adapter].isLoop) total += IMorphoLoopAdapter(adapter).badDebt();
         }
     }
 
@@ -360,7 +373,8 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     }
 
     function deallocate(address adapter, uint256 amount) external onlyAllocatorOrSentinel returns (uint256 withdrawn) {
-        if (!adapters[adapter].enabled) revert AdapterNotEnabled(adapter);
+        // Disabled adapters stay recoverable: only NEW risk is blocked by `enabled`.
+        if (!_listed[adapter]) revert InvalidAdapter(adapter);
         if (amount == 0) revert ZeroAmount();
         withdrawn = IStrategyAdapter(adapter).withdraw(amount, vault);
         emit Deallocated(adapter, withdrawn);
@@ -381,7 +395,9 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         emit PulledToVault(pulled);
     }
 
-    /// @notice Best-effort full unwind of every enabled adapter to the vault (settlement path).
+    /// @notice Best-effort full unwind of EVERY listed adapter to the vault, including
+    ///         adapters the sentinel disabled. A disabled sleeve still owes its debt and
+    ///         still holds user assets; skipping it would strand both at settlement.
     ///         Approves the exact repayment need per loop sleeve (never max) and
     ///         resets to zero so a malicious adapter cannot `transferFrom` the next
     ///         sleeve's funding.
@@ -390,7 +406,6 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
             AdapterConfig memory cfg = adapters[adapter];
-            if (!cfg.enabled) continue;
             uint256 need;
             if (cfg.isLoop) {
                 // Fund the debt repayment from the vault so the adapter can unwind.
@@ -408,6 +423,9 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
             uint256 dust = IERC20(asset).balanceOf(address(this));
             if (dust != 0) IERC20(asset).safeTransfer(vault, dust);
         }
+        // Include the no-adapter / all-reverted case.
+        uint256 remaining = IERC20(asset).balanceOf(address(this));
+        if (remaining != 0) IERC20(asset).safeTransfer(vault, remaining);
     }
 
     // ---------------------------------------------------------------------
@@ -452,13 +470,18 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     /// @notice Repay loop debt from vault capital (allocator or sentinel de-risk).
     function repay(address adapter, uint256 amount) external onlyAllocatorOrSentinel {
         AdapterConfig memory cfg = adapters[adapter];
-        if (!cfg.enabled) revert AdapterNotEnabled(adapter);
+        // Disabled loop sleeves must still be repayable — otherwise the sentinel's
+        // emergency disable locks debt in place and liquidation keeps accruing.
+        if (!_listed[adapter]) revert InvalidAdapter(adapter);
         if (!cfg.isLoop) revert AdapterKindMismatch(true);
         if (amount == 0) revert ZeroAmount();
-        IERC20(asset).safeTransferFrom(vault, address(this), amount);
-        IERC20(asset).forceApprove(adapter, amount);
-        uint256 repaid = IMorphoLoopAdapter(adapter).repayFrom(amount);
+        uint256 pulled = amount;
+        IERC20(asset).safeTransferFrom(vault, address(this), pulled);
+        IERC20(asset).forceApprove(adapter, pulled);
+        uint256 repaid = IMorphoLoopAdapter(adapter).repayFrom(pulled);
         IERC20(asset).forceApprove(adapter, 0);
+        uint256 leftover = pulled > repaid ? pulled - repaid : 0;
+        if (leftover != 0) IERC20(asset).safeTransfer(vault, leftover);
         emit Repaid(adapter, repaid);
     }
 
@@ -468,14 +491,18 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         onlyAllocatorOrSentinel
     {
         AdapterConfig memory cfg = adapters[adapter];
-        if (!cfg.enabled) revert AdapterNotEnabled(adapter);
+        // De-risking must work after a disable; only new borrowing is blocked.
+        if (!_listed[adapter]) revert InvalidAdapter(adapter);
         if (!cfg.isLoop) revert AdapterKindMismatch(true);
         uint256 repaid;
         if (repayAmount != 0) {
-            IERC20(asset).safeTransferFrom(vault, address(this), repayAmount);
-            IERC20(asset).forceApprove(adapter, repayAmount);
-            repaid = IMorphoLoopAdapter(adapter).repayFrom(repayAmount);
+            uint256 pulled = repayAmount;
+            IERC20(asset).safeTransferFrom(vault, address(this), pulled);
+            IERC20(asset).forceApprove(adapter, pulled);
+            repaid = IMorphoLoopAdapter(adapter).repayFrom(pulled);
             IERC20(asset).forceApprove(adapter, 0);
+            uint256 leftover = pulled > repaid ? pulled - repaid : 0;
+            if (leftover != 0) IERC20(asset).safeTransfer(vault, leftover);
         }
         if (collateralWithdrawn != 0) {
             IMorphoLoopAdapter(adapter).withdrawCollateralTo(collateralWithdrawn, vault);

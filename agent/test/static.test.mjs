@@ -75,12 +75,12 @@ test("park/resume plans keep the required ordering", () => {
   assert.deepEqual(park, [
     "controller.submitDeployEnabled(false)",
     "controller.submitRecall()",
-    "vault.supplyIdle()",
+    "controller.submitSupplyIdle()",
   ]);
 
   const resume = resumePlan({ withdrawQuote: 1000e6, fundQuote: 200e6, fundEquity: 1e17 });
   assert.equal(resume.length, 4);
-  assert.match(resume[0], /withdrawFromVenue/);
+  assert.match(resume[0], /WithdrawFromVenue/);
   assert.match(resume[1], /submitFund/);
   assert.match(resume[2], /submitDeployEnabled\(true\)/);
   assert.match(resume[3], /submitRecenter/);

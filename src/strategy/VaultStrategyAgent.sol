@@ -110,6 +110,26 @@ contract VaultStrategyAgent {
         emit FundSubmitted(quoteAmount, equityAmount);
     }
 
+    function submitSupplyIdle() external onlyOperator returns (uint256 supplied) {
+        supplied = controller.submitSupplyIdle();
+    }
+
+    function submitSupplyIdleAmount(uint256 amount) external onlyOperator returns (uint256 supplied) {
+        supplied = controller.submitSupplyIdleAmount(amount);
+    }
+
+    function submitWithdrawFromVenue(uint256 amount) external onlyOperator returns (uint256 withdrawn) {
+        withdrawn = controller.submitWithdrawFromVenue(amount);
+    }
+
+    function submitCheckDepeg() external onlyOperator returns (bool paused_) {
+        paused_ = controller.submitCheckDepeg();
+    }
+
+    function submitResumeFromDepeg() external onlyOperator {
+        controller.submitResumeFromDepeg();
+    }
+
     function submitRebalance(bool equityOut, uint256 amountIn, uint256 minOut, uint256 deadline) external onlyOperator {
         controller.submitRebalance(equityOut, amountIn, minOut, deadline);
         emit RebalanceSubmitted(equityOut, amountIn, minOut, deadline);

@@ -503,9 +503,23 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     }
 
     /// @notice Pushes vault capital into the hook's inventory for deployment.
-    ///         Closed while depeg-paused (no new hook risk on a broken peg).
+    ///         Closed while depeg-paused (no new hook risk on a broken peg), after
+    ///         terminal halt/settlement, and once expired (settlement would skip `pullAll`
+    ///         and never recover the transferred inventory). An exited-but-live book is
+    ///         allowed because the dual-book switch funds before re-arming. Outstanding
+    ///         loop debt is reserved: borrowed quote must not become pool inventory.
     function fundHook(uint256 quoteAmount, uint256 equityAmount) external onlyKeeper {
+        if (halted) revert IsHalted();
+        if (settled) revert AlreadySettled();
+        if (expired()) revert TradingClosed();
         _requireNotDepegged();
+        if (quoteAmount != 0) {
+            address module = strategyModule;
+            uint256 reserved = module == address(0) ? 0 : IStrategyModule(module).totalLoopDebt();
+            uint256 balance = quote.balanceOf(address(this));
+            uint256 free = balance > reserved ? balance - reserved : 0;
+            if (quoteAmount > free) revert InsufficientQuote(quoteAmount, free);
+        }
         if (quoteAmount != 0) quote.safeTransfer(address(hook), quoteAmount);
         if (equityAmount != 0) equity.safeTransfer(address(hook), equityAmount);
         emit HookFunded(quoteAmount, equityAmount);
@@ -551,7 +565,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function totalManagedAssets() public view returns (uint256 value) {
         value = baseManagedAssets();
         address module = strategyModule;
-        if (module != address(0)) value += IStrategyModule(module).totalAssets();
+        if (module != address(0)) {
+            value += IStrategyModule(module).totalAssets();
+            // Loop `realAssets()` floors negative equity at zero; subtract the unsecured
+            // shortfall so NAV (and every share price built on it) reflects bad debt.
+            uint256 bad = IStrategyModule(module).badDebt();
+            value = bad > value ? 0 : value - bad;
+        }
     }
 
     /// @notice NAV of the book's own liquidity (vault + hook + venue), excluding strategy adapters.
@@ -731,6 +751,12 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         return _oracleMid() != 0;
     }
 
+    /// @notice Pool-vs-oracle deviation for accounting paths (epochs/rebalances) that
+    ///         must not mark NAV at a manipulated spot. Mirrors the hook's own read.
+    function spotDeviationBps() external view returns (bool ok, uint256 deviationBps) {
+        return hook.oracleDeviationBps();
+    }
+
     /// @notice One-shot settlement after expiry. Pulls the book out of the hook, then hands the
     ///         senior guarantee first, remaining QUOTE plus all equity to junior, and freezes each
     ///         tranche's terminal rates. Permissionless once the guarantee is funded.
@@ -810,10 +836,14 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     }
 
     function _ensureQuote(uint256 amount) internal {
+        // Borrowed loop quote is a liability, not free liquidity: keep enough quote
+        // back to repay outstanding loop debt before paying redemptions/rebalances.
+        uint256 reserved = _loopDebtReserve();
+        uint256 needed = amount + reserved;
         uint256 balance = quote.balanceOf(address(this));
-        if (balance >= amount) return;
+        if (balance >= needed) return;
 
-        uint256 shortfall = amount - balance;
+        uint256 shortfall = needed - balance;
         uint256 hookIdle = hook.quoteIdle();
         uint256 fromHook = shortfall < hookIdle ? shortfall : hookIdle;
         if (fromHook != 0) {
@@ -821,20 +851,25 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         }
 
         balance = quote.balanceOf(address(this));
-        if (balance < amount && address(venue) != address(0)) {
-            _withdrawFromVenue(amount - balance);
+        if (balance < needed && address(venue) != address(0)) {
+            _withdrawFromVenue(needed - balance);
             balance = quote.balanceOf(address(this));
         }
-        if (balance < amount && strategyModule != address(0)) {
-            IStrategyModule(strategyModule).pullToVault(amount - balance);
+        if (balance < needed && strategyModule != address(0)) {
+            IStrategyModule(strategyModule).pullToVault(needed - balance);
             balance = quote.balanceOf(address(this));
         }
-        if (balance < amount && guardRecallOnWithdraw && hook.poolInitialized()) {
+        if (balance < needed && guardRecallOnWithdraw && hook.poolInitialized()) {
             hook.recallToVault();
-            emit GuardRecalledForWithdrawal(amount - balance);
+            emit GuardRecalledForWithdrawal(needed - balance);
             balance = quote.balanceOf(address(this));
         }
-        if (balance < amount) revert InsufficientQuote(amount, balance);
+        if (balance < needed) revert InsufficientQuote(needed, balance);
+    }
+
+    function _loopDebtReserve() internal view returns (uint256) {
+        address module = strategyModule;
+        return module == address(0) ? 0 : IStrategyModule(module).totalLoopDebt();
     }
 
     function _ensureEquity(uint256 amount) internal {

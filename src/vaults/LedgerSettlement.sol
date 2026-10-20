@@ -62,6 +62,19 @@ library LedgerSettlement {
         hook.unwindClaims();
         if (!hook.exited()) hook.pullAll();
 
+        // Withdraw the lending venue BEFORE repaying loop debt. `exitAll` funds loop
+        // repayment from the vault's quote balance; if quote is parked in the venue,
+        // doing strategy first reverts for insufficient vault funds and blocks settlement.
+        if (venue != address(0)) {
+            uint256 venueUnits = aToken.balanceOf(address(this));
+            // Fail closed on short venue withdrawals — a shortfall must not silently
+            // shrink the waterfall.
+            if (venueUnits != 0) {
+                uint256 got = ILedgerVenuePool(venue).withdraw(address(quote), venueUnits, address(this));
+                if (got < venueUnits) revert SettlementNotReady();
+            }
+        }
+
         if (strategyModule != address(0)) {
             // Funding for the loop-debt pull lives here: `exitAll` repays loop debt
             // by pulling from the vault, and the vault carries NO standing allowance
@@ -73,16 +86,6 @@ library LedgerSettlement {
             quote.forceApprove(strategyModule, loopNeed);
             IStrategyModule(strategyModule).exitAll();
             quote.forceApprove(strategyModule, 0);
-        }
-
-        if (venue != address(0)) {
-            uint256 venueUnits = aToken.balanceOf(address(this));
-            // Fail closed on short venue withdrawals — a shortfall must not silently
-            // shrink the waterfall.
-            if (venueUnits != 0) {
-                uint256 got = ILedgerVenuePool(venue).withdraw(address(quote), venueUnits, address(this));
-                if (got < venueUnits) revert SettlementNotReady();
-            }
         }
 
         uint256 hSenior = shareToken.balanceOf(seniorVault);

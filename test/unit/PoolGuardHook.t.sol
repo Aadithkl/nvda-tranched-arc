@@ -287,6 +287,29 @@ contract PoolGuardHookTest is Test {
         assertTrue(_guardPresent());
     }
 
+    function test_lazyRedeploy_unwindsClaimsWithZeroIdle() public {
+        // Remove the fixture's surplus: the hook now holds only deployed positions.
+        (uint256 idleQuote, uint256 idleEquity) = hook.inventory();
+        hook.withdrawInventory(idleQuote, idleEquity);
+
+        // Toxic flow pulls the guard; proceeds are minted as ERC-6909 claims.
+        _pushMid(hook.poolPrice1e18() / 1e10 * 3);
+        _swap(_buyEquityZeroForOne(), 1e4);
+        assertFalse(_guardPresent());
+        assertGt(hook.claims(address(quote)) + hook.claims(address(nvda)), 0, "claims hold principal");
+
+        // A tiny EV+ swap must redeem the claims and re-arm without a manual unwind.
+        // Top up just enough to cover the small price move; the tell is that the
+        // claims are consumed, not left sitting behind idle inventory.
+        quote.mint(address(hook), 1e6);
+        nvda.mint(address(hook), 1e18);
+        _alignOracle();
+        _swap(_buyEquityZeroForOne(), 1e4);
+        assertTrue(_guardPresent(), "guard re-armed from claims");
+        assertEq(hook.claims(address(quote)), 0, "quote claims consumed");
+        assertEq(hook.claims(address(nvda)), 0, "equity claims consumed");
+    }
+
     function test_standby_stillPullsOnToxicFlow() public {
         hook.setDeployEnabled(false);
         assertTrue(_guardPresent());

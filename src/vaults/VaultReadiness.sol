@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 interface IVaultRead {
     function quote() external view returns (address);
     function equity() external view returns (address);
+    function aToken() external view returns (address);
     function hook() external view returns (address);
     function accountant() external view returns (address);
     function strategyModule() external view returns (address);
@@ -27,6 +28,7 @@ interface ITrancheVaultRead {
 
 interface IStrategyModuleRead {
     function totalLoopDebt() external view returns (uint256);
+    function pullableAssets() external view returns (uint256);
 }
 
 /// @notice Settlement preflight view for keepers (kept out of `LedgerVault` for EIP-170): what is
@@ -48,6 +50,8 @@ contract VaultReadiness {
         r.halted = IHookRead(IVaultRead(vault).hook()).exited();
         r.quoteUnits = IERC20Lite(IVaultRead(vault).quote()).balanceOf(vault);
         r.equityUnits = IERC20Lite(IVaultRead(vault).equity()).balanceOf(vault);
+        address aToken = IVaultRead(vault).aToken();
+        if (aToken != address(0)) r.quoteUnits += IERC20Lite(aToken).balanceOf(vault);
 
         address acct = IVaultRead(vault).accountant();
         if (acct != address(0)) {
@@ -64,9 +68,15 @@ contract VaultReadiness {
         }
 
         address module = IVaultRead(vault).strategyModule();
-        if (module != address(0)) r.loopDebt = IStrategyModuleRead(module).totalLoopDebt();
+        if (module != address(0)) {
+            r.loopDebt = IStrategyModuleRead(module).totalLoopDebt();
+            r.quoteUnits += IStrategyModuleRead(module).pullableAssets();
+        }
 
-        r.shortfall = r.seniorGuarantee > r.quoteUnits ? r.seniorGuarantee - r.quoteUnits : 0;
+        // Loop debt is repaid from quote before the senior guarantee is paid, so both
+        // must be covered by the quote the vault can actually reach.
+        uint256 needed = r.seniorGuarantee + r.loopDebt;
+        r.shortfall = needed > r.quoteUnits ? needed - r.quoteUnits : 0;
         r.ready = IVaultRead(vault).expired() && !IVaultRead(vault).settled() && acct != address(0) && r.shortfall == 0;
     }
 }

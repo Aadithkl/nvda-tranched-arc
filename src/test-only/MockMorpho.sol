@@ -138,6 +138,11 @@ contract MockMorpho is IMorpho {
             amount = Math.mulDiv(
                 burnedShares, uint256(m.totalBorrowAssets) + 1, uint256(m.totalBorrowShares) + 1e6, Math.Rounding.Ceil
             );
+            // Full-close rounding must never pull more than the market's total borrow
+            // assets; the adapter keeps the 1-wei surplus as idle quote and sweeps it.
+            if (burnedShares == uint256(p.borrowShares) && amount > uint256(m.totalBorrowAssets)) {
+                amount = uint256(m.totalBorrowAssets);
+            }
         } else {
             burnedShares = assets < uint256(p.borrowShares) ? assets : uint256(p.borrowShares);
             amount = burnedShares;

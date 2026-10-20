@@ -64,7 +64,7 @@ hook idle → venue → strategy adapters → **guard recall** as the last resor
 ## Quickstart
 
 ```shell
-forge build && forge test            # 189 tests: hook, vault, strategy, tranches, oracle, E2E
+forge build && forge test            # 265 tests: hook, vault, strategy, tranches, oracle, E2E
 forge fmt --check
 npm install && npm run test:agent    # offchain agent decisions (node:test)
 npm run agent:static -- --help       # recheck/recenter + strategy park/resume decisions

@@ -29,6 +29,8 @@ interface IMorphoLoopAdapter {
     function exposure() external view returns (uint256);
 
     function healthFactor() external view returns (uint256);
+
+    function badDebt() external view returns (uint256);
 }
 
 /// @notice Morpho Blue levered sleeve: collateralizes the vault's equity sleeve (stock token) and
@@ -159,6 +161,15 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
         return value > debt_ ? value - debt_ : 0;
     }
 
+    /// @notice Unsecured shortfall when debt exceeds collateral + idle quote. Reported
+    ///         separately so the vault can subtract it from NAV instead of silently
+    ///         flooring negative equity to zero.
+    function badDebt() public view returns (uint256) {
+        uint256 value = IERC20(asset).balanceOf(address(this)) + collateralValue();
+        uint256 debt_ = debt();
+        return debt_ > value ? debt_ - value : 0;
+    }
+
     /// @notice Only idle quote can leave without unwinding the loop.
     function maxWithdrawable() public view returns (uint256) {
         return IERC20(asset).balanceOf(address(this));
@@ -196,14 +207,12 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
     function exit(uint256, address to) external onlyAuthority returns (uint256 withdrawn) {
         if (to == address(0)) revert ZeroAddress();
         (, uint128 borrowShares,) = morpho.position(marketId, address(this));
-        uint256 pulled;
         if (borrowShares != 0) {
             uint256 owedAssets = debt();
             uint256 balance = IERC20(asset).balanceOf(address(this));
             uint256 need = owedAssets > balance ? owedAssets - balance : 0;
             if (need != 0) {
                 IERC20(asset).safeTransferFrom(authority, address(this), need);
-                pulled = need;
             }
             IERC20(asset).forceApprove(address(morpho), owedAssets);
             morpho.repay(_marketParams, 0, uint256(borrowShares), address(this), "");
@@ -213,7 +222,9 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
         if (collateral != 0) morpho.withdrawCollateral(_marketParams, collateral, address(this), to);
         uint256 idle = IERC20(asset).balanceOf(address(this));
         if (idle != 0) IERC20(asset).safeTransfer(to, idle);
-        withdrawn = idle + pulled;
+        // The funds pulled from the authority repaid debt and never reach `to`; report
+        // only the quote actually transferred out.
+        withdrawn = idle;
     }
 
     // ------------------------------------------------------------------

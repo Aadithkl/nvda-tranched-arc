@@ -25,7 +25,10 @@ contract PoolGuardSimulator is IPoolGuardSimulator {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
 
-    uint8 internal constant MAX_STEPS = 16;
+    // The pool is public, so external LPs can add ticks. A low cap makes the guard
+    // cheap to grief (65 dust positions force `ok=false` and a guard pull); 64 raises
+    // that cost while keeping the view simulation bounded.
+    uint8 internal constant MAX_STEPS = 64;
 
     function simulate(IPoolManager manager, PoolKey memory key, SwapParams memory params, Input memory input)
         external
