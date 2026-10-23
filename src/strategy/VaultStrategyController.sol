@@ -282,7 +282,7 @@ contract VaultStrategyController is ReentrancyGuard {
             maxFundQuotePerCall: 100_000e6,
             maxFundEquityPerCall: 1_000e18,
             maxRebalanceSwapQuote: 10_000e6,
-            maxAllocatePerCall: 100e18,
+            maxAllocatePerCall: 100_000e6,
             maxCollateralPerCall: 1_000e18,
             maxBorrowPerCall: 10_000e6,
             recenterCooldown: 60,

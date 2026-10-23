@@ -10,6 +10,9 @@
     "agent:static": "node agent/static.mjs",
     "robinhood:verify": "node scripts/verify-robinhood.mjs",
     "robinhood:proxy": "node scripts/rpc-proxy.mjs",
+    "keeper:dry": "node scripts/keeper/index.mjs",
+    "keeper:run": "node scripts/keeper/index.mjs",
+    "test:keeper": "node --test scripts/keeper/test/*.test.mjs",
     "test:agent": "node --test agent/test/static.test.mjs",
     "frontend": "node scripts/serve-frontend.mjs"
   },

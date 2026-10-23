@@ -12,6 +12,10 @@ broadcast/
 node_modules/
 agent/.cache/
 
+# Research downloads (local, regenerable)
+research/data/
+research/out/
+
 # Static-analysis raw output (regenerable via slither; reports are not committed)
 slither-static.json
 
