@@ -37,4 +37,8 @@ interface IBookHook {
     /// @notice |pool − oracle| deviation in bps (ok=false when the oracle/pool
     ///         read is unavailable). The vault enforces its unwrap band on this.
     function oracleDeviationBps() external view returns (bool ok, uint256 deviationBps);
+    /// @notice Whether new guard deploys / re-arms are currently allowed.
+    function deployEnabled() external view returns (bool);
+    /// @notice Oracle liveness snapshot: valid/fresh flag, feed timestamp, session id.
+    function oracleStatus() external view returns (bool ok, uint256 updatedAt, uint8 session);
 }

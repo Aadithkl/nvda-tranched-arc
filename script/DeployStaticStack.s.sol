@@ -14,6 +14,8 @@ import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { PoolGuardHook } from "../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../src/hook/libraries/GuardParams.sol";
+import { DeepPoolOracle } from "../src/oracle/DeepPoolOracle.sol";
+import { DepegHeartbeat } from "../src/keeper/DepegHeartbeat.sol";
 import { LedgerVault } from "../src/vaults/LedgerVault.sol";
 import { LedgerEntry7575 } from "../src/vaults/LedgerEntry7575.sol";
 import { VaultStrategyController } from "../src/strategy/VaultStrategyController.sol";
@@ -49,6 +51,7 @@ contract DeployStaticStack is Script {
         );
         _bootstrapStack(vault, junior, deployer);
         _wireStrategy(vault, controller);
+        _wireDepeg(vault);
         if (initBook) vault.initializeHook(key, TickMath.getSqrtPriceAtTick(initialTick));
         vm.stopBroadcast();
         console2.log("BookInitialized:", initBook);
@@ -224,6 +227,41 @@ contract DeployStaticStack is Script {
         vault.setStrategyModule(strategyModule);
         controller.setStrategyModule(strategyModule);
         console2.log("StrategyModule:", strategyModule);
+    }
+
+    /// @notice Deep-pool TWAP reference + provider-agnostic heartbeat (env-gated).
+    ///         `DEEP_POOL` unset leaves the vault with no deep reference: the depeg check
+    ///         then never latches on price (Chainlink-only fallback), which is the safe
+    ///         default until the pool and liquidity floor are confirmed.
+    function _wireDepeg(LedgerVault vault) internal {
+        address deepPool = vm.envOr("DEEP_POOL", address(0));
+        if (deepPool == address(0)) {
+            console2.log("DeepPoolOracle: disabled (DEEP_POOL unset)");
+            return;
+        }
+        DeepPoolOracle deep = new DeepPoolOracle(
+            deepPool,
+            vm.envAddress("QUOTE_ADDRESS"),
+            vm.envAddress("NVDA_ADDRESS"),
+            uint128(vm.envOr("DEEP_MIN_LIQUIDITY", uint256(5e17)))
+        );
+        vault.setDeepOracle(address(deep));
+
+        DepegHeartbeat heartbeat = new DepegHeartbeat(
+            address(vault),
+            address(vault.hook()),
+            uint32(vm.envOr("DEPEG_INTERVAL_OPEN", uint256(1800))),
+            uint32(vm.envOr("DEPEG_INTERVAL_CLOSED", uint256(3600)))
+        );
+        vault.setDepegKeeper(address(heartbeat));
+        vault.setDepegParams(
+            uint16(vm.envOr("DEPEG_THRESHOLD_BPS", uint256(200))),
+            uint32(vm.envOr("DEPEG_TWAP_WINDOW", uint256(1800))),
+            uint32(vm.envOr("DEPEG_MIN_DURATION", uint256(600))),
+            uint32(vm.envOr("DEPEG_MAX_CHECK_AGE", uint256(5400)))
+        );
+        console2.log("DeepPoolOracle:", address(deep));
+        console2.log("DepegHeartbeat:", address(heartbeat));
     }
 
     function _create2(bytes32 salt, bytes memory initcode) internal returns (address expected) {

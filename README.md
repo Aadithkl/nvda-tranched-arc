@@ -39,6 +39,15 @@ depositors → Senior/Junior tranche vaults (ERC-7540) → TrancheAccountant (wa
   from the redemption path).
 - **Oracle** — `ChainlinkSessionOracle`: Chainlink stock-feed mid (already includes the ERC-8056
   corporate-action multiplier) + a keeper-pushed session/status layer.
+- **Depeg gate** — keeper-only `checkDepeg()` compares the **stock reference** (Chainlink mid)
+  with the **deep external pool's TWAP** (Uniswap v3 `observe` on the deepest USDG/NVDA pool;
+  the 0.05% pool on mainnet). Our own book price is deliberately **not** an input: a small pool
+  is cheap to move, so using it as the checked side lets a flash swap trip the latch and disable
+  deployments. The latch requires the divergence to persist for `minDuration` (default 10 min),
+  then disables new guard deployments; clearing restores the prior deployment state.
+  `forceDepeg()` is the keeper's immediate path. `DeepPoolOracle` fails closed
+  (`ok = false`) when the pool is below its liquidity floor or the window predates its oldest
+  observation, and the check then leaves the latch untouched.
 
 ## Lifecycle
 
@@ -85,6 +94,19 @@ forge test --match-path test/fork/RobinhoodFork.t.sol -vv
 ```
 
 Or set `ROBINHOOD_RPC_URL` to a provider RPC and skip the proxy. Without it the fork suite skips.
+
+### Depeg heartbeat
+
+`DepegHeartbeat` exposes the standard `checkUpkeep`/`performUpkeep` pair plus Gelato's
+`checker()` shape, so the automation provider can be swapped without touching the vault.
+Cadence is 30 min while the stock session is open and 60 min when closed (the closed-market
+check is a no-op, since a stale reference leaves the latch untouched).
+
+Register the deployed heartbeat as the vault's `depegKeeper`, then point the provider at
+`performUpkeep`. Chainlink Automation is deprecated (v2.1 sunset 2026-07-31) and does not
+cover Robinhood Chain (4663); use Gelato, Chainlink CRE if it adds 4663, or a self-hosted bot.
+`performUpkeep` is permissionless by design — `checkDepeg` is the safety gate and only latches
+on a TWAP-vs-stock divergence sustained for `minDuration`.
 
 ## Deploy (Robinhood Chain)
 

@@ -103,7 +103,11 @@ contract RobinhoodForkTest is Test {
         // updatedAt. Production uses a tight maxPriceAge plus the session gate; the rehearsal
         // widens it so the plumbing can be tested off-hours.
         (uint160 sqrtPrice,) = _feedTick();
-        mockOracle.updatePrice(int192(_feedAnswer() * 3), 2, uint32(block.timestamp), bytes32(0));
+        // The mock oracle must be ON-MARKET at init: the hook's init band check
+        // (`InitPriceOffMarket`) rejects a book whose pool price differs from its
+        // oracle by more than `recheckMaxDeviationBps`. The 3x dislocation is applied
+        // AFTER init so the pool is left below the oracle's view (toxic for the LP).
+        mockOracle.updatePrice(int192(_feedAnswer()), 2, uint32(block.timestamp), bytes32(0));
 
         vaultA.setGuardParams(_params());
         vaultB.setGuardParams(_params());
@@ -116,6 +120,11 @@ contract RobinhoodForkTest is Test {
         vaultB.fundHook(40e6, 1e18);
         vaultA.initializeHook(keyA, sqrtPrice);
         vaultB.initializeHook(keyB, sqrtPrice);
+
+        // Now dislocate stack B's oracle 3x above the pool price: buying equity at the
+        // pool price hands out equity the oracle values 3x higher -> negative EV for
+        // the book's liquidity -> the guard is pulled mid-swap.
+        mockOracle.updatePrice(int192(_feedAnswer() * 3), 2, uint32(block.timestamp), bytes32(0));
 
         deal(USDG, address(this), 100e6);
         IERC20(USDG).approve(address(router), type(uint256).max);
@@ -252,7 +261,11 @@ contract RobinhoodForkTest is Test {
         module.allocate(address(adapter), 20_000e6);
         IMorpho.Market memory afterM = IMorpho(MORPHO).market(MARKET_ID);
 
-        assertEq(afterM.totalSupplyAssets - beforeM.totalSupplyAssets, uint128(20_000e6), "USDG supplied to Morpho");
+        // The live market accrues interest between the two reads, so the delta is
+        // ~the supplied amount plus a few wei of per-second accrual.
+        assertApproxEqAbs(
+            afterM.totalSupplyAssets - beforeM.totalSupplyAssets, uint128(20_000e6), 1e6, "USDG supplied to Morpho"
+        );
         assertApproxEqRel(adapter.realAssets(), 20_000e6, 0.001e18);
 
         uint256 vaultBefore = IERC20(USDG).balanceOf(address(mockVault));

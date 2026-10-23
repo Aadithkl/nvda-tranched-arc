@@ -393,7 +393,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         }
         _requireOracle();
 
-        if (!exited && (guardPresent || deployEnabled)) {
+        if (guardPresent || deployEnabled) {
             (bool ok, int256 ev, uint256 notional, int256 totalEv, uint256 totalNotional) = _simulateEv(swapParams);
             if (!ok) {
                 if (guardPresent) _pullGuard(true);
@@ -789,10 +789,6 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
             return Math.mulDiv(scaledEquity, Q96, Math.mulDiv(ratioX96, scaledQuote, 1));
         }
         return Math.mulDiv(ratioX96, scaledEquity, Q96 * scaledQuote);
-    }
-
-    function guardState() external view returns (bool present, uint256 pulledAt_, bool deployEnabled_, bool exited_) {
-        return (guardPresent, pulledAt, deployEnabled, exited);
     }
 
     function poolPrice1e18() external view returns (uint256) {

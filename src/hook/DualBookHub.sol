@@ -290,6 +290,16 @@ contract DualBookHub is Ownable2Step, IBookHook, ReentrancyGuard {
         return _active().oracleDeviationBps();
     }
 
+    /// @notice Deployment state of the ACTIVE book.
+    function deployEnabled() external view override returns (bool) {
+        return _active().deployEnabled();
+    }
+
+    /// @notice Oracle liveness of the ACTIVE book.
+    function oracleStatus() external view override returns (bool ok, uint256 updatedAt, uint8 session) {
+        return _active().oracleStatus();
+    }
+
     function inventory() external view returns (uint256 quoteUnits, uint256 equityUnits) {
         // Transient migration funding (fundHub -> pushToActive) sits here between
         // transactions — include `address(this)` so the box stays fully counted.

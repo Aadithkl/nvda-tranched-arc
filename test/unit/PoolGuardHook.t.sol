@@ -167,7 +167,7 @@ contract PoolGuardHookTest is Test {
     }
 
     function _guardPresent() internal view returns (bool present) {
-        (present,,,) = hook.guardState();
+        present = hook.guardPresent();
     }
 
     // ------------------------------------------------------------------

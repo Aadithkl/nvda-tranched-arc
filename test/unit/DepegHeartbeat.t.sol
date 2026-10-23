@@ -12,7 +12,9 @@ import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { HookMiner } from "v4-periphery/test/shared/HookMiner.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { TestToken } from "../../src/test-only/TestToken.sol";
+import { MockDeepOracle } from "../../src/test-only/MockDeepOracle.sol";
 import { NVDAPriceOracle } from "../../src/oracle/NVDAPriceOracle.sol";
+import { INVDAPriceOracle } from "../../src/interfaces/INVDAPriceOracle.sol";
 import { PoolGuardHook } from "../../src/hook/PoolGuardHook.sol";
 import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
@@ -33,6 +35,7 @@ contract DepegHeartbeatTest is Test {
     TestToken internal quote;
     TestToken internal nvda;
     VaultStrategyController internal controller;
+    MockDeepOracle internal deep;
     PoolKey internal key;
     address internal agent = makeAddr("agent");
     int24 internal initialTick;
@@ -94,6 +97,18 @@ contract DepegHeartbeatTest is Test {
         controller.setVault(address(vault));
         controller.setAgent(agent, true);
         // Keeper stays unset (owner acts) until controller-relay tests set it.
+
+        // Depeg latch: deep-pool TWAP vs stock reference, keeper-only, duration-gated.
+        deep = new MockDeepOracle();
+        vault.setDeepOracle(address(deep));
+        vault.setDepegKeeper(address(this));
+        vault.setDepegParams(200, 1800, 600, 0);
+        deep.setPrice(_mid());
+    }
+
+    function _mid() internal view returns (uint256) {
+        INVDAPriceOracle.PriceData memory d = INVDAPriceOracle(address(oracle)).getPrice();
+        return uint256(uint192(d.mid)) * (10 ** (18 - oracle.decimals()));
     }
 
     function _params() internal pure returns (GuardParams.Params memory) {
@@ -111,7 +126,14 @@ contract DepegHeartbeatTest is Test {
     }
 
     function _pushOracleOffPeg() internal {
-        // ~10% above pool price => ~1000bps deviation, over the 200bps gate.
+        // New design: the latch compares the DEEP-pool TWAP against the stock reference, so
+        // a depeg is simulated by dislocating the deep price — not our own book.
+        deep.setPrice(_mid() * 11 / 10);
+    }
+
+    /// @dev Moves the STOCK feed off our pool price (used by the guard-band test, which is
+    ///      about the hook's own spot-vs-oracle band, not the deep-pool latch).
+    function _pushStockFeedOffPool() internal {
         uint256 poolUsd = hook.poolPrice1e18();
         oracle.updatePrice(int192(int256(poolUsd * 11 / 10 / 1e10)), 2, uint32(block.timestamp), bytes32(0));
     }
@@ -124,16 +146,23 @@ contract DepegHeartbeatTest is Test {
         assertFalse(vault.depegPaused());
         _pushOracleOffPeg();
 
+        // First out-of-band read only starts the confirmation clock.
+        assertFalse(vault.checkDepeg());
+        assertFalse(vault.depegPaused());
+        vm.warp(block.timestamp + 601);
+
         bool paused_ = vault.checkDepeg();
         assertTrue(paused_);
         assertTrue(vault.depegPaused());
         assertTrue(vault.lastDepegCheck() != 0);
+        assertFalse(hook.deployEnabled(), "latch disabled deployments");
 
-        // Back in band => clean read clears the latch.
-        oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        // Back in band => clean read clears the latch and restores deployment.
+        deep.setPrice(_mid());
         paused_ = vault.checkDepeg();
         assertFalse(paused_);
         assertFalse(vault.depegPaused());
+        assertTrue(hook.deployEnabled(), "symmetric clear restored deployment");
     }
 
     function test_checkDepeg_cleanStaysClean() public {
@@ -144,13 +173,15 @@ contract DepegHeartbeatTest is Test {
     function test_resumeFromDepeg_manualOverride() public {
         _pushOracleOffPeg();
         vault.checkDepeg();
+        vm.warp(block.timestamp + 601);
+        vault.checkDepeg();
         assertTrue(vault.depegPaused());
 
         // Owner acts as keeper while keeper is unset.
         vault.resumeFromDepeg();
         assertFalse(vault.depegPaused());
 
-        // Next heartbeat re-trips while still off peg.
+        // Next heartbeat re-trips while still off peg (deviationSince not reset).
         assertTrue(vault.checkDepeg());
     }
 
@@ -158,6 +189,9 @@ contract DepegHeartbeatTest is Test {
         vault.setKeeper(address(controller));
         _pushOracleOffPeg();
         vault.checkDepeg();
+        vm.warp(block.timestamp + 601);
+        vault.checkDepeg();
+        assertTrue(vault.depegPaused());
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(LedgerVault.NotKeeper.selector, agent));
         vault.resumeFromDepeg();
@@ -166,6 +200,9 @@ contract DepegHeartbeatTest is Test {
     function test_depeg_blocksRiskPaths_keepsExitsOpen() public {
         _pushOracleOffPeg();
         vault.checkDepeg();
+        vm.warp(block.timestamp + 601);
+        vault.checkDepeg();
+        assertTrue(vault.depegPaused());
 
         vm.expectRevert(LedgerVault.IsDepegPaused.selector);
         vault.fundHook(1e6, 0);
@@ -188,7 +225,11 @@ contract DepegHeartbeatTest is Test {
         _pushOracleOffPeg();
 
         vm.prank(agent);
-        assertTrue(controller.submitCheckDepeg());
+        controller.submitCheckDepeg(); // starts the confirmation clock
+        vm.warp(block.timestamp + 601);
+
+        vm.prank(agent);
+        assertTrue(controller.submitCheckDepeg()); // latches
 
         vm.prank(agent);
         vm.expectRevert(VaultStrategyController.DepegPaused.selector);
@@ -208,7 +249,7 @@ contract DepegHeartbeatTest is Test {
     function test_deployGuard_offBand_reverts() public {
         vault.recallFromHook();
         assertFalse(hook.guardPresent());
-        _pushOracleOffPeg();
+        _pushStockFeedOffPool();
 
         (bool ok, uint256 dev) = hook.oracleDeviationBps();
         assertTrue(ok);
