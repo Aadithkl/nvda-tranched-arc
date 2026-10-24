@@ -83,7 +83,7 @@ CMD ["node", "scripts/keeper/index.mjs"]
 npm run test:keeper
 ```
 
-68 tests cover the decision matrix: heartbeat due/fresh/paused, every sleeve trigger
+69 tests cover the decision matrix: heartbeat due/fresh/paused, every sleeve trigger
 (stock LTV, yield LTV, health, carry, venue pause), guard re-arm, the risk allocator
 (volatility/volume/guard/depeg), the <30% LTV cap, the USDG-first/NVDA-step plan,
 the fee-vs-IL pool switch, the actual-tick IL model, position-level fee share (guard pull
@@ -152,10 +152,12 @@ block span, so the APR is not distorted by a block-time mismatch. For each book:
 
 Guard absence alone is **not** a safe-harbor trigger. A recalled book is guard-less by design
 (and `recallToVault` keeps the base), so treating `!guardPresent` as a fresh risk event traps
-the allocator in ARMS forever. The guard keeper re-arms through `recheckGuard`; the allocator
-only reacts to guard **history** while a funded book is active: `pulledAt` inside the optional
-cooldown, or more than `KEEPER_MAX_GUARD_PULLS` `GuardPulled` events since the previous run.
-That count resets every allocator run (default 2).
+the allocator in ARMS forever. The guard keeper re-arms through `recheckGuard`.
+
+A recent pull (or 1–2 `GuardPulled` events in the run) is a **wait/re-arm** state: the allocator
+funds/stages the book and lets `recheckGuard` re-arm it. Only **more than**
+`KEEPER_MAX_GUARD_PULLS` pulls in the run (default 2) force the arms. The count resets every
+allocator run. `KEEPER_GUARD_COOLDOWN_SECONDS` extends the wait; it is not an arm trigger.
 
 If risk is normal, `decidePoolSwitch` ranks A/B by **net APR after IL** and switches only when
 the best book clears `KEEPER_SWITCH_BUFFER_BPS` and beats the current book by the same buffer.
@@ -216,13 +218,12 @@ Worked check:
 - the pool's aggregate fee APR can still look high because other LPs are earning; the book's
   position-level share is zero, so the book does not stay in on the pool's APR
 
-Multiple guard pulls are caught two ways: while the guard is down the book's `L_book`/share
-falls, and more than `KEEPER_MAX_GUARD_PULLS` `GuardPulled` events **since the previous hourly
-allocator run** force the safe harbor even after the share is restored. The count is not
-cumulative: it is recomputed from the last allocator block each run and resets every hour.
-`pulledAt` inside `KEEPER_GUARD_COOLDOWN_SECONDS` is an optional extra recent-pull check
-(default 0 = disabled, so two pulls per run are allowed). Re-arm swap costs are not pool fees;
-they are not double-counted in this fee number.
+Multiple guard pulls: while the guard is down the book's `L_book`/share falls. A recent pull
+or up to `KEEPER_MAX_GUARD_PULLS` pulls in the run is a **wait/re-arm** state, not an arm
+trigger. More than the max since the previous allocator run forces the safe harbor. The count
+is not cumulative: it is recomputed from the last allocator block each run and resets every
+run. `pulledAt` inside `KEEPER_GUARD_COOLDOWN_SECONDS` extends that wait (default 0 = disabled).
+Re-arm swap costs are not pool fees; they are not double-counted in this fee number.
 
 The switch rule:
 

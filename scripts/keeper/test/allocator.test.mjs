@@ -259,10 +259,10 @@ test("guard gate: funded book with too many pulls -> arms", () => {
     guardPulls: 3,
     maxGuardPulls: 2,
   });
-  assert.deepEqual(g, { blocked: true, reason: "guard-pulls=3" });
+  assert.deepEqual(g, { blocked: true, wait: false, reason: "guard-pulls=3" });
 });
 
-test("guard gate: funded book with recent pull -> arms", () => {
+test("guard gate: funded book with a recent pull waits and re-arms", () => {
   const g = guardSafeHarbor({
     currentMode: "BOOKS",
     bookHasPosition: true,
@@ -270,7 +270,28 @@ test("guard gate: funded book with recent pull -> arms", () => {
     guardPulls: 0,
     maxGuardPulls: 2,
   });
-  assert.deepEqual(g, { blocked: true, reason: "guard-pulled" });
+  assert.deepEqual(g, { blocked: false, wait: true, reason: "recent-guard-pull-wait" });
+});
+
+test("guard gate: 1-2 pulls in the run wait; the third arms", () => {
+  const one = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: true,
+    guardRecentlyPulled: false,
+    guardPulls: 1,
+    maxGuardPulls: 2,
+  });
+  const two = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: true,
+    guardRecentlyPulled: false,
+    guardPulls: 2,
+    maxGuardPulls: 2,
+  });
+  assert.equal(one.wait, true);
+  assert.equal(one.blocked, false);
+  assert.equal(two.wait, true);
+  assert.equal(two.blocked, false);
 });
 
 test("guard gate: funded book with clear guard history is not blocked (recheck re-arms)", () => {
@@ -282,6 +303,7 @@ test("guard gate: funded book with clear guard history is not blocked (recheck r
     maxGuardPulls: 2,
   });
   assert.equal(g.blocked, false);
+  assert.equal(g.wait, false);
 });
 
 test("pool switch: no pool beating the fee-vs-IL buffer -> arms", () => {

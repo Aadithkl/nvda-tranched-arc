@@ -76,15 +76,17 @@ export function guardSafeHarbor({
   maxGuardPulls,
 }) {
   if (currentMode !== "BOOKS" || !bookHasPosition) {
-    return { blocked: false, reason: "guard-state-not-applicable" };
-  }
-  if (guardRecentlyPulled) {
-    return { blocked: true, reason: "guard-pulled" };
+    return { blocked: false, wait: false, reason: "guard-state-not-applicable" };
   }
   if (Number(guardPulls) > Number(maxGuardPulls)) {
-    return { blocked: true, reason: `guard-pulls=${guardPulls}` };
+    return { blocked: true, wait: false, reason: `guard-pulls=${guardPulls}` };
   }
-  return { blocked: false, reason: "guard-history-clear" };
+  // A single/recent pull is transient: stay in the allocator, re-fund/stage the
+  // book, and let recheckGuard re-arm. Only exceeding the per-run max arms.
+  if (Number(guardPulls) > 0 || guardRecentlyPulled) {
+    return { blocked: false, wait: true, reason: "recent-guard-pull-wait" };
+  }
+  return { blocked: false, wait: false, reason: "guard-history-clear" };
 }
 
 /**

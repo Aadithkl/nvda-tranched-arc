@@ -1039,6 +1039,21 @@ async function tickAllocator(now) {
     return;
   }
 
+  if (guardGate.wait) {
+    log("allocator: recent guard pull; waiting/re-arming the book (not arming)");
+    if (
+      currentMode === "BOOKS" &&
+      (!current.bookGuardPresent || (current.bookPositionLiquidity ?? 0n) === 0n)
+    ) {
+      await returnToBooks({
+        armCollateral: balances.collateral,
+        armDebt: balances.debt,
+        usdgDeployed: balances.usdg,
+      });
+    }
+    return;
+  }
+
   const decision = decidePoolSwitch({
     candidates: scanned,
     currentPool: current.name,
