@@ -83,11 +83,12 @@ CMD ["node", "scripts/keeper/index.mjs"]
 npm run test:keeper
 ```
 
-63 tests cover the decision matrix: heartbeat due/fresh/paused, every sleeve trigger
+68 tests cover the decision matrix: heartbeat due/fresh/paused, every sleeve trigger
 (stock LTV, yield LTV, health, carry, venue pause), guard re-arm, the risk allocator
 (volatility/volume/guard/depeg), the <30% LTV cap, the USDG-first/NVDA-step plan,
 the fee-vs-IL pool switch, the actual-tick IL model, position-level fee share (guard pull
-drives book fees to zero), the risk-first book return (repay, withdraw, then quote), and the
+drives book fees to zero), the guard one-way-door regression (ARMS or an empty book is not
+blocked by an absent guard), the risk-first book return (repay, withdraw, then quote), and the
 book-stat math (volume, fees, fee APR, price fluctuation, active liquidity).
 
 ## Spiral NVDA arm (one Morpho arm, no bespoke sleeve)
@@ -145,12 +146,16 @@ block span, so the APR is not distorted by a block-time mismatch. For each book:
 - IL: the book's **actual base-position tick range** and the tick path from the swaps
 - **net APR = fee APR − |IL APR|**
 
-`assessBookRisk` marks risk HIGH if the guard is absent, the vault is depeg-paused, the guard
-was pulled inside `KEEPER_GUARD_COOLDOWN_SECONDS` when that optional cooldown is non-zero, more
-than `KEEPER_MAX_GUARD_PULLS` `GuardPulled` events fired **since the previous allocator run**
-(the count resets every hourly run; default 2), price fluctuation is at/above
-`KEEPER_RISK_MAX_VOLATILITY_BPS`, volume is below `KEEPER_RISK_MIN_VOLUME_USD`, or the optional
-`KEEPER_RISK_MIN_FEE_APR_BPS` floor is set and breached. HIGH moves to the arms.
+`assessBookRisk` scores **market** risk: price fluctuation at/above
+`KEEPER_RISK_MAX_VOLATILITY_BPS`, volume below `KEEPER_RISK_MIN_VOLUME_USD`, or the optional
+`KEEPER_RISK_MIN_FEE_APR_BPS` floor. Guard and depeg are separate portfolio-state gates.
+
+Guard absence alone is **not** a safe-harbor trigger. A recalled book is guard-less by design
+(and `recallToVault` keeps the base), so treating `!guardPresent` as a fresh risk event traps
+the allocator in ARMS forever. The guard keeper re-arms through `recheckGuard`; the allocator
+only reacts to guard **history** while a funded book is active: `pulledAt` inside the optional
+cooldown, or more than `KEEPER_MAX_GUARD_PULLS` `GuardPulled` events since the previous run.
+That count resets every allocator run (default 2).
 
 If risk is normal, `decidePoolSwitch` ranks A/B by **net APR after IL** and switches only when
 the best book clears `KEEPER_SWITCH_BUFFER_BPS` and beats the current book by the same buffer.

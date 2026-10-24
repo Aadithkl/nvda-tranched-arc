@@ -17,6 +17,7 @@ import {
   planBookReturn,
   borrowSize,
   decidePoolSwitch,
+  guardSafeHarbor,
 } from "./allocator.mjs";
 import {
   fetchBookStats,
@@ -408,15 +409,7 @@ function candidatePools() {
   return list;
 }
 
-async function scanCandidate(
-  c,
-  blockNumber,
-  fromBlock,
-  guardPresent,
-  depegPaused,
-  activePoolId,
-  capitalUsd,
-) {
+async function scanCandidate(c, blockNumber, fromBlock, activePoolId, capitalUsd) {
   if (c.kind !== "v4") throw new Error(`unsupported candidate kind ${c.kind}`);
   const pm = c.poolManager || POOL_MANAGER;
   if (!pm || !c.poolId) throw new Error("v4 candidate missing poolManager/poolId");
@@ -464,6 +457,7 @@ async function scanCandidate(
   let bookValueUsd;
   let bookRange;
   let bookPositionLiquidity = 0n;
+  let bookGuardPresent = false;
 
   if (isActive) {
     const [base, guard] = await Promise.all([
@@ -498,6 +492,7 @@ async function scanCandidate(
         : { tickLower: Number(guard[0]), tickUpper: Number(guard[1]) };
     bookValueUsd = value;
     bookShare = liquidity > 0n ? Number(bookLiquidity) / Number(liquidity) : 0;
+    bookGuardPresent = guard[2] > 0n;
 
     // An empty active book has no fee history of its own. Use the same hypothetical
     // deployment as the other book so a normal-risk allocator can choose/fund it.
@@ -551,13 +546,15 @@ async function scanCandidate(
   });
 
   const eligible = activeLiquidityUsd >= MIN_POOL_LIQUIDITY_USD;
+  // Guard/depeg are portfolio-state gates handled by tickAllocator before this
+  // market-risk score. Do not feed them in here, or a deliberately recalled book
+  // (guard absent by design) can never become eligible to return to the book.
   const risk = assessBookRisk({
     feeAprBps: market.feeAprBps,
     volumeUsd: market.volumeUsd,
     volatilityBps: market.volatilityBps,
-    // The inactive book's guard is not deployed yet; assume it will be on switch.
-    guardPresent: isActive ? guardPresent : true,
-    depegPaused: isActive ? depegPaused : false,
+    guardPresent: true,
+    depegPaused: false,
     thresholds: RISK_THRESHOLDS,
   });
 
@@ -566,6 +563,7 @@ async function scanCandidate(
     ...market,
     activeLiquidityUsd,
     bookPositionLiquidity,
+    bookGuardPresent,
     eligible,
     risk: eligible ? risk.risk : "HIGH",
     riskReasons: eligible ? risk.reasons : ["thin-active-liquidity"],
@@ -737,15 +735,22 @@ async function returnToBooks({ armCollateral, armDebt, usdgDeployed }) {
       publicClient.readContract({ address: bookHook, abi: hookAbi, functionName: "basePosition" }),
       publicClient.readContract({ address: bookHook, abi: hookAbi, functionName: "guardPosition" }),
     ]);
-    if (base[2] > 0n || guard[2] > 0n) {
-      log("allocator: book already funded");
+    // recallToVault keeps the base, so a base-only book is not "fully funded".
+    // Only a live guard means the book already has both legs.
+    if (guard[2] > 0n) {
+      log("allocator: book already funded (base + guard)");
       return;
     }
+    const baseOnly = base[2] > 0n && guard[2] === 0n;
     const [quoteIdle, equityIdle] = await Promise.all([
       publicClient.readContract({ address: HOOK, abi: hookAbi, functionName: "quoteIdle" }),
       publicClient.readContract({ address: HOOK, abi: hookAbi, functionName: "equityIdle" }),
     ]);
-    if (quoteIdle > 0n || equityIdle > 0n) {
+    if (baseOnly && (quoteIdle > 0n || equityIdle > 0n)) {
+      log("allocator: guard inventory staged; waiting for recheckGuard");
+      return;
+    }
+    if (!baseOnly && (quoteIdle > 0n || equityIdle > 0n)) {
       await send({
         address: AGENT,
         abi: agentAbi,
@@ -754,6 +759,8 @@ async function returnToBooks({ armCollateral, armDebt, usdgDeployed }) {
       });
       return;
     }
+    // For a base-only book, hook idle is the inventory the guard recheck will
+    // deploy. Do not recall it; fund the missing quote/equity from the vault.
     const [quoteBal, equityBal] = await Promise.all([
       publicClient.readContract({ address: USDG, abi: erc20Abi, functionName: "balanceOf", args: [VAULT] }),
       publicClient.readContract({ address: NVDA, abi: erc20Abi, functionName: "balanceOf", args: [VAULT] }),
@@ -883,10 +890,9 @@ async function tickAllocator(now) {
   }
 
   const bookHook = await activeBookHook();
-  const [activePoolId, blockNumber, guardPresent, depegPaused, nvdaPriceWad, nav] = await Promise.all([
+  const [activePoolId, blockNumber, depegPaused, nvdaPriceWad, nav] = await Promise.all([
     publicClient.readContract({ address: HOOK, abi: hookAbi, functionName: "activePoolId" }),
     publicClient.getBlockNumber(),
-    publicClient.readContract({ address: bookHook, abi: hookAbi, functionName: "guardPresent" }),
     publicClient.readContract({ address: VAULT, abi: vaultAbi, functionName: "depegPaused" }),
     publicClient.readContract({ address: bookHook, abi: hookAbi, functionName: "poolPrice1e18" }),
     publicClient.readContract({ address: VAULT, abi: vaultAbi, functionName: "totalManagedAssets" }),
@@ -916,6 +922,9 @@ async function tickAllocator(now) {
   const guardPulls = await guardPullCount(blockNumber, guardFromBlock);
   lastAllocatorBlock = blockNumber;
 
+  const balances = await armBalances();
+  const currentMode = balances.collateral > 0n || balances.usdg > 0n ? "ARMS" : "BOOKS";
+
   const activeCandidate = candidates.find(
     (c) =>
       c.kind === "v4" &&
@@ -934,8 +943,6 @@ async function tickAllocator(now) {
         activeCandidate,
         blockNumber,
         fromBlock,
-        guardPresent,
-        depegPaused,
         activePoolId,
         navUsd,
       );
@@ -953,15 +960,7 @@ async function tickAllocator(now) {
     if (c === activeCandidate) continue;
     try {
       scanned.push(
-        await scanCandidate(
-          c,
-          blockNumber,
-          fromBlock,
-          guardPresent,
-          depegPaused,
-          activePoolId,
-          capitalUsd,
-        ),
+        await scanCandidate(c, blockNumber, fromBlock, activePoolId, capitalUsd),
       );
     } catch (e) {
       log(`allocator scan ${c.name ?? c.poolId ?? c.address} failed:`, e.shortMessage ?? e.message);
@@ -992,8 +991,6 @@ async function tickAllocator(now) {
     return;
   }
 
-  const balances = await armBalances();
-  const currentMode = balances.collateral > 0n || balances.usdg > 0n ? "ARMS" : "BOOKS";
   const control = await readControllerState();
 
   if (depegPaused || control?.paused || control?.switchFrozen) {
@@ -1016,14 +1013,22 @@ async function tickAllocator(now) {
     return;
   }
 
-  if (!guardPresent || guardRecentlyPulled || guardPulls > MAX_GUARD_PULLS || current.risk === "HIGH") {
-    const why = !guardPresent
-      ? "guard"
-      : guardRecentlyPulled
-        ? "guard-pulled"
-        : guardPulls > MAX_GUARD_PULLS
-          ? `guard-pulls=${guardPulls}`
-          : current.riskReasons.join(",") || "book risk";
+  const bookHasPosition = (current.bookPositionLiquidity ?? 0n) > 0n;
+  // Guard absence alone is not a safe-harbor trigger: recalled books are
+  // intentionally guard-less (recallToVault keeps the base). Only guard history
+  // on a funded book is a gate; the guard keeper re-arms via recheckGuard.
+  const guardGate = guardSafeHarbor({
+    currentMode,
+    bookHasPosition,
+    guardRecentlyPulled,
+    guardPulls,
+    maxGuardPulls: MAX_GUARD_PULLS,
+  });
+
+  if (guardGate.blocked || current.risk === "HIGH") {
+    const why = guardGate.blocked
+      ? guardGate.reason
+      : current.riskReasons.join(",") || "book risk";
     log(`allocator: safe-harbor trigger (${why}) -> arms`);
     await deployToArms({
       armCollateral: balances.collateral,
@@ -1062,8 +1067,13 @@ async function tickAllocator(now) {
         armDebt: balances.debt,
         usdgDeployed: balances.usdg,
       });
-    } else if ((current.bookPositionLiquidity ?? 0n) === 0n) {
-      // The active book is empty but still the best venue: fund it from idle inventory.
+    } else if (
+      (current.bookPositionLiquidity ?? 0n) === 0n ||
+      !current.bookGuardPresent
+    ) {
+      // Empty, or base-only after recallToVault kept the base: fund the missing
+      // quote/equity so the hook can re-arm the guard. Do not skip this just
+      // because the base position exists.
       await returnToBooks({
         armCollateral: balances.collateral,
         armDebt: balances.debt,

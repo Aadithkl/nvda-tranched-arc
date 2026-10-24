@@ -62,6 +62,32 @@ export function assessBookRisk({
 }
 
 /**
+ * Guard-history safe-harbor gate.
+ *
+ * Guard absence alone is NOT a gate: a recalled book is guard-less by design.
+ * Only guard history on a funded, currently-book-mode position can force arms.
+ * This prevents the one-way door where `!guardPresent` traps the allocator in ARMS.
+ */
+export function guardSafeHarbor({
+  currentMode,
+  bookHasPosition,
+  guardRecentlyPulled,
+  guardPulls,
+  maxGuardPulls,
+}) {
+  if (currentMode !== "BOOKS" || !bookHasPosition) {
+    return { blocked: false, reason: "guard-state-not-applicable" };
+  }
+  if (guardRecentlyPulled) {
+    return { blocked: true, reason: "guard-pulled" };
+  }
+  if (Number(guardPulls) > Number(maxGuardPulls)) {
+    return { blocked: true, reason: `guard-pulls=${guardPulls}` };
+  }
+  return { blocked: false, reason: "guard-history-clear" };
+}
+
+/**
  * The only mode decision: high risk -> arms, otherwise books.
  * No fee-vs-arm APR comparison. `currentMode` is used only to avoid a no-op.
  */

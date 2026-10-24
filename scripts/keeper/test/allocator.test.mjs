@@ -8,6 +8,7 @@ import {
   planBookReturn,
   chooseBook,
   decidePoolSwitch,
+  guardSafeHarbor,
 } from "../allocator.mjs";
 
 test("risk: calm book -> NORMAL", () => {
@@ -226,6 +227,61 @@ test("book choice: higher fee APR wins; tie keeps active", () => {
   assert.equal(chooseBook({ bookAprA: 100, bookAprB: 200, activeBook: 0 }), 1);
   assert.equal(chooseBook({ bookAprA: 200, bookAprB: 100, activeBook: 1 }), 0);
   assert.equal(chooseBook({ bookAprA: 100, bookAprB: 100, activeBook: 1 }), 1);
+});
+
+test("guard gate: recalled book in ARMS is not blocked by an absent guard", () => {
+  const g = guardSafeHarbor({
+    currentMode: "ARMS",
+    bookHasPosition: true,
+    guardRecentlyPulled: false,
+    guardPulls: 3,
+    maxGuardPulls: 2,
+  });
+  assert.equal(g.blocked, false);
+});
+
+test("guard gate: empty book being funded is not blocked by an absent guard", () => {
+  const g = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: false,
+    guardRecentlyPulled: false,
+    guardPulls: 3,
+    maxGuardPulls: 2,
+  });
+  assert.equal(g.blocked, false);
+});
+
+test("guard gate: funded book with too many pulls -> arms", () => {
+  const g = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: true,
+    guardRecentlyPulled: false,
+    guardPulls: 3,
+    maxGuardPulls: 2,
+  });
+  assert.deepEqual(g, { blocked: true, reason: "guard-pulls=3" });
+});
+
+test("guard gate: funded book with recent pull -> arms", () => {
+  const g = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: true,
+    guardRecentlyPulled: true,
+    guardPulls: 0,
+    maxGuardPulls: 2,
+  });
+  assert.deepEqual(g, { blocked: true, reason: "guard-pulled" });
+});
+
+test("guard gate: funded book with clear guard history is not blocked (recheck re-arms)", () => {
+  const g = guardSafeHarbor({
+    currentMode: "BOOKS",
+    bookHasPosition: true,
+    guardRecentlyPulled: false,
+    guardPulls: 0,
+    maxGuardPulls: 2,
+  });
+  assert.equal(g.blocked, false);
 });
 
 test("pool switch: no pool beating the fee-vs-IL buffer -> arms", () => {
