@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "generatedAt": "2026-10-24T09:00:54.941Z",
+    "t0": 1788902164.5,
+    "t1": 1792790163.9,
+    "hours": 1080,
+    "riskMinutes": 36,
+    "guardThresholdBps": 200,
+    "bookA": {
+      "source": "research/data/swaps-45d/v3-usdg-nvda-005",
+      "feePips": 500,
+      "proxy": true,
+      "proxyReason": "No V4 USDG/NVDA 0.05% pool exists in the downloaded set; the V3 USDG/NVDA 0.05% tape is used as the fee-equivalent Book A proxy.",
+      "rows": 1264342,
+      "skipped": 0,
+      "firstTs": 1788902164.5,
+      "lastTs": 1792790163.9
+    },
+    "bookB": {
+      "source": "research/data/swaps-45d/v4-usdg-nvda-030",
+      "feePips": 3000,
+      "proxy": false,
+      "rows": 30650,
+      "skipped": 0,
+      "firstTs": 1788902571.6,
+      "lastTs": 1792789313.3
+    },
+    "notes": [
+      "volumeUsd is abs(amount0)/1e6 (USDG is token0); if amount0 is zero the amount1 leg is converted at the swap price.",
+      "volOverL / volOverL2 are sum(volume / L) and sum(volume / L^2) with L normalized by 1e18. The model uses them to compute the book's fee share L/(poolL+L) to second order.",
+      "poolLiquidityUsd is the virtual active-liquidity value 2L/sqrtP, used only for the thin-pool eligibility gate.",
+      "fiveMinMoves are the max intra-bin and cross-bin absolute price moves in bps; the model counts guard pulls at any threshold.",
+      "depegProxy is a pool-price-vs-30m-TWAP dislocation proxy, not a Chainlink depeg. The model keeps depeg exogenous by default."
+    ]
+  },
+  "results": [
+    {
+      "book": "bookA",
+      "policy": "always_a",
+      "fee_model": 245.64893697099683,
+      "fee_research": 245.18959268831065,
+      "fee_diff_pct": 0.18734248776623996,
+      "net_model": 148.447389164794,
+      "net_research": 147.02120887024648,
+      "net_diff_usd": 1.426180294547521,
+      "final_nav": 9831.457958775092,
+      "final_hodl": 9683.010569610298
+    },
+    {
+      "book": "bookB",
+      "policy": "always_b",
+      "fee_model": 278.2473428146898,
+      "fee_research": 276.26020450403627,
+      "fee_diff_pct": 0.7192995148255221,
+      "net_model": 181.04579500848558,
+      "net_research": 179.61795420510498,
+      "net_diff_usd": 1.4278408033806045,
+      "final_nav": 9864.056364618784,
+      "final_hodl": 9683.010569610298
+    }
+  ]
+}
