@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Would the 0.30 pool have made more money?</title>
+<style>
+    :root{--bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e4e7ec;
+      --green:#0f9d76;--red:#dc2626;--amber:#d97706;--blue:#2563eb}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    .wrap{max-width:1120px;margin:0 auto;padding:34px 22px 60px}
+    h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.025em}
+    h2{font-size:21px;margin:36px 0 10px;letter-spacing:-.015em}
+    .sub{color:var(--muted);margin:0 0 18px;max-width:900px}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}
+    .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+    .kpi-label{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:750}
+    .kpi-value{font-size:23px;font-weight:780;margin:4px 0 1px;letter-spacing:-.01em}
+    .kpi-sub{font-size:11.5px;color:var(--muted)}
+    .kpi.pos{border-top:3px solid var(--green)} .kpi.neg{border-top:3px solid var(--red)}
+    .callout{background:#ecfdf3;border:1px solid #abefc6;border-left:4px solid var(--green);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#054f31}
+    .warn{background:#fffaeb;border:1px solid #fedf89;border-left:4px solid var(--amber);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#93370d}
+    .tbl{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+      border-radius:12px;overflow:hidden;font-size:12px}
+    .tbl th{background:#f2f4f7;color:#344054;text-align:right;padding:8px 9px;font-weight:750;white-space:nowrap}
+    .tbl td{border-top:1px solid var(--line);padding:8px 9px;text-align:right;white-space:nowrap}
+    .tbl th:first-child,.tbl td:first-child{text-align:left}
+    .tbl tr:nth-child(even) td{background:#fbfcfe}
+    .table-wrap{overflow-x:auto;margin:10px 0}
+    .heat{padding:10px 9px!important;text-align:center!important;font-weight:650}
+    .heat span{display:block;font-size:10px;color:#475467;font-weight:500;margin-top:2px}
+    .pos{color:#0b7f5f;font-weight:700}.neg{color:#b42318;font-weight:700}
+    .cell-stack span{display:block;font-size:10px;color:#475467;font-weight:500;margin-top:2px}
+    .chart{width:100%;height:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;margin:10px 0}
+    .chart-title{fill:#17202a;font-size:12px;font-weight:750}
+    .axis{fill:#667085;font-size:10px}.grid{stroke:#e4e7ec;stroke-width:1}.zero{stroke:#98a2b3;stroke-width:1.2}
+    .note{color:var(--muted);font-size:12.5px;margin:6px 0 14px;max-width:1050px}
+    .footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:36px;padding-top:16px}
+    </style></head><body><div class="wrap">
+
+<h1>Would the 0.30 pool have made more money?</h1>
+<p class="sub">Same $100,000, same 45-day tape, same recommended strategy. One change at a time:
+allow the 0.30 pool, raise its share cap, or multiply its volume. Every case is compared with the
+risk-only run that never uses it.</p>
+
+<div class="callout"><b>Yes — but only in a higher-volume 0.30 pool with a larger share cap.</b> On the actual tape no case beat staying out; the best was a tie (the 5–10% caps never entered, and every cap that entered lost money). The best 45-day case is <b>10× 0.30-pool volume</b>, <b>25% share cap</b>, <b>4h/1h/500</b>: +$5,588 over 45 days, but -$38 over the last 20 days. The best case that also improves the last 20 days is <b>10× volume, 25% cap, 2h/2h/1000</b>: +$4,920 over 45 days and +$258 over the last 20 days.</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="kpi-label">Never use 0.30 — 45d</div><div class="kpi-value">+$3,714</div><div class="kpi-sub">+30.1% net APR</div></div>
+  <div class="kpi"><div class="kpi-label">Best case — 45d</div><div class="kpi-value">+$9,302</div><div class="kpi-sub">+$5,588 vs never 0.30 · 20d -$38</div></div>
+  <div class="kpi"><div class="kpi-label">Best 45d + 20d</div><div class="kpi-value">+$8,634</div><div class="kpi-sub">+$4,920 45d · +$258 20d vs never 0.30</div></div>
+  <div class="kpi"><div class="kpi-label">Cases tested</div><div class="kpi-value">160</div><div class="kpi-sub">4 beat staying out (45d)</div></div>
+</div>
+<p class="note">“Net” is net of fees, IL, gas, switching and borrow costs, versus holding the
+initial LP basket. “Delta” is the difference from the never-use-0.30 run. A positive delta means
+the 0.30 pool paid for the extra risk.</p>
+
+<h2>1. Best case at each 0.30-pool volume</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>Share cap</th><th>Rule</th><th>45d delta</th><th>45d in 0.30</th><th>20d delta</th>
+</tr></thead><tbody><tr><td><b>1×</b></td><td>no entry</td><td>—</td><td class="">+$0</td><td>0h</td><td class="">+$0</td></tr><tr><td><b>2×</b></td><td>no entry</td><td>—</td><td class="">+$0</td><td>0h</td><td class="">+$0</td></tr><tr><td><b>3×</b></td><td>no entry</td><td>—</td><td class="">+$0</td><td>0h</td><td class="">+$0</td></tr><tr><td><b>5×</b></td><td>no entry</td><td>—</td><td class="">+$0</td><td>0h</td><td class="">+$0</td></tr><tr><td><b>10×</b></td><td>25%</td><td>4h/1h/500</td><td class="pos">+$5,588</td><td>248h</td><td class="neg">-$38</td></tr></tbody></table></div>
+<svg viewBox="0 0 760 250" class="chart" role="img" aria-label="Best 0.30-pool gain by volume"><text x="58" y="16" class="chart-title">Best 45-day gain vs staying out — by 0.30-pool volume (best cap and rule)</text><line x1="58" y1="212.0" x2="742" y2="212.0" class="grid"/><text x="50" y="216.0" class="axis" text-anchor="end">+$0</text><line x1="58" y1="165.0" x2="742" y2="165.0" class="grid"/><text x="50" y="169.0" class="axis" text-anchor="end">+$1,397</text><line x1="58" y1="118.0" x2="742" y2="118.0" class="grid"/><text x="50" y="122.0" class="axis" text-anchor="end">+$2,794</text><line x1="58" y1="71.0" x2="742" y2="71.0" class="grid"/><text x="50" y="75.0" class="axis" text-anchor="end">+$4,191</text><line x1="58" y1="24.0" x2="742" y2="24.0" class="grid"/><text x="50" y="28.0" class="axis" text-anchor="end">+$5,588</text><rect x="88.1" y="212.0" width="76.6" height="1.0" rx="4" fill="#dc2626" opacity=".85"/><text x="126.4" y="207.0" class="axis" text-anchor="middle">+$0</text><text x="126.4" y="236" class="axis" text-anchor="middle">1×</text><rect x="224.9" y="212.0" width="76.6" height="1.0" rx="4" fill="#dc2626" opacity=".85"/><text x="263.2" y="207.0" class="axis" text-anchor="middle">+$0</text><text x="263.2" y="236" class="axis" text-anchor="middle">2×</text><rect x="361.7" y="212.0" width="76.6" height="1.0" rx="4" fill="#dc2626" opacity=".85"/><text x="400.0" y="207.0" class="axis" text-anchor="middle">+$0</text><text x="400.0" y="236" class="axis" text-anchor="middle">3×</text><rect x="498.5" y="212.0" width="76.6" height="1.0" rx="4" fill="#dc2626" opacity=".85"/><text x="536.8" y="207.0" class="axis" text-anchor="middle">+$0</text><text x="536.8" y="236" class="axis" text-anchor="middle">5×</text><rect x="635.3" y="24.0" width="76.6" height="188.0" rx="4" fill="#0f9d76" opacity=".85"/><text x="673.6" y="19.0" class="axis" text-anchor="middle">+$5,588</text><text x="673.6" y="236" class="axis" text-anchor="middle">10×</text><line x1="58" y1="212.0" x2="742" y2="212.0" class="zero"/></svg>
+<p class="note">A $0 cell means every cap that allowed an entry lost money, so the best result was
+not to enter. The curve turns positive only at 10× volume, and only when the cap is relaxed to 15%
+or more.</p>
+
+<h2>2. Delta vs never using 0.30 — 45 days</h2>
+<div class="table-wrap"><table class="tbl heat-tbl"><thead><tr><th>0.30 pool volume</th><th>5% cap</th><th>10% cap</th><th>15% cap</th><th>25% cap</th><th>50% cap</th></tr></thead><tbody><tr><th>1× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.02)">-$732<span>4h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.04)">-$1,160<span>12h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.04)">-$1,160<span>12h in 0.30</span></td></tr><tr><th>2× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.02)">-$457<span>10h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.10)">-$2,860<span>66h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.10)">-$2,860<span>66h in 0.30</span></td></tr><tr><th>3× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.01)">-$393<span>10h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.10)">-$2,977<span>94h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.10)">-$2,977<span>94h in 0.30</span></td></tr><tr><th>5× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.01)">-$241<span>16h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.03)">-$1,022<span>146h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.03)">-$1,022<span>146h in 0.30</span></td></tr><tr><th>10× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.04)">+$1,186<span>38h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.16)">+$4,920<span>238h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.16)">+$4,920<span>238h in 0.30</span></td></tr></tbody></table></div>
+<p class="note">Each cell is the gain or loss versus the risk-only run; the second line is the
+hours spent in the 0.30 pool. Rule fixed at 2h window / 2h check / 1,000 bps entry buffer.</p>
+
+<h2>3. Delta — last 20 days</h2>
+<div class="table-wrap"><table class="tbl heat-tbl"><thead><tr><th>0.30 pool volume</th><th>5% cap</th><th>10% cap</th><th>15% cap</th><th>25% cap</th><th>50% cap</th></tr></thead><tbody><tr><th>1× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td></tr><tr><th>2× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$226<span>2h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$226<span>2h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$226<span>2h in 0.30</span></td></tr><tr><th>3× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$234<span>2h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$234<span>2h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$234<span>2h in 0.30</span></td></tr><tr><th>5× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.00)">+$104<span>4h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$170<span>12h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$170<span>12h in 0.30</span></td></tr><tr><th>10× volume</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(220,38,38,0.00)">+$0<span>0h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$169<span>4h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$258<span>18h in 0.30</span></td><td class="heat" style="background:rgba(15,157,118,0.01)">+$258<span>18h in 0.30</span></td></tr></tbody></table></div>
+<p class="note">The 20-day window is much weaker: the 10× gain shrinks to +$258 with the 2h rule
+and turns into −$38 with the 4h rule. The 15% entries at 2–5× recover only $104–$234, and the
+45-day losers stay negative. The opportunity is front-loaded, not steady.</p>
+
+<h2>4. Every case that beat staying out</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>Share cap</th><th>Rule</th><th>45d delta</th><th>45d exposure</th><th>20d delta</th><th>20d in 0.30</th>
+</tr></thead><tbody><tr><td>10×</td><td>25%</td><td>4h/1h/500</td><td class="pos">+$5,588</td><td>248h / 49 entries</td><td class="neg">-$38</td><td>22h</td></tr><tr><td>10×</td><td>25%</td><td>2h/2h/1000</td><td class="pos">+$4,920</td><td>238h / 48 entries</td><td class="pos">+$258</td><td>18h</td></tr><tr><td>10×</td><td>15%</td><td>2h/2h/1000</td><td class="pos">+$1,186</td><td>38h / 8 entries</td><td class="pos">+$169</td><td>4h</td></tr><tr><td>10×</td><td>15%</td><td>4h/1h/500</td><td class="pos">+$1,186</td><td>38h / 8 entries</td><td class="pos">+$169</td><td>4h</td></tr></tbody></table></div>
+
+<h2>5. Does a smaller position get in under the 5% cap?</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>Capital</th><th>Never 0.30 (45d)</th><th>5% cap</th><th>15% cap</th><th>25% cap</th>
+</tr></thead><tbody><tr><th>$10k</th><td>+$502</td><td class="pos cell-stack">+$710<span>246h in 0.30</span></td><td class="pos cell-stack">+$710<span>246h in 0.30</span></td><td class="pos cell-stack">+$710<span>246h in 0.30</span></td></tr><tr><th>$50k</th><td>+$2,145</td><td class=" cell-stack">+$0<span>0h in 0.30</span></td><td class="pos cell-stack">+$3,037<span>240h in 0.30</span></td><td class="pos cell-stack">+$3,037<span>240h in 0.30</span></td></tr><tr><th>$250k</th><td>+$9,184</td><td class=" cell-stack">+$0<span>0h in 0.30</span></td><td class=" cell-stack">+$0<span>0h in 0.30</span></td><td class="neg cell-stack">-$5,392<span>4h in 0.30</span></td></tr></tbody></table></div>
+<p class="note">At 10× volume, 2h rule, 45 days. A $10k position is a small enough share of the
+0.30 pool to pass the 5% cap and adds about <b>+$710</b>; at $50k the 5% cap still blocks it and
+15% adds about <b>+$3,037</b>; at $250k even 15% blocks it, and the 25% cap enters briefly and
+loses about <b>$5,392</b>. Arm caps scale with capital; Morpho borrow liquidity is held at
+$15k and $10k per call, matching the repo's large-NAV convention.</p>
+<p class="note">Lowering the 3h volume floor from $50k to $25k did not create a winner: the 5%
+caps still never enter, and the 15–25% entries that do happen lose $418–$3,424.</p>
+
+<h2>6. What would have to be true</h2>
+<div class="warn"><b>The 10× case is not a forecast.</b> It holds the 0.30 pool's liquidity fixed
+while multiplying its volume 10×, which lifts its fee APR to roughly 190%. In reality that volume
+would attract more liquidity and dilute the fee APR. The honest reading is: the 0.30 pool needs
+roughly an order of magnitude more volume at today's depth, and a share cap around 15–25%, before
+it pays for the concentration risk. At the actual tape, it does not.</div>
+
+<div class="footer">45-day real tape ending 2026-10-24 · $100,000 · in-sample · 76 tests.
+0.05 pool = deep, low fee tier; 0.30 pool = thin, 6× fee tier. Risk-only baseline = recommended
+strategy with the 0.30 pool disabled. Research display, not investment advice.</div>
+</div></body></html>

@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pool returns, IL, and capital protection - NVDA allocator study</title>
+<style>
+:root {
+  --bg: #f3f6f9;
+  --card: #ffffff;
+  --navy: #102a43;
+  --ink: #243b53;
+  --muted: #486581;
+  --border: #d9e2ec;
+  --teal: #0f766e;
+  --blue: #2563eb;
+  --amber: #b45309;
+  --red: #b42318;
+  --shadow: 0 1px 2px rgba(16, 42, 67, .05), 0 14px 34px rgba(16, 42, 67, .07);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code {
+  font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+  font-size: .9em;
+  background: #eef4f8;
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: #1f3a56;
+}
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(255, 255, 255, .92);
+  border-bottom: 1px solid rgba(217, 226, 236, .9);
+  backdrop-filter: blur(12px);
+}
+.nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 9px 22px;
+  display: flex;
+  gap: 6px 16px;
+  align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+.nav-brand {
+  font-weight: 800;
+  color: var(--navy);
+  letter-spacing: .02em;
+  margin-right: 6px;
+  font-size: 13px;
+}
+.nav-inner a {
+  color: #486581;
+  font-size: 12.5px;
+  font-weight: 650;
+  padding: 5px 2px;
+  border-bottom: 2px solid transparent;
+}
+.nav-inner a:hover { color: var(--teal); border-bottom-color: #99f6e4; text-decoration: none; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 22px 56px; }
+section { margin-top: 34px; scroll-margin-top: 74px; }
+.section-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+.sec-num {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #e6fffb;
+  color: #0f766e;
+  border: 1px solid #b2f5ea;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: .04em;
+  margin-top: 2px;
+}
+h1, h2, h3, h4 { color: var(--navy); line-height: 1.2; margin: 0; }
+h1 { font-size: clamp(30px, 4.2vw, 52px); letter-spacing: -.035em; font-weight: 850; }
+h2 { font-size: clamp(24px, 2.8vw, 34px); letter-spacing: -.025em; font-weight: 820; }
+h3 { font-size: 17px; font-weight: 780; letter-spacing: -.01em; }
+h4 { font-size: 14px; font-weight: 750; }
+.lede { margin: 6px 0 0; color: #52667a; max-width: 880px; font-size: 15px; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+.hero {
+  background:
+    radial-gradient(900px 340px at 88% -10%, rgba(94, 234, 212, .18), transparent 60%),
+    linear-gradient(135deg, #ffffff 0%, #fbfdff 55%, #f2fbf8 100%);
+  border: 1px solid #cfe3dd;
+  border-radius: 22px;
+  box-shadow: 0 2px 3px rgba(16, 42, 67, .04), 0 26px 54px rgba(16, 42, 67, .09);
+  padding: 30px 30px 26px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 7px;
+  background: linear-gradient(180deg, #0f766e, #2563eb 55%, #b45309);
+}
+.hero-top { display: flex; gap: 26px; justify-content: space-between; align-items: flex-start; }
+.eyebrow {
+  color: #0f766e;
+  font-size: 11.5px;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.subtitle { margin: 10px 0 14px; color: #486581; font-size: clamp(14px, 1.5vw, 17px); max-width: 880px; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f7f6;
+  border: 1px solid #c8e6e1;
+  color: #17635c;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.chip.blue { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+.chip.amber { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.chip.slate { background: #f8fafc; border-color: #e2e8f0; color: #475569; }
+.tape-stamp {
+  flex: 0 0 190px;
+  background: #0f2f46;
+  color: #e6fffb;
+  border-radius: 15px;
+  padding: 14px 15px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
+}
+.stamp-label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: #99f6e4; font-weight: 800; }
+.stamp-value { font-size: 25px; font-weight: 850; line-height: 1.15; margin-top: 3px; }
+.stamp-sub { font-size: 12px; color: #cbfbf1; font-weight: 650; }
+.stamp-note { font-size: 10.5px; color: #a7c8d8; margin-top: 9px; line-height: 1.35; }
+.tape-note {
+  margin: 16px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #fff8e6;
+  border: 1px solid #f5d48a;
+  color: #7c4a03;
+  font-size: 12px;
+  font-weight: 600;
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 11px;
+  margin-top: 18px;
+}
+.kpi {
+  background: rgba(255, 255, 255, .88);
+  border: 1px solid #e0e9f0;
+  border-radius: 14px;
+  padding: 13px 14px 12px;
+  min-width: 0;
+}
+.kpi-label { color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.kpi-value {
+  color: var(--navy);
+  font-size: clamp(19px, 2.1vw, 27px);
+  font-weight: 860;
+  letter-spacing: -.035em;
+  line-height: 1.15;
+  margin-top: 3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-value.pos { color: #0f766e; }
+.kpi-value.neg { color: #b42318; }
+.kpi-sub { color: #486581; font-size: 11px; margin-top: 3px; line-height: 1.35; }
+.secondary { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 14px; }
+.mini-run {
+  border: 1px solid #e0e9f0;
+  background: #fbfdff;
+  border-radius: 14px;
+  padding: 13px 15px;
+}
+.mini-run h4 { font-size: 13px; margin-bottom: 8px; }
+.mini-run .mini-label { color: #486581; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 800; }
+.mini-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.mini-value { color: var(--navy); font-size: 16px; font-weight: 820; font-variant-numeric: tabular-nums; }
+.mini-value.pos { color: #0f766e; }
+.mini-value.neg { color: #b42318; }
+.what-this-shows {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border-left: 4px solid #0f766e;
+  background: #f0fdfa;
+  border-radius: 0 12px 12px 0;
+  color: #134e4a;
+  font-size: 14px;
+  font-weight: 650;
+}
+.what-this-shows b { color: #0f2f46; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }
+.section-stack { display: grid; gap: 16px; margin-top: 16px; }
+.chart-card { padding: 18px 18px 14px; }
+.chart-head { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; margin-bottom: 6px; }
+.chart-head p { margin: 0; color: #486581; font-size: 12px; text-align: right; }
+.chart-note { margin: 4px 0 0; color: #486581; font-size: 11.5px; }
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.svg-grid { stroke: #e7eef4; stroke-width: 1; }
+.svg-axis { stroke: #bcccdc; stroke-width: 1; }
+.svg-zero { stroke: #9fb3c8; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.svg-tick { fill: #486581; font-size: 10.8px; font-weight: 600; }
+.svg-axis-label { fill: #486581; font-size: 11px; font-weight: 700; }
+.svg-legend { fill: #334e68; font-size: 11px; font-weight: 650; }
+.svg-value { fill: #243b53; font-size: 10px; font-weight: 700; }
+.svg-cat { fill: #486581; font-size: 10.5px; font-weight: 650; }
+.na {
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 18px;
+  font-size: 13px;
+  text-align: center;
+}
+.callout {
+  border-left: 4px solid #b45309;
+  background: #fffbeb;
+  color: #6b3d00;
+  padding: 14px 16px;
+  border-radius: 0 12px 12px 0;
+  font-size: 13.5px;
+  margin-top: 16px;
+}
+.callout.good { border-left-color: #0f766e; background: #f0fdfa; color: #134e4a; }
+.callout.warn { border-left-color: #b42318; background: #fff5f4; color: #7a271a; }
+.callout b { color: inherit; }
+.callout ul { margin: 7px 0 0; padding-left: 18px; }
+.callout li { margin: 4px 0; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.data-table th {
+  text-align: left;
+  color: #52667a;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+  border-bottom: 1px solid #cbd5e1;
+  padding: 8px 9px;
+  white-space: nowrap;
+  background: #f8fafc;
+}
+.data-table td { border-bottom: 1px solid #e7eef4; padding: 8px 9px; vertical-align: top; }
+.data-table tr:last-child td { border-bottom: 0; }
+.data-table td.num, .data-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.data-table .pos { color: #0f766e; font-weight: 700; }
+.data-table .neg { color: #b42318; font-weight: 700; }
+.table-wrap { overflow-x: auto; border: 1px solid #e7eef4; border-radius: 12px; }
+.table-wrap .data-table { min-width: 640px; }
+.psub-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 7px; margin-top: 12px; }
+.psub {
+  flex: 1 1 118px;
+  min-width: 112px;
+  background: #fbfdff;
+  border: 1px solid #dbe7ef;
+  border-radius: 12px;
+  padding: 10px 10px 9px;
+  position: relative;
+}
+.psub-step {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  background: #e6fffb;
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 850;
+  margin-bottom: 5px;
+}
+.psub b { display: block; font-size: 12.5px; color: #102a43; line-height: 1.2; }
+.psub small { display: block; color: #52606d; font-size: 10.5px; margin-top: 2px; }
+.psub-arrow { align-self: center; color: #9fb3c8; font-size: 17px; font-weight: 800; flex: 0 0 auto; }
+.diagram-card { padding: 14px 14px 10px; }
+.diagram { width: 100%; height: auto; display: block; }
+.diagram text { font-family: inherit; }
+.diagram-box { fill: #ffffff; stroke: #d9e2ec; stroke-width: 1.15; }
+.diagram-lane { fill: #486581; font-size: 10px; font-weight: 850; letter-spacing: .12em; }
+.diagram-title { fill: #102a43; font-size: 13.5px; font-weight: 800; }
+.diagram-label { fill: #486581; font-size: 11px; font-weight: 500; }
+.diagram-small { fill: #486581; font-size: 10px; font-weight: 500; }
+.diagram-arrow { fill: none; stroke: #52606d; stroke-width: 1.55; }
+.diagram-control { fill: none; stroke: #0f766e; stroke-width: 1.55; stroke-dasharray: 5 4; }
+.diagram-caption { fill: #52606d; font-size: 9.5px; font-weight: 600; }
+.legend-note { display: flex; flex-wrap: wrap; gap: 14px; color: #486581; font-size: 11px; margin-top: 4px; }
+.legend-note span { display: inline-flex; gap: 5px; align-items: center; }
+.swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.swatch.line { height: 3px; border-radius: 2px; width: 18px; }
+.out-of-scope { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 14px; }
+.out-of-scope .label { color: #486581; font-size: 10.5px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; margin-right: 2px; }
+.stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+.stat {
+  border: 1px solid #e7eef4;
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: #fbfdff;
+}
+.stat .stat-label { color: #486581; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-weight: 800; }
+.stat .stat-value { color: #102a43; font-size: 19px; font-weight: 830; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stat .stat-sub { color: #52606d; font-size: 10.5px; }
+ul.clean { margin: 8px 0 0; padding-left: 19px; }
+ul.clean li { margin: 6px 0; }
+ul.clean li::marker { color: #0f766e; }
+.decision-box {
+  border: 1px solid #b2f5ea;
+  background: linear-gradient(180deg, #f0fdfa, #ffffff);
+  border-radius: 16px;
+  padding: 20px;
+}
+.decision-box h3 { margin-bottom: 6px; }
+.future-note {
+  border: 1px solid #f5c26b;
+  background: #fff9ec;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-top: 16px;
+  color: #6b3d00;
+}
+.future-note .fn-title { font-weight: 850; color: #7c2d12; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.future-note p { margin: 6px 0 0; font-size: 13.5px; }
+.caveat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin-top: 14px; }
+.caveat {
+  border: 1px solid #e7eef4;
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: #fbfdff;
+}
+.caveat b { display: block; color: #243b53; font-size: 12px; margin-bottom: 2px; }
+.caveat span { color: #486581; font-size: 11.5px; line-height: 1.45; display: block; }
+.footer { color: #52606d; font-size: 11px; margin-top: 34px; padding-top: 14px; border-top: 1px solid #d9e2ec; }
+.footer code { background: #eef4f8; }
+@media (max-width: 760px) {
+  .hero { padding: 22px 18px; }
+  .hero-top { display: block; }
+  .tape-stamp { margin-top: 16px; max-width: 260px; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .mini-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chart-head { display: block; }
+  .chart-head p { text-align: left; margin-top: 3px; }
+  .wrap { padding: 18px 14px 40px; }
+  .nav-inner { padding: 8px 14px; }
+}
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body { background: #ffffff; font-size: 10.5pt; }
+  .topnav { display: none; }
+  .wrap { max-width: none; padding: 0; }
+  .card, .kpi, .mini-run, .chart-card, .stat, .caveat, .decision-box, .future-note {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none;
+  }
+  section { break-inside: auto; page-break-inside: auto; }
+  .hero { box-shadow: none; }
+  a { color: inherit; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+.questions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.question {
+  display: block;
+  border: 1px solid #e0e9f0;
+  background: rgba(255, 255, 255, .78);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #243b53;
+}
+.question:hover { text-decoration: none; border-color: #99f6e4; background: #ffffff; }
+.question .q {
+  display: block;
+  color: #0f766e;
+  font-size: 10.5px;
+  font-weight: 850;
+  letter-spacing: .075em;
+  text-transform: uppercase;
+}
+.question .a { display: block; font-size: 13px; font-weight: 700; margin-top: 2px; }
+.mode-strip {
+  display: flex;
+  height: 38px;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  margin-top: 12px;
+}
+.mode-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  overflow: hidden;
+  white-space: nowrap;
+  min-width: 2px;
+}
+.mode-seg.books { background: #0f766e; }
+.mode-seg.arms { background: #b45309; }
+.mode-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  color: #486581;
+  font-size: 11.5px;
+  margin-top: 9px;
+}
+.mode-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.study-table .data-table { font-size: 12px; }
+.study-table .data-table th, .study-table .data-table td { padding: 6px 8px; }
+.row-best td { background: #f0fdfa; }
+.lead-in { margin: 0 0 12px; color: #486581; font-size: 13.5px; }
+.nav-inner a.nav-brand { color: var(--navy); text-decoration: none; }
+</style>
+</head>
+<body>
+<nav class="topnav" aria-label="Section navigation">
+  <div class="nav-inner">
+    <a class="nav-brand" href="#study">Pool returns - IL - protection</a>
+    <a href="#pools">Pools</a><a href="#morpho">Morpho &amp; arms</a><a href="#cases">Cases</a><a href="#variation">Variations</a><a href="#il">IL</a><a href="#protection">Protection</a><a href="#takeaways">Takeaways</a>
+  </div>
+</nav>
+<main class="wrap">
+<section id="study">
+  <div class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="eyebrow">NVDA tranched allocator - focused study</div>
+        <h1>Pool returns, IL, and capital protection</h1>
+        <p class="subtitle">Four questions, six pools, four arm cases and one tape.
+        Fees are not return, the arm is not the engine, and protection is conditional.</p>
+        <div class="chips"><span class="chip">36-minute risk window</span><span class="chip blue">$10k NAV</span><span class="chip amber">5-minute pull proxy</span><span class="chip slate">in-sample</span></div>
+      </div>
+      <div class="tape-stamp">
+        <div class="stamp-label">Risk window</div>
+        <div class="stamp-value">36-minute</div>
+        <div class="stamp-sub">$15k floor - 200 bps</div>
+        <div class="stamp-note">5-minute pull proxy. The 45d and 20d windows are cuts of
+        one tape, not 45 minutes. Guard 75 is a fee share, not a width.</div>
+      </div>
+    </div>
+    <div class="questions"><a class="question" href="#pools"><span class="q">1 - Which pool pays?</span><span class="a">Fee APR minus IL, not fee APR.</span></a><a class="question" href="#morpho"><span class="q">2 - What does Morpho add?</span><span class="a">A small, conditional carry.</span></a><a class="question" href="#il"><span class="q">3 - What does IL cost?</span><span class="a">-$901 on $10k at a 20% move.</span></a><a class="question" href="#protection"><span class="q">4 - When do we leave?</span><span class="a">Guard first, recall second.</span></a></div>
+    <div class="kpi-grid"><div class="kpi"><div class="kpi-label">Case that wins - A 2h/15k/75</div><div class="kpi-value pos">+$431.36</div><div class="kpi-sub">45d net vs HODL - 20d +$46.95 - max DD -4.39%</div></div><div class="kpi"><div class="kpi-label">Which pool pays? - USDG V4 0.30%</div><div class="kpi-value pos">14.6%</div><div class="kpi-sub">best USDG net APR - fee 22.4% plus IL of -7.8% = 14.6%</div></div><div class="kpi"><div class="kpi-label">What does Morpho add?</div><div class="kpi-value">1.0%-3.8%</div><div class="kpi-sub">USDG lend: live case to observed venue top - NVDA borrow 1.35%-107.29%</div></div><div class="kpi"><div class="kpi-label">When do we leave? - Risk-only A</div><div class="kpi-value neg">-5.19%</div><div class="kpi-sub">45d max DD vs HODL -6.66% - 20d -7.65% vs -6.53%</div></div></div>
+    <p class="tape-note">Focus run: <b>Risk-only A - 2h keeper - $15k floor - 75% guard</b>.
+    The 20-day cut is the honesty check: +$431.36 over 45 days,
+    +$46.95 over 20.</p>
+    <div class="what-this-shows"><b>The book is the business; the arm is a safe harbor.</b>
+    Pool fees supply the carry. The Morpho arm keeps capital productive when the book is not
+    worth the IL. Neither is free: IL is always a drag on the entry basket, and the guard is
+    a proxy.</div>
+  </div>
+</section><section id="pools"><div class="section-head"><div class="sec-num">02</div><div><h2>Pool return study</h2><p class="lede">Six pools, one decomposition: fee APR, IL APR, net APR, then the HODL leg. Fees are gross of the inventory loss that earns them.</p></div></div><div class="section-stack"><div class="card chart-card"><div class="chart-head"><h3>Fee, IL and net APR by pool</h3><p>Percentage points of APR - 45-day book tapes</p></div><svg class="chart" viewBox="0 0 860 330" role="img" aria-label="Pool fee, IL and net APR" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">Fee APR</text>
+<rect x="142.8" y="9.0" width="11" height="11" rx="2.5" fill="#b42318"/>
+<text class="svg-legend" x="158.8" y="18.0">IL APR</text>
+<rect x="217.2" y="9.0" width="11" height="11" rx="2.5" fill="#2563eb"/>
+<text class="svg-legend" x="233.2" y="18.0">Net APR</text>
+<line class="svg-grid" x1="64" x2="842" y1="266.0" y2="266.0"/>
+<text class="svg-tick" x="55" y="269.6" text-anchor="end">-10.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="229.3" y2="229.3"/>
+<text class="svg-tick" x="55" y="232.9" text-anchor="end">0.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="192.7" y2="192.7"/>
+<text class="svg-tick" x="55" y="196.3" text-anchor="end">10.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="156.0" y2="156.0"/>
+<text class="svg-tick" x="55" y="159.6" text-anchor="end">20.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="119.3" y2="119.3"/>
+<text class="svg-tick" x="55" y="122.9" text-anchor="end">30.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="82.7" y2="82.7"/>
+<text class="svg-tick" x="55" y="86.3" text-anchor="end">40.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">50.0%</text>
+<line class="svg-zero" x1="64" x2="842" y1="229.3" y2="229.3"/>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="266"/>
+<rect x="80.9" y="156.4" width="30.0" height="72.9" rx="3" fill="#0f766e"><title>Fee APR · USDG V3 5bp: 19.9%</title></rect>
+<rect x="113.8" y="229.3" width="30.0" height="29.2" rx="3" fill="#b42318"><title>IL APR · USDG V3 5bp: -8.0%</title></rect>
+<rect x="146.8" y="185.6" width="30.0" height="43.7" rx="3" fill="#2563eb"><title>Net APR · USDG V3 5bp: 11.9%</title></rect>
+<text class="svg-cat" x="128.8" y="285.0" text-anchor="middle">USDG V3 5bp</text>
+<rect x="210.5" y="147.1" width="30.0" height="82.2" rx="3" fill="#0f766e"><title>Fee APR · USDG V4 30bp: 22.4%</title></rect>
+<rect x="243.5" y="229.3" width="30.0" height="28.8" rx="3" fill="#b42318"><title>IL APR · USDG V4 30bp: -7.8%</title></rect>
+<rect x="276.5" y="175.9" width="30.0" height="53.4" rx="3" fill="#2563eb"><title>Net APR · USDG V4 30bp: 14.6%</title></rect>
+<text class="svg-cat" x="258.5" y="285.0" text-anchor="middle">USDG V4 30bp</text>
+<rect x="340.2" y="187.0" width="30.0" height="42.3" rx="3" fill="#0f766e"><title>Fee APR · USDG V4 1bp: 11.5%</title></rect>
+<rect x="373.2" y="229.3" width="30.0" height="8.1" rx="3" fill="#b42318"><title>IL APR · USDG V4 1bp: -2.2%</title></rect>
+<rect x="406.2" y="195.1" width="30.0" height="34.2" rx="3" fill="#2563eb"><title>Net APR · USDG V4 1bp: 9.3%</title></rect>
+<text class="svg-cat" x="388.2" y="285.0" text-anchor="middle">USDG V4 1bp</text>
+<rect x="469.9" y="81.0" width="30.0" height="148.3" rx="3" fill="#0f766e"><title>Fee APR · ETH V3 5bp: 40.4%</title></rect>
+<rect x="502.8" y="229.3" width="30.0" height="6.6" rx="3" fill="#b42318"><title>IL APR · ETH V3 5bp: -1.8%</title></rect>
+<rect x="535.8" y="87.6" width="30.0" height="141.8" rx="3" fill="#2563eb"><title>Net APR · ETH V3 5bp: 38.7%</title></rect>
+<text class="svg-cat" x="517.8" y="285.0" text-anchor="middle">ETH V3 5bp</text>
+<rect x="599.5" y="84.5" width="30.0" height="144.9" rx="3" fill="#0f766e"><title>Fee APR · ETH V3 30bp: 39.5%</title></rect>
+<rect x="632.5" y="229.3" width="30.0" height="6.1" rx="3" fill="#b42318"><title>IL APR · ETH V3 30bp: -1.7%</title></rect>
+<rect x="665.5" y="90.6" width="30.0" height="138.8" rx="3" fill="#2563eb"><title>Net APR · ETH V3 30bp: 37.8%</title></rect>
+<text class="svg-cat" x="647.5" y="285.0" text-anchor="middle">ETH V3 30bp</text>
+<rect x="729.2" y="118.3" width="30.0" height="111.1" rx="3" fill="#0f766e"><title>Fee APR · ETH V4 5bp: 30.3%</title></rect>
+<rect x="762.2" y="229.3" width="30.0" height="6.7" rx="3" fill="#b42318"><title>IL APR · ETH V4 5bp: -1.8%</title></rect>
+<rect x="795.2" y="125.0" width="30.0" height="104.3" rx="3" fill="#2563eb"><title>Net APR · ETH V4 5bp: 28.5%</title></rect>
+<text class="svg-cat" x="777.2" y="285.0" text-anchor="middle">ETH V4 5bp</text>
+</svg><p class="chart-note">IL is negative in every pool. Net is fee + IL; the tallest fee bar is not the tallest net bar once IL is removed.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>Pool</th><th>Quote</th><th class="num">Fee APR</th><th class="num">IL APR</th><th class="num">Net APR</th><th class="num">HODL APR</th><th class="num">Total APR</th><th class="num">Guard in range</th><th class="num">Swaps</th></tr></thead><tbody><tr><td>USDG/NVDA V3 0.05%</td><td>USDG</td><td class="num">19.89%</td><td class="num">-7.96%</td><td class="num">11.93%</td><td class="num">-25.85%</td><td class="num">-13.92%</td><td class="num">91.4%</td><td class="num">1,264,342</td></tr><tr class="row-best"><td>USDG/NVDA V4 0.30%</td><td>USDG</td><td class="num">22.42%</td><td class="num">-7.84%</td><td class="num">14.57%</td><td class="num">-25.66%</td><td class="num">-11.09%</td><td class="num">92.0%</td><td class="num">30,650</td></tr><tr><td>USDG/NVDA V4 0.01%</td><td>USDG</td><td class="num">11.55%</td><td class="num">-2.21%</td><td class="num">9.34%</td><td class="num">-14.20%</td><td class="num">-4.86%</td><td class="num">70.1%</td><td class="num">314,154</td></tr><tr><td>ETH/NVDA V3 0.05%</td><td>WETH</td><td class="num">40.45%</td><td class="num">-1.79%</td><td class="num">38.66%</td><td class="num">-12.32%</td><td class="num">26.34%</td><td class="num">68.5%</td><td class="num">558,129</td></tr><tr><td>ETH/NVDA V3 0.30%</td><td>WETH</td><td class="num">39.51%</td><td class="num">-1.66%</td><td class="num">37.85%</td><td class="num">-11.86%</td><td class="num">25.99%</td><td class="num">74.9%</td><td class="num">82,685</td></tr><tr><td>ETH/NVDA V4 0.05%</td><td>WETH</td><td class="num">30.29%</td><td class="num">-1.84%</td><td class="num">28.45%</td><td class="num">-12.49%</td><td class="num">15.96%</td><td class="num">66.0%</td><td class="num">158,065</td></tr></tbody></table></div><p class="chart-note">Net = fee + IL versus HODL. Total = net + the HODL leg, so it is the return in the quote asset. ETH totals are in WETH; USDG totals are in USDG. Windows differ slightly (41.8-45.0 days) because each tape ends at its own timestamp.</p></div><div class="callout warn"><b>Read the columns in order.</b> USDG V4 0.30% earns 22.4% of fees and gives back 7.8% to IL, for 14.6% net versus HODL. That net is not the return: the HODL leg is -25.7%, so total APR is -11.1%. The lowest-fee USDG pool (USDG/NVDA V4 0.01%) has the best total APR (-4.9%), which shows that fee APR does not order the outcomes. The ETH book is a different quote: its best net APR is 38.7% and its total is 26.3% in WETH, not USD. The best USDG net pool is USDG/NVDA V4 0.30% at 14.6% net, -11.1% total.</div></div></section><section id="morpho"><div class="section-head"><div class="sec-num">03</div><div><h2>Morpho and the arm</h2><p class="lede">What the USDG lend and NVDA borrow sleeve adds after the borrow cost - and why the headline rate is not the carry.</p></div></div><div class="section-stack"><div class="card chart-card"><div class="chart-head"><h3>Arm cases - net versus HODL</h3><p>45d and 20d cuts of one tape</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Arm case net versus HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">45d net</text>
+<rect x="142.8" y="9.0" width="11" height="11" rx="2.5" fill="#2563eb"/>
+<text class="svg-legend" x="158.8" y="18.0">20d net</text>
+<line class="svg-grid" x1="64" x2="842" y1="236.0" y2="236.0"/>
+<text class="svg-tick" x="55" y="239.6" text-anchor="end">-$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="198.0" y2="198.0"/>
+<text class="svg-tick" x="55" y="201.6" text-anchor="end">-$100</text>
+<line class="svg-grid" x1="64" x2="842" y1="160.0" y2="160.0"/>
+<text class="svg-tick" x="55" y="163.6" text-anchor="end">$0</text>
+<line class="svg-grid" x1="64" x2="842" y1="122.0" y2="122.0"/>
+<text class="svg-tick" x="55" y="125.6" text-anchor="end">+$100</text>
+<line class="svg-grid" x1="64" x2="842" y1="84.0" y2="84.0"/>
+<text class="svg-tick" x="55" y="87.6" text-anchor="end">+$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">+$300</text>
+<line class="svg-zero" x1="64" x2="842" y1="160.0" y2="160.0"/>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="236"/>
+<rect x="123.8" y="87.4" width="36.0" height="72.6" rx="3" fill="#0f766e"><title>45d net · Base: +$191</title></rect>
+<text class="svg-value" x="141.8" y="82.4" text-anchor="middle">+$191</text>
+<rect x="162.8" y="160.0" width="36.0" height="40.1" rx="3" fill="#2563eb"><title>20d net · Base: -$106</title></rect>
+<text class="svg-value" x="180.8" y="212.1" text-anchor="middle">-$106</text>
+<text class="svg-cat" x="161.2" y="255.0" text-anchor="middle">Base</text>
+<rect x="318.2" y="87.7" width="36.0" height="72.3" rx="3" fill="#0f766e"><title>45d net · Live: +$190</title></rect>
+<text class="svg-value" x="336.2" y="82.7" text-anchor="middle">+$190</text>
+<rect x="357.2" y="160.0" width="36.0" height="40.3" rx="3" fill="#2563eb"><title>20d net · Live: -$106</title></rect>
+<text class="svg-value" x="375.2" y="212.3" text-anchor="middle">-$106</text>
+<text class="svg-cat" x="355.8" y="255.0" text-anchor="middle">Live</text>
+<rect x="512.8" y="74.3" width="36.0" height="85.7" rx="3" fill="#0f766e"><title>45d net · Stress: +$226</title></rect>
+<text class="svg-value" x="530.8" y="69.3" text-anchor="middle">+$226</text>
+<rect x="551.8" y="160.0" width="36.0" height="47.1" rx="3" fill="#2563eb"><title>20d net · Stress: -$124</title></rect>
+<text class="svg-value" x="569.8" y="219.1" text-anchor="middle">-$124</text>
+<text class="svg-cat" x="550.2" y="255.0" text-anchor="middle">Stress</text>
+<rect x="707.2" y="155.1" width="36.0" height="4.9" rx="3" fill="#0f766e"><title>45d net · Always arms: +$13</title></rect>
+<text class="svg-value" x="725.2" y="150.1" text-anchor="middle">+$13</text>
+<rect x="746.2" y="158.1" width="36.0" height="1.9" rx="3" fill="#2563eb"><title>20d net · Always arms: +$5</title></rect>
+<text class="svg-value" x="764.2" y="153.1" text-anchor="middle">+$5</text>
+<text class="svg-cat" x="744.8" y="255.0" text-anchor="middle">Always arms</text>
+</svg><p class="chart-note">Base and live share one path; the stress rates change the keeper's decisions, so stress is a separate path. The 20d cut is negative in three of four cases.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>Case</th><th class="num">USDG lend APR</th><th class="num">NVDA yield</th><th class="num">Borrow APR</th><th class="num">45d net</th><th class="num">20d net</th><th class="num">Gross arm carry</th><th class="num">Max LTV</th></tr></thead><tbody><tr><td>Base</td><td class="num">3.000%</td><td class="num">3.000%</td><td class="num">3.000%</td><td class="num pos">+$191.04</td><td class="num neg">-$105.62</td><td class="num pos">+$1.26</td><td class="num">29.4%</td></tr><tr><td>Live</td><td class="num">1.025%</td><td class="num">0.000%</td><td class="num">1.351%</td><td class="num pos">+$190.18</td><td class="num neg">-$106.09</td><td class="num pos">+$0.38</td><td class="num">29.4%</td></tr><tr><td>Stress</td><td class="num">103.730%</td><td class="num">0.000%</td><td class="num">107.290%</td><td class="num pos">+$225.62</td><td class="num neg">-$123.91</td><td class="num pos">+$39.08</td><td class="num">29.4%</td></tr><tr><td>Always arms</td><td class="num">3.000%</td><td class="num">3.000%</td><td class="num">3.000%</td><td class="num pos">+$12.87</td><td class="num pos">+$4.97</td><td class="num pos">+$15.11</td><td class="num">33.7%</td></tr></tbody></table></div><p class="chart-note">Net is NAV minus HODL for the whole strategy, not arm-only P&L. Gross arm carry = arm interest + NVDA yield - borrow over 45d, before gas. Max LTV is the 45d peak on the arm.</p></div><div class="callout warn"><b>The arm is a safe harbor, not the engine.</b> Observed USDG lending sits at 2.72-3.75% across venues; the base case uses 3.00% and the live case 1.025%. NVDA borrow is the tail: 1.351% in the live case versus 107.29% in stress. The stress run still nets +$225.62 over 45d but -$123.91 over 20d, because a high-utilization borrow market is a liquidity and exit trap, not free yield. The 3% NVDA line is a Spiral total-yield assumption, APR after borrow, not a native Morpho collateral yield. Gross arm carry is $1.26 in risk-only A and $15.11 in always-arms: roughly $1-$15 over 45 days. Fees are $188 in the same run.</div></div></section><section id="cases"><div class="section-head"><div class="sec-num">04</div><div><h2>Our strategy in a few cases</h2><p class="lede">Six rows answer the practical question: which configuration would we defend, and what does it give up in the 20-day cut?</p></div></div><div class="section-stack"><div class="card chart-card"><div class="chart-head"><h3>Six strategy cases - net versus HODL</h3><p>45d and 20d</p></div><svg class="chart" viewBox="0 0 860 320" role="img" aria-label="Strategy case net versus HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">45d net</text>
+<rect x="142.8" y="9.0" width="11" height="11" rx="2.5" fill="#2563eb"/>
+<text class="svg-legend" x="158.8" y="18.0">20d net</text>
+<line class="svg-grid" x1="64" x2="842" y1="256.0" y2="256.0"/>
+<text class="svg-tick" x="55" y="259.6" text-anchor="end">-$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="203.5" y2="203.5"/>
+<text class="svg-tick" x="55" y="207.1" text-anchor="end">$0</text>
+<line class="svg-grid" x1="64" x2="842" y1="151.0" y2="151.0"/>
+<text class="svg-tick" x="55" y="154.6" text-anchor="end">+$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="98.5" y2="98.5"/>
+<text class="svg-tick" x="55" y="102.1" text-anchor="end">+$400</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">+$600</text>
+<line class="svg-zero" x1="64" x2="842" y1="203.5" y2="203.5"/>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="256"/>
+<rect x="91.3" y="164.5" width="36.0" height="39.0" rx="3" fill="#0f766e"><title>45d net · Always A: +$148</title></rect>
+<text class="svg-value" x="109.3" y="159.5" text-anchor="middle">+$148</text>
+<rect x="130.3" y="203.5" width="36.0" height="38.4" rx="3" fill="#2563eb"><title>20d net · Always A: -$146</title></rect>
+<text class="svg-value" x="148.3" y="253.9" text-anchor="middle">-$146</text>
+<text class="svg-cat" x="128.8" y="275.0" text-anchor="middle">Always A</text>
+<rect x="221.0" y="156.0" width="36.0" height="47.5" rx="3" fill="#0f766e"><title>45d net · Always B: +$181</title></rect>
+<text class="svg-value" x="239.0" y="151.0" text-anchor="middle">+$181</text>
+<rect x="260.0" y="203.5" width="36.0" height="39.7" rx="3" fill="#2563eb"><title>20d net · Always B: -$151</title></rect>
+<text class="svg-value" x="278.0" y="255.2" text-anchor="middle">-$151</text>
+<text class="svg-cat" x="258.5" y="275.0" text-anchor="middle">Always B</text>
+<rect x="350.7" y="153.4" width="36.0" height="50.1" rx="3" fill="#0f766e"><title>45d net · Risk-only A 1h / 10k / 50: +$191</title></rect>
+<text class="svg-value" x="368.7" y="148.4" text-anchor="middle">+$191</text>
+<rect x="389.7" y="203.5" width="36.0" height="27.7" rx="3" fill="#2563eb"><title>20d net · Risk-only A 1h / 10k / 50: -$106</title></rect>
+<text class="svg-value" x="407.7" y="243.2" text-anchor="middle">-$106</text>
+<text class="svg-cat" x="388.2" y="275.0" text-anchor="middle">Risk-only A 1h /</text>
+<text class="svg-cat" x="388.2" y="287.0" text-anchor="middle">10k</text>
+<rect x="480.3" y="121.0" width="36.0" height="82.5" rx="3" fill="#0f766e"><title>45d net · Risk-only A 15k floor: +$314</title></rect>
+<text class="svg-value" x="498.3" y="116.0" text-anchor="middle">+$314</text>
+<rect x="519.3" y="196.1" width="36.0" height="7.4" rx="3" fill="#2563eb"><title>20d net · Risk-only A 15k floor: +$28</title></rect>
+<text class="svg-value" x="537.3" y="191.1" text-anchor="middle">+$28</text>
+<text class="svg-cat" x="517.8" y="275.0" text-anchor="middle">Risk-only A 15k</text>
+<text class="svg-cat" x="517.8" y="287.0" text-anchor="middle">floor</text>
+<rect x="610.0" y="90.3" width="36.0" height="113.2" rx="3" fill="#0f766e"><title>45d net · A 2h / 15k / 75: +$431</title></rect>
+<text class="svg-value" x="628.0" y="85.3" text-anchor="middle">+$431</text>
+<rect x="649.0" y="191.2" width="36.0" height="12.3" rx="3" fill="#2563eb"><title>20d net · A 2h / 15k / 75: +$47</title></rect>
+<text class="svg-value" x="667.0" y="186.2" text-anchor="middle">+$47</text>
+<text class="svg-cat" x="647.5" y="275.0" text-anchor="middle">A 2h / 15k / 75</text>
+<rect x="739.7" y="200.1" width="36.0" height="3.4" rx="3" fill="#0f766e"><title>45d net · Always arms: +$13</title></rect>
+<text class="svg-value" x="757.7" y="195.1" text-anchor="middle">+$13</text>
+<rect x="778.7" y="202.2" width="36.0" height="1.3" rx="3" fill="#2563eb"><title>20d net · Always arms: +$5</title></rect>
+<text class="svg-value" x="796.7" y="197.2" text-anchor="middle">+$5</text>
+<text class="svg-cat" x="777.2" y="275.0" text-anchor="middle">Always arms</text>
+</svg><p class="chart-note">Bars are net of fees, IL, gas and arm carry. The 20-day cut is the honesty check on every 45-day winner.</p></div><div class="card chart-card"><div class="chart-head"><h3>Same cases - maximum drawdown</h3><p>Peak-to-trough NAV</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Strategy case maximum drawdown" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#b45309"/>
+<text class="svg-legend" x="78.0" y="18.0">DD 45d</text>
+<rect x="136.4" y="9.0" width="11" height="11" rx="2.5" fill="#b42318"/>
+<text class="svg-legend" x="152.4" y="18.0">DD 20d</text>
+<line class="svg-grid" x1="64" x2="842" y1="236.0" y2="236.0"/>
+<text class="svg-tick" x="55" y="239.6" text-anchor="end">-8.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="188.5" y2="188.5"/>
+<text class="svg-tick" x="55" y="192.1" text-anchor="end">-6.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="141.0" y2="141.0"/>
+<text class="svg-tick" x="55" y="144.6" text-anchor="end">-4.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="93.5" y2="93.5"/>
+<text class="svg-tick" x="55" y="97.1" text-anchor="end">-2.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">0.0%</text>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="236"/>
+<rect x="91.3" y="46.0" width="36.0" height="136.0" rx="3" fill="#b45309"><title>DD 45d · Always A: -5.7%</title></rect>
+<text class="svg-value" x="109.3" y="194.0" text-anchor="middle">-5.7%</text>
+<rect x="130.3" y="46.0" width="36.0" height="187.6" rx="3" fill="#b42318"><title>DD 20d · Always A: -7.9%</title></rect>
+<text class="svg-value" x="148.3" y="245.6" text-anchor="middle">-7.9%</text>
+<text class="svg-cat" x="128.8" y="255.0" text-anchor="middle">Always A</text>
+<rect x="221.0" y="46.0" width="36.0" height="136.5" rx="3" fill="#b45309"><title>DD 45d · Always B: -5.7%</title></rect>
+<text class="svg-value" x="239.0" y="194.5" text-anchor="middle">-5.7%</text>
+<rect x="260.0" y="46.0" width="36.0" height="188.2" rx="3" fill="#b42318"><title>DD 20d · Always B: -7.9%</title></rect>
+<text class="svg-value" x="278.0" y="246.2" text-anchor="middle">-7.9%</text>
+<text class="svg-cat" x="258.5" y="255.0" text-anchor="middle">Always B</text>
+<rect x="350.7" y="46.0" width="36.0" height="123.2" rx="3" fill="#b45309"><title>DD 45d · Risk-only A 1h / 10k / 50: -5.2%</title></rect>
+<text class="svg-value" x="368.7" y="181.2" text-anchor="middle">-5.2%</text>
+<rect x="389.7" y="46.0" width="36.0" height="181.6" rx="3" fill="#b42318"><title>DD 20d · Risk-only A 1h / 10k / 50: -7.6%</title></rect>
+<text class="svg-value" x="407.7" y="239.6" text-anchor="middle">-7.6%</text>
+<text class="svg-cat" x="388.2" y="255.0" text-anchor="middle">Risk-only A 1h /</text>
+<text class="svg-cat" x="388.2" y="267.0" text-anchor="middle">10k</text>
+<rect x="480.3" y="46.0" width="36.0" height="101.4" rx="3" fill="#b45309"><title>DD 45d · Risk-only A 15k floor: -4.3%</title></rect>
+<text class="svg-value" x="498.3" y="159.4" text-anchor="middle">-4.3%</text>
+<rect x="519.3" y="46.0" width="36.0" height="157.1" rx="3" fill="#b42318"><title>DD 20d · Risk-only A 15k floor: -6.6%</title></rect>
+<text class="svg-value" x="537.3" y="215.1" text-anchor="middle">-6.6%</text>
+<text class="svg-cat" x="517.8" y="255.0" text-anchor="middle">Risk-only A 15k</text>
+<text class="svg-cat" x="517.8" y="267.0" text-anchor="middle">floor</text>
+<rect x="610.0" y="46.0" width="36.0" height="104.2" rx="3" fill="#b45309"><title>DD 45d · A 2h / 15k / 75: -4.4%</title></rect>
+<text class="svg-value" x="628.0" y="162.2" text-anchor="middle">-4.4%</text>
+<rect x="649.0" y="46.0" width="36.0" height="158.0" rx="3" fill="#b42318"><title>DD 20d · A 2h / 15k / 75: -6.7%</title></rect>
+<text class="svg-value" x="667.0" y="216.0" text-anchor="middle">-6.7%</text>
+<text class="svg-cat" x="647.5" y="255.0" text-anchor="middle">A 2h / 15k / 75</text>
+<rect x="739.7" y="46.0" width="36.0" height="156.9" rx="3" fill="#b45309"><title>DD 45d · Always arms: -6.6%</title></rect>
+<text class="svg-value" x="757.7" y="214.9" text-anchor="middle">-6.6%</text>
+<rect x="778.7" y="46.0" width="36.0" height="153.9" rx="3" fill="#b42318"><title>DD 20d · Always arms: -6.5%</title></rect>
+<text class="svg-value" x="796.7" y="211.9" text-anchor="middle">-6.5%</text>
+<text class="svg-cat" x="777.2" y="255.0" text-anchor="middle">Always arms</text>
+</svg><p class="chart-note">A shallower drawdown is the risk-adjusted case for the keeper. Negative is a loss; bars are not scaled to net.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>Case</th><th class="num">45d net</th><th class="num">20d net</th><th class="num">Fees 45d</th><th class="num">Gross arm carry</th><th class="num">DD 45d</th><th class="num">DD 20d</th><th class="num">Funded</th><th class="num">Actions</th></tr></thead><tbody><tr><td>Always A</td><td class="num pos">+$148.45</td><td class="num neg">-$146.21</td><td class="num pos">+$245.65</td><td class="num">$0.00</td><td class="num">-5.73%</td><td class="num">-7.90%</td><td class="num">100.0%</td><td class="num">0</td></tr><tr><td>Always B</td><td class="num pos">+$181.05</td><td class="num neg">-$151.13</td><td class="num pos">+$278.25</td><td class="num">$0.00</td><td class="num">-5.75%</td><td class="num">-7.92%</td><td class="num">100.0%</td><td class="num">0</td></tr><tr><td>Risk-only A - 1h / 10k / 50</td><td class="num pos">+$191.04</td><td class="num neg">-$105.62</td><td class="num pos">+$187.92</td><td class="num pos">+$1.26</td><td class="num">-5.19%</td><td class="num">-7.65%</td><td class="num">93.4%</td><td class="num">276</td></tr><tr><td>Risk-only A - 15k floor</td><td class="num pos">+$314.17</td><td class="num pos">+$28.26</td><td class="num pos">+$231.89</td><td class="num pos">+$1.68</td><td class="num">-4.27%</td><td class="num">-6.62%</td><td class="num">90.6%</td><td class="num">343</td></tr><tr><td>A - 2h / 15k / 75</td><td class="num pos">+$431.36</td><td class="num pos">+$46.95</td><td class="num pos">+$280.40</td><td class="num pos">+$1.70</td><td class="num">-4.39%</td><td class="num">-6.65%</td><td class="num">88.0%</td><td class="num">210</td></tr><tr><td>Always arms</td><td class="num pos">+$12.87</td><td class="num pos">+$4.97</td><td class="num">$0.00</td><td class="num pos">+$15.11</td><td class="num">-6.60%</td><td class="num">-6.48%</td><td class="num">0.0%</td><td class="num">84</td></tr></tbody></table></div><p class="chart-note">DD is peak-to-trough NAV. Funded is the share of hours with book inventory above $1. Actions count fund, recall and switch events, not swaps. The base risk-only row is the 1h keeper, $10k floor, 50% guard share.</p></div><div class="callout good"><b>What moves the result.</b> The $15k volume floor is the biggest single fix on the 20-day cut: -$105.62 to +$28.26, and 45d drawdown -5.19% to -4.27%. The 2h interval alone is similar (+$29.60 on 20d); stacked with 15k and the 75% guard it is the best row in this tape. Always A is the risk-adjusted benchmark: +$148.45 / -$146.21 and DD -5.73% / -7.90%. The base risk-only A is +$191.04 over 45d but -$105.62 over 20d: the 45-day win does not repeat at 20 days. The focus case is +$431.36 / +$46.95 in-sample, not a forecast.</div></div></section><section id="variation"><div class="section-head"><div class="sec-num">05</div><div><h2>Simple variations</h2><p class="lede">Five rows, one change at a time. The point is not to optimise; it is to see which lever survives the 20-day cut.</p></div></div><div class="section-stack"><div class="card chart-card"><div class="chart-head"><h3>One lever at a time</h3><p>Net versus HODL - 45d and 20d</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Simple variations net versus HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">45d net</text>
+<rect x="142.8" y="9.0" width="11" height="11" rx="2.5" fill="#2563eb"/>
+<text class="svg-legend" x="158.8" y="18.0">20d net</text>
+<line class="svg-grid" x1="64" x2="842" y1="236.0" y2="236.0"/>
+<text class="svg-tick" x="55" y="239.6" text-anchor="end">-$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="188.5" y2="188.5"/>
+<text class="svg-tick" x="55" y="192.1" text-anchor="end">$0</text>
+<line class="svg-grid" x1="64" x2="842" y1="141.0" y2="141.0"/>
+<text class="svg-tick" x="55" y="144.6" text-anchor="end">+$200</text>
+<line class="svg-grid" x1="64" x2="842" y1="93.5" y2="93.5"/>
+<text class="svg-tick" x="55" y="97.1" text-anchor="end">+$400</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">+$600</text>
+<line class="svg-zero" x1="64" x2="842" y1="188.5" y2="188.5"/>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="236"/>
+<rect x="104.3" y="143.1" width="36.0" height="45.4" rx="3" fill="#0f766e"><title>45d net · Base 1h / 10k / 50: +$191</title></rect>
+<text class="svg-value" x="122.3" y="138.1" text-anchor="middle">+$191</text>
+<rect x="143.3" y="188.5" width="36.0" height="25.1" rx="3" fill="#2563eb"><title>20d net · Base 1h / 10k / 50: -$106</title></rect>
+<text class="svg-value" x="161.3" y="225.6" text-anchor="middle">-$106</text>
+<text class="svg-cat" x="141.8" y="255.0" text-anchor="middle">Base 1h / 10k /</text>
+<text class="svg-cat" x="141.8" y="267.0" text-anchor="middle">50</text>
+<rect x="259.9" y="113.9" width="36.0" height="74.6" rx="3" fill="#0f766e"><title>45d net · Volume floor 15k: +$314</title></rect>
+<text class="svg-value" x="277.9" y="108.9" text-anchor="middle">+$314</text>
+<rect x="298.9" y="181.8" width="36.0" height="6.7" rx="3" fill="#2563eb"><title>20d net · Volume floor 15k: +$28</title></rect>
+<text class="svg-value" x="316.9" y="176.8" text-anchor="middle">+$28</text>
+<text class="svg-cat" x="297.4" y="255.0" text-anchor="middle">Volume floor 15k</text>
+<rect x="415.5" y="111.2" width="36.0" height="77.3" rx="3" fill="#0f766e"><title>45d net · Keeper interval 2h: +$326</title></rect>
+<text class="svg-value" x="433.5" y="106.2" text-anchor="middle">+$326</text>
+<rect x="454.5" y="181.5" width="36.0" height="7.0" rx="3" fill="#2563eb"><title>20d net · Keeper interval 2h: +$30</title></rect>
+<text class="svg-value" x="472.5" y="176.5" text-anchor="middle">+$30</text>
+<text class="svg-cat" x="453.0" y="255.0" text-anchor="middle">Keeper interval</text>
+<text class="svg-cat" x="453.0" y="267.0" text-anchor="middle">2h</text>
+<rect x="571.1" y="123.5" width="36.0" height="65.0" rx="3" fill="#0f766e"><title>45d net · Guard share 75%: +$274</title></rect>
+<text class="svg-value" x="589.1" y="118.5" text-anchor="middle">+$274</text>
+<rect x="610.1" y="188.5" width="36.0" height="30.2" rx="3" fill="#2563eb"><title>20d net · Guard share 75%: -$127</title></rect>
+<text class="svg-value" x="628.1" y="230.7" text-anchor="middle">-$127</text>
+<text class="svg-cat" x="608.6" y="255.0" text-anchor="middle">Guard share 75%</text>
+<rect x="726.7" y="86.1" width="36.0" height="102.4" rx="3" fill="#0f766e"><title>45d net · 2h / 15k / 75: +$431</title></rect>
+<text class="svg-value" x="744.7" y="81.1" text-anchor="middle">+$431</text>
+<rect x="765.7" y="177.3" width="36.0" height="11.2" rx="3" fill="#2563eb"><title>20d net · 2h / 15k / 75: +$47</title></rect>
+<text class="svg-value" x="783.7" y="172.3" text-anchor="middle">+$47</text>
+<text class="svg-cat" x="764.2" y="255.0" text-anchor="middle">2h / 15k / 75</text>
+</svg><p class="chart-note">Volume floor, keeper interval and guard share are the three levers a keeper can actually turn. The chart reads left to right as base, single levers, then the combination.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>Variation</th><th class="num">45d net</th><th class="num">20d net</th><th class="num">DD 45d</th><th class="num">DD 20d</th></tr></thead><tbody><tr><td>Base - 1h / 10k / 50</td><td class="num pos">+$191.04</td><td class="num neg">-$105.62</td><td class="num">-5.19%</td><td class="num">-7.65%</td></tr><tr><td>Volume floor 15k</td><td class="num pos">+$314.17</td><td class="num pos">+$28.26</td><td class="num">-4.27%</td><td class="num">-6.62%</td></tr><tr><td>Keeper interval 2h</td><td class="num pos">+$325.65</td><td class="num pos">+$29.60</td><td class="num">-4.15%</td><td class="num">-6.63%</td></tr><tr><td>Guard share 75%</td><td class="num pos">+$273.69</td><td class="num neg">-$127.13</td><td class="num">-4.50%</td><td class="num">-7.89%</td></tr><tr><td>2h / 15k / 75</td><td class="num pos">+$431.36</td><td class="num pos">+$46.95</td><td class="num">-4.39%</td><td class="num">-6.65%</td></tr></tbody></table></div><p class="chart-note">One change at a time from the 1h / 10k / 50 base, except the last row, which combines the 2h interval, $15k floor and 75% guard share.</p></div><div class="callout warn"><b>Do not stack levers without fresh tape.</b> From the base 20-day net of -$105.62, the 75% guard alone is worse (-$127.13). The 2h interval and $15k floor together fix the 20-day cut (+$38.26); adding the 75% guard gives +$46.95. Every row here is one tape, in-sample, and the interactions are large: a lever that helps alone can hurt when combined.</div></div></section><section id="il"><div class="section-head"><div class="sec-num">06</div><div><h2>How IL works, in dollars</h2><p class="lede">Impermanent loss is a ratio, so it is easy to quote and hard to feel. Here it is a dollar loss against holding the same entry basket.</p></div></div><div class="section-stack"><div class="card chart-card"><div class="chart-head"><h3>Static IL in USD - $10,000 at NVDA $225.80</h3><p>Ranges ±5%, ±10%, ±20% - price moves -20% to +20%</p></div><svg class="chart" viewBox="0 0 860 340" role="img" aria-label="Static IL in USD for a $10,000 position" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#b42318"/>
+<text class="svg-legend" x="78.0" y="18.0">±5%</text>
+<rect x="117.2" y="9.0" width="11" height="11" rx="2.5" fill="#b45309"/>
+<text class="svg-legend" x="133.2" y="18.0">±10%</text>
+<rect x="178.8" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="194.8" y="18.0">±20%</text>
+<line class="svg-grid" x1="66" x2="840" y1="282.0" y2="282.0"/>
+<text class="svg-tick" x="57" y="285.6" text-anchor="end">-$1,000</text>
+<line class="svg-grid" x1="66" x2="840" y1="204.0" y2="204.0"/>
+<text class="svg-tick" x="57" y="207.6" text-anchor="end">-$500</text>
+<line class="svg-grid" x1="66" x2="840" y1="126.0" y2="126.0"/>
+<text class="svg-tick" x="57" y="129.6" text-anchor="end">$0</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">+$500</text>
+<line class="svg-zero" x1="66" x2="840" y1="126.0" y2="126.0"/>
+<line class="svg-axis" x1="66.0" x2="66.0" y1="48" y2="282" stroke-opacity=".45"/>
+<text class="svg-tick" x="66.0" y="300.0" text-anchor="middle">-20</text>
+<line class="svg-axis" x1="259.5" x2="259.5" y1="48" y2="282" stroke-opacity=".45"/>
+<text class="svg-tick" x="259.5" y="300.0" text-anchor="middle">-10</text>
+<line class="svg-axis" x1="453.0" x2="453.0" y1="48" y2="282" stroke-opacity=".45"/>
+<text class="svg-tick" x="453.0" y="300.0" text-anchor="middle">0</text>
+<line class="svg-axis" x1="646.5" x2="646.5" y1="48" y2="282" stroke-opacity=".45"/>
+<text class="svg-tick" x="646.5" y="300.0" text-anchor="middle">10</text>
+<line class="svg-axis" x1="840.0" x2="840.0" y1="48" y2="282" stroke-opacity=".45"/>
+<text class="svg-tick" x="840.0" y="300.0" text-anchor="middle">20</text>
+<text class="svg-axis-label" x="453.0" y="332" text-anchor="middle">NVDA price move from $225.80 (%)</text>
+<path d="M66.0,266.6 L104.7,250.6 L143.4,234.7 L182.1,218.7 L220.8,202.7 L259.5,186.7 L298.2,170.7 L336.9,154.7 L375.6,139.2 L414.3,129.3 L453.0,126.0 L491.7,129.2 L530.4,138.7 L569.1,153.5 L607.8,169.1 L646.5,184.7 L685.2,200.3 L723.9,215.9 L762.6,231.5 L801.3,247.1 L840.0,262.7" fill="none" stroke="#b42318" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>±5%</title></path>
+<circle cx="840.0" cy="262.7" r="3.4" fill="#b42318" stroke="#ffffff" stroke-width="1.4"/>
+<path d="M66.0,251.6 L104.7,235.2 L143.4,218.8 L182.1,202.5 L220.8,186.1 L259.5,169.7 L298.2,154.0 L336.9,141.6 L375.6,132.8 L414.3,127.7 L453.0,126.0 L491.7,127.7 L530.4,132.6 L569.1,140.7 L607.8,151.8 L646.5,165.9 L685.2,181.5 L723.9,197.1 L762.6,212.7 L801.3,228.3 L840.0,243.9" fill="none" stroke="#b45309" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>±10%</title></path>
+<circle cx="840.0" cy="243.9" r="3.4" fill="#b45309" stroke="#ffffff" stroke-width="1.4"/>
+<path d="M66.0,222.5 L104.7,205.4 L143.4,188.4 L182.1,173.2 L220.8,160.3 L259.5,149.6 L298.2,140.9 L336.9,134.3 L375.6,129.7 L414.3,126.9 L453.0,126.0 L491.7,126.9 L530.4,129.5 L569.1,133.8 L607.8,139.8 L646.5,147.3 L685.2,156.4 L723.9,167.0 L762.6,179.1 L801.3,192.7 L840.0,207.6" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>±20%</title></path>
+<circle cx="840.0" cy="207.6" r="3.4" fill="#0f766e" stroke="#ffffff" stroke-width="1.4"/>
+</svg><p class="chart-note">Every line is zero at entry and below zero on both sides. The narrower the range, the steeper the loss for the same price move.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th class="num">Move</th><th class="num">NVDA price</th><th class="num">±5% range</th><th class="num">±10% range</th><th class="num">±20% range</th></tr></thead><tbody><tr><td class="num">-20%</td><td class="num">$180.64</td><td class="num neg">-$901.50</td><td class="num neg">-$804.91</td><td class="num neg">-$618.31</td></tr><tr><td class="num">-10%</td><td class="num">$203.22</td><td class="num neg">-$388.96</td><td class="num neg">-$280.40</td><td class="num neg">-$151.15</td></tr><tr><td class="num">0%</td><td class="num">$225.80</td><td class="num">$0</td><td class="num">$0</td><td class="num">$0</td></tr><tr><td class="num">+10%</td><td class="num">$248.38</td><td class="num neg">-$376.41</td><td class="num neg">-$255.99</td><td class="num neg">-$136.73</td></tr><tr><td class="num">+20%</td><td class="num">$270.96</td><td class="num neg">-$876.23</td><td class="num neg">-$755.90</td><td class="num neg">-$522.86</td></tr></tbody></table></div><p class="chart-note">IL = LP value - HODL value for the same entry basket, in USD on a $10,000 position. Static range, no fees, no rebalancing. Negative means the LP is behind the unmanaged basket.</p></div><div class="callout warn"><b>IL is the price of being useful.</b> At a 20% fall the IL on a ±5% range is -$901.50 on $10,000 versus holding; on a ±20% range it is -$618.31. At a 20% rise the ±5% range IL is -$876.23. Narrower ranges earn more fees and lose more to IL on the same move, so fees must cover IL before the book beats HODL. The guard and recall protect the tail, not this trade-off: they can take you out of the book, but they do not make a narrow range cheap. The model's LP mark versus HODL can still be positive in a down tape because the book is underweight NVDA and sits out part of the fall; that is a timing and allocation effect, not free alpha.</div></div></section><section id="protection"><div class="section-head"><div class="sec-num">07</div><div><h2>Drawdown, exits, and capital protection</h2><p class="lede">A protection claim needs a path, not just a final NAV. The guard is designed as the first line and the allocator recall as the second; in this tape the recall did the work, and the 20-day window is the stress case.</p></div></div><div class="card"><h3>Guard hits and book changes</h3><div class="grid-2"><div class="mini-run"><h4>Production 200 bps</h4><div class="mini-kpis"><div><div class="mini-label">Guard pulls</div><div class="mini-value">0</div></div><div><div class="mini-label">Recalls</div><div class="mini-value">2</div></div><div><div class="mini-label">Fundings</div><div class="mini-value">2</div></div><div><div class="mini-label">Switches</div><div class="mini-value">0</div></div><div><div class="mini-label">Actions</div><div class="mini-value">276</div></div></div><p class="chart-note">The 200 bps proxy did not fire; the book moved on recall and fund.</p></div><div class="mini-run"><h4>Guard stress 50 bps</h4><div class="mini-kpis"><div><div class="mini-label">Model pulls</div><div class="mini-value">20</div></div><div><div class="mini-label">Raw proxy hours</div><div class="mini-value">24</div></div><div><div class="mini-label">Recalls</div><div class="mini-value">1</div></div><div><div class="mini-label">Fundings</div><div class="mini-value">1</div></div><div><div class="mini-label">Actions</div><div class="mini-value">602</div></div></div><p class="chart-note">24 raw 5-min proxy hours; 20 model pulls; 4 did not produce a pull (2 re-arm lag, 2 book capital at zero): 473, 808, 832, 1001.</p></div></div><p class="chart-note">Red = model pull; gray = no pull; amber = recall; blue = fund. Production 200 bps has 0 guard hits.</p></div><div class="grid-2" style="margin-top:16px"><div class="card chart-card"><div class="chart-head"><h3>NAV versus HODL - 45d</h3><p>Risk-only A - start $10,000</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="NAV versus HODL over 45 days" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">Risk-only A</text>
+<rect x="168.4" y="9.0" width="11" height="11" rx="2.5" fill="#52606d"/>
+<text class="svg-legend" x="184.4" y="18.0">HODL</text>
+<line class="svg-grid" x1="66" x2="840" y1="242.0" y2="242.0"/>
+<text class="svg-tick" x="57" y="245.6" text-anchor="end">$9.4k</text>
+<line class="svg-grid" x1="66" x2="840" y1="209.7" y2="209.7"/>
+<text class="svg-tick" x="57" y="213.3" text-anchor="end">$9.6k</text>
+<line class="svg-grid" x1="66" x2="840" y1="177.3" y2="177.3"/>
+<text class="svg-tick" x="57" y="180.9" text-anchor="end">$9.8k</text>
+<line class="svg-grid" x1="66" x2="840" y1="145.0" y2="145.0"/>
+<text class="svg-tick" x="57" y="148.6" text-anchor="end">$10.0k</text>
+<line class="svg-grid" x1="66" x2="840" y1="112.7" y2="112.7"/>
+<text class="svg-tick" x="57" y="116.3" text-anchor="end">$10.2k</text>
+<line class="svg-grid" x1="66" x2="840" y1="80.3" y2="80.3"/>
+<text class="svg-tick" x="57" y="83.9" text-anchor="end">$10.4k</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">$10.6k</text>
+<line class="svg-axis" x1="66.0" x2="66.0" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="66.0" y="260.0" text-anchor="middle">0</text>
+<line class="svg-axis" x1="209.5" x2="209.5" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="209.5" y="260.0" text-anchor="middle">200</text>
+<line class="svg-axis" x1="352.9" x2="352.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="352.9" y="260.0" text-anchor="middle">400</text>
+<line class="svg-axis" x1="496.4" x2="496.4" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="496.4" y="260.0" text-anchor="middle">600</text>
+<line class="svg-axis" x1="639.9" x2="639.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="639.9" y="260.0" text-anchor="middle">800</text>
+<line class="svg-axis" x1="783.3" x2="783.3" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="783.3" y="260.0" text-anchor="middle">1,000</text>
+<text class="svg-axis-label" x="453.0" y="292" text-anchor="middle">Hour of the 45-day window</text>
+<g class="svg-event" data-event="recall"><title>Recall to arms</title><line x1="485.6" x2="485.6" y1="48" y2="242" stroke="#b45309" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="485.6" cy="44.0" r="2.7" fill="#b45309" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="return"><title>Fund the book</title><line x1="486.4" x2="486.4" y1="48" y2="242" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="486.4" cy="39.0" r="2.7" fill="#2563eb" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="recall"><title>Recall to arms</title><line x1="627.0" x2="627.0" y1="48" y2="242" stroke="#b45309" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="627.0" cy="44.0" r="2.7" fill="#b45309" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="return"><title>Fund the book</title><line x1="677.2" x2="677.2" y1="48" y2="242" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="677.2" cy="44.0" r="2.7" fill="#2563eb" stroke="#ffffff" stroke-width=".9"/></g>
+<path d="M66.0,145.0 L70.3,143.5 L74.6,149.3 L78.9,150.5 L83.2,152.0 L87.5,152.7 L91.8,152.7 L96.1,171.4 L100.4,169.7 L104.7,173.0 L109.0,162.9 L113.3,165.2 L117.6,170.7 L122.0,167.3 L126.3,166.4 L130.6,166.4 L134.9,170.1 L139.2,174.1 L143.5,185.8 L147.8,183.5 L152.1,185.6 L156.4,187.1 L160.7,203.8 L165.0,202.4 L169.3,199.9 L173.6,199.9 L177.9,201.3 L182.2,202.8 L186.5,200.5 L190.8,196.7 L195.1,195.3 L199.4,181.9 L203.7,187.3 L208.0,181.0 L212.3,174.5 L216.6,165.3 L220.9,163.4 L225.2,158.0 L229.6,155.4 L233.9,162.0 L238.2,149.7 L242.5,149.2 L246.8,149.4 L251.1,149.0 L255.4,149.3 L259.7,154.7 L264.0,155.9 L268.3,153.3 L272.6,151.4 L276.9,144.5 L281.2,139.4 L285.5,136.4 L289.8,130.0 L294.1,129.3 L298.4,129.1 L302.7,124.3 L307.0,125.0 L311.3,124.2 L315.6,122.5 L319.9,136.1 L324.2,134.5 L328.5,136.3 L332.8,143.7 L337.2,142.6 L341.5,137.9 L345.8,136.0 L350.1,129.9 L354.4,131.6 L358.7,133.4 L363.0,134.9 L367.3,136.0 L371.6,134.6 L375.9,135.5 L380.2,135.4 L384.5,133.0 L388.8,133.9 L393.1,135.2 L397.4,137.1 L401.7,135.6 L406.0,113.9 L410.3,117.4 L414.6,120.0 L418.9,112.0 L423.2,113.4 L427.5,119.8 L431.8,119.4 L436.1,119.2 L440.4,110.5 L444.8,115.6 L449.1,110.6 L453.4,111.0 L457.7,111.8 L462.0,107.7 L466.3,106.7 L470.6,101.7 L474.9,94.2 L479.2,99.6 L483.5,98.5 L487.8,98.0 L492.1,97.9 L496.4,97.0 L500.7,98.3 L505.0,97.7 L509.3,97.2 L513.6,96.7 L517.9,96.1 L522.2,96.2 L526.5,92.4 L530.8,86.9 L535.1,86.6 L539.4,84.6 L543.7,83.2 L548.0,87.0 L552.4,84.3 L556.7,87.1 L561.0,90.7 L565.3,89.7 L569.6,90.9 L573.9,93.4 L578.2,93.5 L582.5,103.8 L586.8,100.9 L591.1,94.7 L595.4,107.7 L599.7,108.3 L604.0,106.1 L608.3,106.4 L612.6,105.7 L616.9,105.8 L621.2,106.2 L625.5,105.5 L629.8,104.5 L634.1,104.7 L638.4,106.9 L642.7,107.9 L647.0,115.3 L651.3,116.8 L655.6,121.7 L659.9,121.6 L664.3,117.8 L668.6,109.7 L672.9,107.9 L677.2,109.8 L681.5,130.0 L685.8,134.7 L690.1,142.6 L694.4,147.4 L698.7,146.1 L703.0,144.7 L707.3,141.7 L711.6,143.9 L715.9,144.2 L720.2,157.4 L724.5,156.4 L728.8,156.0 L733.1,158.8 L737.4,165.5 L741.7,162.2 L746.0,158.9 L750.3,165.4 L754.6,156.0 L758.9,143.1 L763.2,145.0 L767.5,136.1 L771.9,143.7 L776.2,144.1 L780.5,145.9 L784.8,144.5 L789.1,129.8 L793.4,130.6 L797.7,134.7 L802.0,130.9 L806.3,127.7 L810.6,137.8 L814.9,143.0 L819.2,155.3 L823.5,157.1 L827.8,155.8 L832.1,156.9 L836.4,160.8 L840.0,165.4" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>Risk-only A</title></path>
+<circle cx="840.0" cy="165.4" r="3.4" fill="#0f766e" stroke="#ffffff" stroke-width="1.4"/>
+<path d="M66.0,145.0 L70.3,143.7 L74.6,149.5 L78.9,151.2 L83.2,152.8 L87.5,153.6 L91.8,153.8 L96.1,170.1 L100.4,169.2 L104.7,171.8 L109.0,164.0 L113.3,166.5 L117.6,170.9 L122.0,168.4 L126.3,167.7 L130.6,167.8 L134.9,170.7 L139.2,173.7 L143.5,182.2 L147.8,180.7 L152.1,182.2 L156.4,183.4 L160.7,194.4 L165.0,193.6 L169.3,192.1 L173.6,192.1 L177.9,193.0 L182.2,194.1 L186.5,192.7 L190.8,190.2 L195.1,189.4 L199.4,180.6 L203.7,184.7 L208.0,180.3 L212.3,175.8 L216.6,169.1 L220.9,167.7 L225.2,163.5 L229.6,161.6 L233.9,167.2 L238.2,157.3 L242.5,157.0 L246.8,157.1 L251.1,156.8 L255.4,157.3 L259.7,162.0 L264.0,163.0 L268.3,160.8 L272.6,159.3 L276.9,153.3 L281.2,148.6 L285.5,146.2 L289.8,139.9 L294.1,139.2 L298.4,139.2 L302.7,134.4 L307.0,135.5 L311.3,134.7 L315.6,132.8 L319.9,147.7 L324.2,146.3 L328.5,148.1 L332.8,155.1 L337.2,154.5 L341.5,150.4 L345.8,148.6 L350.1,142.7 L354.4,144.8 L358.7,146.9 L363.0,148.4 L367.3,149.4 L371.6,148.1 L375.9,149.0 L380.2,149.0 L384.5,146.6 L388.8,147.5 L393.1,148.9 L397.4,150.8 L401.7,149.5 L406.0,127.5 L410.3,132.1 L414.6,135.3 L418.9,125.9 L423.2,128.4 L427.5,136.4 L431.8,136.1 L436.1,136.0 L440.4,126.4 L444.8,133.0 L449.1,127.1 L453.4,127.8 L457.7,129.6 L462.0,124.9 L466.3,123.8 L470.6,116.9 L474.9,106.4 L479.2,115.5 L483.5,113.9 L487.8,113.2 L492.1,113.0 L496.4,111.6 L500.7,113.7 L505.0,112.9 L509.3,112.1 L513.6,111.3 L517.9,110.3 L522.2,110.7 L526.5,104.8 L530.8,95.2 L535.1,94.8 L539.4,91.0 L543.7,88.7 L548.0,96.2 L552.4,91.3 L556.7,96.9 L561.0,103.9 L565.3,102.2 L569.6,104.2 L573.9,108.5 L578.2,109.0 L582.5,124.8 L586.8,120.8 L591.1,111.6 L595.4,130.5 L599.7,131.4 L604.0,128.4 L608.3,128.8 L612.6,127.9 L616.9,128.0 L621.2,128.6 L625.5,127.6 L629.8,126.3 L634.1,126.5 L638.4,129.5 L642.7,130.7 L647.0,140.8 L651.3,142.7 L655.6,149.4 L659.9,149.1 L664.3,143.9 L668.6,133.0 L672.9,130.6 L677.2,133.1 L681.5,157.7 L685.8,162.9 L690.1,170.9 L694.4,175.6 L698.7,174.9 L703.0,173.9 L707.3,171.2 L711.6,173.3 L715.9,174.0 L720.2,186.0 L724.5,185.1 L728.8,184.7 L733.1,187.2 L737.4,193.1 L741.7,190.2 L746.0,187.3 L750.3,193.6 L754.6,185.3 L758.9,173.7 L763.2,175.6 L767.5,167.5 L771.9,174.9 L776.2,175.3 L780.5,177.1 L784.8,176.0 L789.1,162.0 L793.4,163.1 L797.7,167.2 L802.0,163.9 L806.3,160.9 L810.6,171.0 L814.9,176.0 L819.2,187.3 L823.5,188.9 L827.8,187.8 L832.1,188.7 L836.4,192.2 L840.0,196.2" fill="none" stroke="#52606d" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>HODL</title></path>
+<circle cx="840.0" cy="196.2" r="3.4" fill="#52606d" stroke="#ffffff" stroke-width="1.4"/>
+</svg><p class="chart-note">Amber = recall; blue = fund; red = guard pull; gray = no pull. Downsampled every 6 hours.</p></div><div class="card chart-card"><div class="chart-head"><h3>Drawdown - 45d</h3><p>Peak-to-trough NAV</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Drawdown over 45 days" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#b45309"/>
+<text class="svg-legend" x="78.0" y="18.0">Risk-only A</text>
+<rect x="168.4" y="9.0" width="11" height="11" rx="2.5" fill="#52606d"/>
+<text class="svg-legend" x="184.4" y="18.0">HODL</text>
+<line class="svg-grid" x1="66" x2="840" y1="242.0" y2="242.0"/>
+<text class="svg-tick" x="57" y="245.6" text-anchor="end">-8.0%</text>
+<line class="svg-grid" x1="66" x2="840" y1="203.2" y2="203.2"/>
+<text class="svg-tick" x="57" y="206.8" text-anchor="end">-6.0%</text>
+<line class="svg-grid" x1="66" x2="840" y1="164.4" y2="164.4"/>
+<text class="svg-tick" x="57" y="168.0" text-anchor="end">-4.0%</text>
+<line class="svg-grid" x1="66" x2="840" y1="125.6" y2="125.6"/>
+<text class="svg-tick" x="57" y="129.2" text-anchor="end">-2.0%</text>
+<line class="svg-grid" x1="66" x2="840" y1="86.8" y2="86.8"/>
+<text class="svg-tick" x="57" y="90.4" text-anchor="end">0.0%</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">2.0%</text>
+<line class="svg-zero" x1="66" x2="840" y1="86.8" y2="86.8"/>
+<line class="svg-axis" x1="66.0" x2="66.0" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="66.0" y="260.0" text-anchor="middle">0</text>
+<line class="svg-axis" x1="209.5" x2="209.5" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="209.5" y="260.0" text-anchor="middle">200</text>
+<line class="svg-axis" x1="352.9" x2="352.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="352.9" y="260.0" text-anchor="middle">400</text>
+<line class="svg-axis" x1="496.4" x2="496.4" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="496.4" y="260.0" text-anchor="middle">600</text>
+<line class="svg-axis" x1="639.9" x2="639.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="639.9" y="260.0" text-anchor="middle">800</text>
+<line class="svg-axis" x1="783.3" x2="783.3" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="783.3" y="260.0" text-anchor="middle">1,000</text>
+<text class="svg-axis-label" x="453.0" y="292" text-anchor="middle">Hour of the 45-day window</text>
+<g class="svg-event" data-event="recall"><title>Recall to arms</title><line x1="485.6" x2="485.6" y1="48" y2="242" stroke="#b45309" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="485.6" cy="44.0" r="2.7" fill="#b45309" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="return"><title>Fund the book</title><line x1="486.4" x2="486.4" y1="48" y2="242" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="486.4" cy="39.0" r="2.7" fill="#2563eb" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="recall"><title>Recall to arms</title><line x1="627.0" x2="627.0" y1="48" y2="242" stroke="#b45309" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="627.0" cy="44.0" r="2.7" fill="#b45309" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="return"><title>Fund the book</title><line x1="677.2" x2="677.2" y1="48" y2="242" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="677.2" cy="44.0" r="2.7" fill="#2563eb" stroke="#ffffff" stroke-width=".9"/></g>
+<path d="M66.0,86.8 L70.3,86.9 L74.6,94.7 L78.9,96.2 L83.2,98.0 L87.5,98.8 L91.8,98.9 L96.1,121.2 L100.4,119.3 L104.7,123.1 L109.0,111.1 L113.3,113.9 L117.6,120.4 L122.0,116.4 L126.3,115.3 L130.6,115.3 L134.9,119.7 L139.2,124.5 L143.5,138.5 L147.8,135.8 L152.1,138.2 L156.4,140.1 L160.7,160.1 L165.0,158.4 L169.3,155.4 L173.6,155.4 L177.9,157.1 L182.2,158.9 L186.5,156.1 L190.8,151.5 L195.1,149.9 L199.4,133.8 L203.7,140.4 L208.0,132.8 L212.3,125.0 L216.6,113.9 L220.9,111.6 L225.2,105.1 L229.6,102.1 L233.9,109.9 L238.2,95.2 L242.5,94.7 L246.8,94.9 L251.1,94.4 L255.4,94.8 L259.7,101.3 L264.0,102.7 L268.3,99.5 L272.6,97.3 L276.9,89.0 L281.2,86.8 L285.5,86.9 L289.8,88.4 L294.1,88.0 L298.4,87.9 L302.7,86.9 L307.0,92.0 L311.3,91.0 L315.6,89.0 L319.9,105.1 L324.2,103.3 L328.5,105.3 L332.8,114.1 L337.2,112.8 L341.5,107.2 L345.8,105.0 L350.1,97.8 L354.4,99.8 L358.7,101.9 L363.0,103.7 L367.3,105.0 L371.6,103.3 L375.9,104.4 L380.2,104.3 L384.5,101.4 L388.8,102.5 L393.1,104.1 L397.4,106.3 L401.7,104.5 L406.0,88.1 L410.3,93.3 L414.6,96.5 L418.9,87.2 L423.2,88.8 L427.5,96.4 L431.8,95.9 L436.1,95.6 L440.4,86.8 L444.8,92.8 L449.1,86.9 L453.4,91.4 L457.7,92.3 L462.0,87.9 L466.3,87.4 L470.6,86.8 L474.9,87.6 L479.2,93.7 L483.5,92.5 L487.8,91.9 L492.1,91.8 L496.4,90.7 L500.7,92.2 L505.0,91.6 L509.3,91.0 L513.6,90.4 L517.9,89.7 L522.2,89.9 L526.5,87.6 L530.8,87.1 L535.1,87.8 L539.4,87.4 L543.7,88.7 L548.0,93.0 L552.4,89.9 L556.7,93.2 L561.0,97.4 L565.3,96.1 L569.6,97.5 L573.9,100.4 L578.2,100.5 L582.5,112.4 L586.8,109.1 L591.1,101.9 L595.4,116.9 L599.7,117.7 L604.0,115.1 L608.3,115.4 L612.6,114.7 L616.9,114.7 L621.2,115.2 L625.5,114.4 L629.8,113.3 L634.1,113.5 L638.4,116.0 L642.7,117.1 L647.0,125.8 L651.3,127.5 L655.6,133.1 L659.9,133.0 L664.3,128.5 L668.6,119.2 L672.9,117.2 L677.2,119.3 L681.5,142.7 L685.8,148.2 L690.1,157.2 L694.4,162.7 L698.7,161.3 L703.0,159.7 L707.3,156.2 L711.6,158.8 L715.9,159.1 L720.2,174.3 L724.5,173.2 L728.8,172.7 L733.1,175.9 L737.4,183.7 L741.7,179.9 L746.0,176.0 L750.3,183.5 L754.6,172.7 L758.9,157.8 L763.2,160.0 L767.5,149.7 L771.9,158.5 L776.2,158.9 L780.5,161.1 L784.8,159.4 L789.1,142.4 L793.4,143.4 L797.7,148.1 L802.0,143.7 L806.3,140.1 L810.6,151.6 L814.9,157.6 L819.2,172.0 L823.5,174.0 L827.8,172.5 L832.1,173.7 L836.4,178.2 L840.0,183.5" fill="none" stroke="#b45309" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>Risk-only A</title></path>
+<circle cx="840.0" cy="183.5" r="3.4" fill="#b45309" stroke="#ffffff" stroke-width="1.4"/>
+<path d="M66.0,86.8 L70.3,87.0 L74.6,94.7 L78.9,96.8 L83.2,98.7 L87.5,99.6 L91.8,99.8 L96.1,119.5 L100.4,118.3 L104.7,121.4 L109.0,112.1 L113.3,115.1 L117.6,120.4 L122.0,117.4 L126.3,116.5 L130.6,116.6 L134.9,120.1 L139.2,123.8 L143.5,133.9 L147.8,132.1 L152.1,133.9 L156.4,135.4 L160.7,148.6 L165.0,147.6 L169.3,145.7 L173.6,145.7 L177.9,146.8 L182.2,148.2 L186.5,146.5 L190.8,143.5 L195.1,142.5 L199.4,131.9 L203.7,136.8 L208.0,131.7 L212.3,126.2 L216.6,118.2 L220.9,116.5 L225.2,111.5 L229.6,109.2 L233.9,116.0 L238.2,104.0 L242.5,103.6 L246.8,103.8 L251.1,103.5 L255.4,104.0 L259.7,109.6 L264.0,110.9 L268.3,108.3 L272.6,106.4 L276.9,99.2 L281.2,93.7 L285.5,90.8 L289.8,88.6 L294.1,88.2 L298.4,88.2 L302.7,87.0 L307.0,93.1 L311.3,92.2 L315.6,89.9 L319.9,107.6 L324.2,106.0 L328.5,108.1 L332.8,116.5 L337.2,115.7 L341.5,110.9 L345.8,108.8 L350.1,101.8 L354.4,104.3 L358.7,106.7 L363.0,108.5 L367.3,109.7 L371.6,108.1 L375.9,109.2 L380.2,109.2 L384.5,106.4 L388.8,107.4 L393.1,109.1 L397.4,111.3 L401.7,109.8 L406.0,88.9 L410.3,95.2 L414.6,99.0 L418.9,87.9 L423.2,90.8 L427.5,100.3 L431.8,99.9 L436.1,99.8 L440.4,88.5 L444.8,96.3 L449.1,89.3 L453.4,93.1 L457.7,95.1 L462.0,89.5 L466.3,88.3 L470.6,86.8 L474.9,88.6 L479.2,99.2 L483.5,97.5 L487.8,96.6 L492.1,96.4 L496.4,94.7 L500.7,97.2 L505.0,96.2 L509.3,95.3 L513.6,94.4 L517.9,93.2 L522.2,93.6 L526.5,88.3 L530.8,87.6 L535.1,88.7 L539.4,88.1 L543.7,90.8 L548.0,99.5 L552.4,93.8 L556.7,100.3 L561.0,108.4 L565.3,106.4 L569.6,108.8 L573.9,113.7 L578.2,114.2 L582.5,132.5 L586.8,127.9 L591.1,117.3 L595.4,139.1 L599.7,140.2 L604.0,136.7 L608.3,137.2 L612.6,136.2 L616.9,136.3 L621.2,136.9 L625.5,135.8 L629.8,134.3 L634.1,134.5 L638.4,138.0 L642.7,139.4 L647.0,151.1 L651.3,153.3 L655.6,161.0 L659.9,160.7 L664.3,154.7 L668.6,142.1 L672.9,139.3 L677.2,142.2 L681.5,170.6 L685.8,176.6 L690.1,185.9 L694.4,191.3 L698.7,190.5 L703.0,189.4 L707.3,186.2 L711.6,188.7 L715.9,189.5 L720.2,203.3 L724.5,202.3 L728.8,201.9 L733.1,204.7 L737.4,211.6 L741.7,208.3 L746.0,204.8 L750.3,212.2 L754.6,202.6 L758.9,189.2 L763.2,191.3 L767.5,181.9 L771.9,190.5 L776.2,191.0 L780.5,193.1 L784.8,191.8 L789.1,175.6 L793.4,176.8 L797.7,181.7 L802.0,177.8 L806.3,174.4 L810.6,186.0 L814.9,191.8 L819.2,204.9 L823.5,206.8 L827.8,205.5 L832.1,206.5 L836.4,210.6 L840.0,215.2" fill="none" stroke="#52606d" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>HODL</title></path>
+<circle cx="840.0" cy="215.2" r="3.4" fill="#52606d" stroke="#ffffff" stroke-width="1.4"/>
+</svg><p class="chart-note">The strategy path is shallower than HODL after the guard and recalls, but the 20-day cut is not.</p></div></div><div style="margin-top:16px"><div class="card chart-card"><div class="chart-head"><h3>Guard stress 50 bps - NAV</h3><p>24 raw proxy hours; 20 model pulls</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Guard stress 50 bps NAV versus HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">Guard stress 50 bps</text>
+<rect x="219.6" y="9.0" width="11" height="11" rx="2.5" fill="#52606d"/>
+<text class="svg-legend" x="235.6" y="18.0">HODL</text>
+<line class="svg-grid" x1="66" x2="840" y1="242.0" y2="242.0"/>
+<text class="svg-tick" x="57" y="245.6" text-anchor="end">$9.4k</text>
+<line class="svg-grid" x1="66" x2="840" y1="209.7" y2="209.7"/>
+<text class="svg-tick" x="57" y="213.3" text-anchor="end">$9.6k</text>
+<line class="svg-grid" x1="66" x2="840" y1="177.3" y2="177.3"/>
+<text class="svg-tick" x="57" y="180.9" text-anchor="end">$9.8k</text>
+<line class="svg-grid" x1="66" x2="840" y1="145.0" y2="145.0"/>
+<text class="svg-tick" x="57" y="148.6" text-anchor="end">$10.0k</text>
+<line class="svg-grid" x1="66" x2="840" y1="112.7" y2="112.7"/>
+<text class="svg-tick" x="57" y="116.3" text-anchor="end">$10.2k</text>
+<line class="svg-grid" x1="66" x2="840" y1="80.3" y2="80.3"/>
+<text class="svg-tick" x="57" y="83.9" text-anchor="end">$10.4k</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">$10.6k</text>
+<line class="svg-axis" x1="66.0" x2="66.0" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="66.0" y="260.0" text-anchor="middle">0</text>
+<line class="svg-axis" x1="209.5" x2="209.5" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="209.5" y="260.0" text-anchor="middle">200</text>
+<line class="svg-axis" x1="352.9" x2="352.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="352.9" y="260.0" text-anchor="middle">400</text>
+<line class="svg-axis" x1="496.4" x2="496.4" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="496.4" y="260.0" text-anchor="middle">600</text>
+<line class="svg-axis" x1="639.9" x2="639.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="639.9" y="260.0" text-anchor="middle">800</text>
+<line class="svg-axis" x1="783.3" x2="783.3" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="783.3" y="260.0" text-anchor="middle">1,000</text>
+<text class="svg-axis-label" x="453.0" y="292" text-anchor="middle">Hour of the 45-day window</text>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 59 bps 5-min move</title><line x1="94.7" x2="94.7" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="94.7" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 56 bps 5-min move</title><line x1="111.9" x2="111.9" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="111.9" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 86 bps 5-min move</title><line x1="163.6" x2="163.6" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="163.6" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 82 bps 5-min move</title><line x1="236.7" x2="236.7" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="236.7" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 62 bps 5-min move</title><line x1="284.1" x2="284.1" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="284.1" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 61 bps 5-min move</title><line x1="301.3" x2="301.3" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="301.3" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 123 bps 5-min move</title><line x1="402.4" x2="402.4" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="402.4" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 83 bps 5-min move</title><line x1="404.6" x2="404.6" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="404.6" cy="39.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard-absent"><title>No guard pull - 57 bps 5-min move</title><line x1="405.3" x2="405.3" y1="48" y2="242" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="405.3" cy="34.0" r="2.7" fill="#94a3b8" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 71 bps 5-min move</title><line x1="456.2" x2="456.2" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="456.2" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 51 bps 5-min move</title><line x1="473.4" x2="473.4" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="473.4" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 71 bps 5-min move</title><line x1="542.3" x2="542.3" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="542.3" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 86 bps 5-min move</title><line x1="594.0" x2="594.0" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="594.0" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="recall"><title>Recall to arms</title><line x1="621.9" x2="621.9" y1="48" y2="242" stroke="#b45309" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="621.9" cy="44.0" r="2.7" fill="#b45309" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard-absent"><title>No guard pull - 52 bps 5-min move</title><line x1="645.6" x2="645.6" y1="48" y2="242" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="645.6" cy="44.0" r="2.7" fill="#94a3b8" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard-absent"><title>No guard pull - 71 bps 5-min move</title><line x1="662.8" x2="662.8" y1="48" y2="242" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="662.8" cy="44.0" r="2.7" fill="#94a3b8" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="return"><title>Fund the book</title><line x1="685.8" x2="685.8" y1="48" y2="242" stroke="#2563eb" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="685.8" cy="44.0" r="2.7" fill="#2563eb" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 67 bps 5-min move</title><line x1="686.5" x2="686.5" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="686.5" cy="39.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 103 bps 5-min move</title><line x1="697.3" x2="697.3" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="697.3" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 51 bps 5-min move</title><line x1="714.5" x2="714.5" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="714.5" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 107 bps 5-min move</title><line x1="766.1" x2="766.1" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="766.1" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 76 bps 5-min move</title><line x1="783.3" x2="783.3" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="783.3" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard-absent"><title>No guard pull - 55 bps 5-min move</title><line x1="784.0" x2="784.0" y1="48" y2="242" stroke="#94a3b8" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="784.0" cy="39.0" r="2.7" fill="#94a3b8" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 65 bps 5-min move</title><line x1="788.4" x2="788.4" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="788.4" cy="34.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 63 bps 5-min move</title><line x1="800.5" x2="800.5" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="800.5" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<g class="svg-event" data-event="guard"><title>Model guard pull - 59 bps 5-min move</title><line x1="835.0" x2="835.0" y1="48" y2="242" stroke="#b42318" stroke-width="1.1" stroke-dasharray="3 3" stroke-opacity=".72"/><circle cx="835.0" cy="44.0" r="2.7" fill="#b42318" stroke="#ffffff" stroke-width=".9"/></g>
+<path d="M66.0,145.0 L70.3,143.5 L74.6,149.3 L78.9,150.5 L83.2,152.0 L87.5,152.7 L91.8,152.7 L96.1,172.0 L100.4,170.7 L104.7,174.1 L109.0,164.0 L113.3,167.1 L117.6,172.8 L122.0,169.6 L126.3,168.7 L130.6,168.7 L134.9,172.5 L139.2,176.5 L143.5,187.7 L147.8,185.7 L152.1,187.7 L156.4,189.3 L160.7,204.1 L165.0,202.9 L169.3,200.8 L173.6,200.8 L177.9,202.0 L182.2,203.5 L186.5,201.5 L190.8,198.2 L195.1,197.1 L199.4,185.1 L203.7,190.5 L208.0,184.7 L212.3,178.7 L216.6,169.9 L220.9,168.0 L225.2,162.5 L229.6,159.9 L233.9,167.2 L238.2,154.3 L242.5,153.9 L246.8,154.1 L251.1,153.7 L255.4,154.3 L259.7,160.3 L264.0,161.6 L268.3,158.9 L272.6,156.8 L276.9,149.1 L281.2,143.2 L285.5,140.1 L289.8,132.1 L294.1,131.2 L298.4,131.2 L302.7,125.2 L307.0,126.5 L311.3,125.5 L315.6,123.2 L319.9,141.7 L324.2,140.0 L328.5,142.2 L332.8,151.2 L337.2,150.3 L341.5,145.0 L345.8,142.8 L350.1,135.3 L354.4,137.8 L358.7,140.4 L363.0,142.3 L367.3,143.6 L371.6,141.9 L375.9,143.1 L380.2,143.0 L384.5,140.0 L388.8,141.1 L393.1,142.9 L397.4,145.3 L401.7,143.6 L406.0,115.9 L410.3,121.6 L414.6,125.5 L418.9,114.0 L423.2,116.9 L427.5,126.7 L431.8,126.2 L436.1,126.1 L440.4,114.2 L444.8,122.2 L449.1,114.9 L453.4,115.8 L457.7,117.8 L462.0,112.0 L466.3,110.7 L470.6,102.4 L474.9,89.7 L479.2,100.5 L483.5,98.7 L487.8,97.8 L492.1,97.6 L496.4,95.9 L500.7,98.4 L505.0,97.4 L509.3,96.5 L513.6,95.6 L517.9,94.4 L522.2,94.8 L526.5,87.9 L530.8,76.7 L535.1,76.1 L539.4,71.8 L543.7,69.2 L548.0,77.7 L552.4,72.1 L556.7,78.5 L561.0,86.5 L565.3,84.5 L569.6,86.9 L573.9,91.8 L578.2,92.4 L582.5,111.2 L586.8,106.4 L591.1,95.3 L595.4,118.1 L599.7,119.2 L604.0,115.6 L608.3,116.1 L612.6,115.0 L616.9,115.1 L621.2,115.8 L625.5,114.6 L629.8,113.0 L634.1,113.3 L638.4,116.9 L642.7,118.5 L647.0,130.8 L651.3,133.1 L655.6,141.2 L659.9,141.0 L664.3,134.7 L668.6,121.3 L672.9,118.4 L677.2,121.5 L681.5,151.5 L685.8,157.9 L690.1,167.9 L694.4,173.9 L698.7,172.8 L703.0,171.5 L707.3,167.9 L711.6,170.7 L715.9,171.5 L720.2,187.1 L724.5,186.0 L728.8,185.5 L733.1,188.7 L737.4,196.7 L741.7,192.8 L746.0,188.8 L750.3,195.2 L754.6,184.2 L758.9,168.9 L763.2,171.3 L767.5,160.7 L771.9,170.3 L776.2,170.8 L780.5,173.1 L784.8,171.7 L789.1,153.6 L793.4,154.9 L797.7,160.2 L802.0,155.8 L806.3,151.9 L810.6,164.9 L814.9,171.5 L819.2,186.5 L823.5,188.6 L827.8,187.0 L832.1,188.2 L836.4,192.9 L840.0,198.3" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>Guard stress 50 bps</title></path>
+<circle cx="840.0" cy="198.3" r="3.4" fill="#0f766e" stroke="#ffffff" stroke-width="1.4"/>
+<path d="M66.0,145.0 L70.3,143.7 L74.6,149.5 L78.9,151.2 L83.2,152.8 L87.5,153.6 L91.8,153.8 L96.1,170.1 L100.4,169.2 L104.7,171.8 L109.0,164.0 L113.3,166.5 L117.6,170.9 L122.0,168.4 L126.3,167.7 L130.6,167.8 L134.9,170.7 L139.2,173.7 L143.5,182.2 L147.8,180.7 L152.1,182.2 L156.4,183.4 L160.7,194.4 L165.0,193.6 L169.3,192.1 L173.6,192.1 L177.9,193.0 L182.2,194.1 L186.5,192.7 L190.8,190.2 L195.1,189.4 L199.4,180.6 L203.7,184.7 L208.0,180.3 L212.3,175.8 L216.6,169.1 L220.9,167.7 L225.2,163.5 L229.6,161.6 L233.9,167.2 L238.2,157.3 L242.5,157.0 L246.8,157.1 L251.1,156.8 L255.4,157.3 L259.7,162.0 L264.0,163.0 L268.3,160.8 L272.6,159.3 L276.9,153.3 L281.2,148.6 L285.5,146.2 L289.8,139.9 L294.1,139.2 L298.4,139.2 L302.7,134.4 L307.0,135.5 L311.3,134.7 L315.6,132.8 L319.9,147.7 L324.2,146.3 L328.5,148.1 L332.8,155.1 L337.2,154.5 L341.5,150.4 L345.8,148.6 L350.1,142.7 L354.4,144.8 L358.7,146.9 L363.0,148.4 L367.3,149.4 L371.6,148.1 L375.9,149.0 L380.2,149.0 L384.5,146.6 L388.8,147.5 L393.1,148.9 L397.4,150.8 L401.7,149.5 L406.0,127.5 L410.3,132.1 L414.6,135.3 L418.9,125.9 L423.2,128.4 L427.5,136.4 L431.8,136.1 L436.1,136.0 L440.4,126.4 L444.8,133.0 L449.1,127.1 L453.4,127.8 L457.7,129.6 L462.0,124.9 L466.3,123.8 L470.6,116.9 L474.9,106.4 L479.2,115.5 L483.5,113.9 L487.8,113.2 L492.1,113.0 L496.4,111.6 L500.7,113.7 L505.0,112.9 L509.3,112.1 L513.6,111.3 L517.9,110.3 L522.2,110.7 L526.5,104.8 L530.8,95.2 L535.1,94.8 L539.4,91.0 L543.7,88.7 L548.0,96.2 L552.4,91.3 L556.7,96.9 L561.0,103.9 L565.3,102.2 L569.6,104.2 L573.9,108.5 L578.2,109.0 L582.5,124.8 L586.8,120.8 L591.1,111.6 L595.4,130.5 L599.7,131.4 L604.0,128.4 L608.3,128.8 L612.6,127.9 L616.9,128.0 L621.2,128.6 L625.5,127.6 L629.8,126.3 L634.1,126.5 L638.4,129.5 L642.7,130.7 L647.0,140.8 L651.3,142.7 L655.6,149.4 L659.9,149.1 L664.3,143.9 L668.6,133.0 L672.9,130.6 L677.2,133.1 L681.5,157.7 L685.8,162.9 L690.1,170.9 L694.4,175.6 L698.7,174.9 L703.0,173.9 L707.3,171.2 L711.6,173.3 L715.9,174.0 L720.2,186.0 L724.5,185.1 L728.8,184.7 L733.1,187.2 L737.4,193.1 L741.7,190.2 L746.0,187.3 L750.3,193.6 L754.6,185.3 L758.9,173.7 L763.2,175.6 L767.5,167.5 L771.9,174.9 L776.2,175.3 L780.5,177.1 L784.8,176.0 L789.1,162.0 L793.4,163.1 L797.7,167.2 L802.0,163.9 L806.3,160.9 L810.6,171.0 L814.9,176.0 L819.2,187.3 L823.5,188.9 L827.8,187.8 L832.1,188.7 L836.4,192.2 L840.0,196.2" fill="none" stroke="#52606d" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6 4"><title>HODL</title></path>
+<circle cx="840.0" cy="196.2" r="3.4" fill="#52606d" stroke="#ffffff" stroke-width="1.4"/>
+</svg><p class="chart-note">Red = model pull; gray = no pull; amber/blue = book recall/fund. This is a stress (risk_only_a_guard50), not the deploy setting.</p></div></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Detail</th><th class="num">NAV</th><th class="num">Drawdown</th></tr></thead><tbody><tr><td>Oct 03, 06:16</td><td>Recall to arms</td><td>book -&gt; 0</td><td class="num pos">+$10,287</td><td class="num">-0.30%</td></tr><tr><td>Oct 03, 07:16</td><td>Fund the book</td><td>book -&gt; &gt;$1</td><td class="num pos">+$10,289</td><td class="num">-0.28%</td></tr><tr><td>Oct 11, 11:16</td><td>Recall to arms</td><td>book -&gt; 0</td><td class="num pos">+$10,243</td><td class="num">-1.43%</td></tr><tr><td>Oct 14, 09:16</td><td>Fund the book</td><td>book -&gt; &gt;$1</td><td class="num pos">+$10,218</td><td class="num">-1.68%</td></tr></tbody></table></div><p class="chart-note">Book changes are anchored on book capital crossing $1; the 8 mode flips include arm funding states, not separate recalls.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>When</th><th class="num">5-min move</th><th>Status</th><th class="num">NAV</th><th class="num">Drawdown</th></tr></thead><tbody><tr><td>Sep 10, 13:16</td><td class="num">59 bps</td><td>pull</td><td class="num pos">+$9,823</td><td class="num">-1.91%</td></tr><tr><td>Sep 11, 13:16</td><td class="num">56 bps</td><td>pull</td><td class="num pos">+$9,912</td><td class="num">-1.03%</td></tr><tr><td>Sep 14, 13:16</td><td class="num">86 bps</td><td>pull</td><td class="num pos">+$9,623</td><td class="num">-3.91%</td></tr><tr><td>Sep 18, 19:16</td><td class="num">82 bps</td><td>pull</td><td class="num pos">+$9,931</td><td class="num">-0.83%</td></tr><tr><td>Sep 21, 13:16</td><td class="num">62 bps</td><td>pull</td><td class="num pos">+$9,972</td><td class="num">-0.42%</td></tr><tr><td>Sep 22, 13:16</td><td class="num">61 bps</td><td>pull</td><td class="num pos">+$10,114</td><td class="num">0.00%</td></tr><tr><td>Sep 28, 10:16</td><td class="num">123 bps</td><td>pull</td><td class="num pos">+$10,124</td><td class="num">-0.30%</td></tr><tr><td>Sep 28, 13:16</td><td class="num">83 bps</td><td>pull</td><td class="num pos">+$10,193</td><td class="num">0.00%</td></tr><tr><td>Sep 28, 14:16</td><td class="num">57 bps</td><td>no pull</td><td class="num pos">+$10,178</td><td class="num">-0.15%</td></tr><tr><td>Oct 01, 13:16</td><td class="num">71 bps</td><td>pull</td><td class="num pos">+$10,168</td><td class="num">-0.51%</td></tr><tr><td>Oct 02, 13:16</td><td class="num">51 bps</td><td>pull</td><td class="num pos">+$10,353</td><td class="num">0.00%</td></tr><tr><td>Oct 06, 13:16</td><td class="num">71 bps</td><td>pull</td><td class="num pos">+$10,493</td><td class="num">0.00%</td></tr><tr><td>Oct 09, 13:16</td><td class="num">86 bps</td><td>pull</td><td class="num pos">+$10,202</td><td class="num">-2.78%</td></tr><tr><td>Oct 12, 13:16</td><td class="num">52 bps</td><td>no pull</td><td class="num pos">+$10,053</td><td class="num">-4.20%</td></tr><tr><td>Oct 13, 13:16</td><td class="num">71 bps</td><td>no pull</td><td class="num pos">+$10,068</td><td class="num">-4.05%</td></tr><tr><td>Oct 14, 22:16</td><td class="num">67 bps</td><td>pull</td><td class="num pos">+$9,873</td><td class="num">-5.91%</td></tr><tr><td>Oct 15, 13:16</td><td class="num">103 bps</td><td>pull</td><td class="num pos">+$9,779</td><td class="num">-6.80%</td></tr><tr><td>Oct 16, 13:16</td><td class="num">51 bps</td><td>pull</td><td class="num pos">+$9,810</td><td class="num">-6.51%</td></tr><tr><td>Oct 19, 13:16</td><td class="num">107 bps</td><td>pull</td><td class="num pos">+$9,831</td><td class="num">-6.31%</td></tr><tr><td>Oct 20, 13:16</td><td class="num">76 bps</td><td>pull</td><td class="num pos">+$9,847</td><td class="num">-6.16%</td></tr><tr><td>Oct 20, 14:16</td><td class="num">55 bps</td><td>no pull</td><td class="num pos">+$9,846</td><td class="num">-6.17%</td></tr><tr><td>Oct 20, 20:16</td><td class="num">65 bps</td><td>pull</td><td class="num pos">+$9,955</td><td class="num">-5.13%</td></tr><tr><td>Oct 21, 13:16</td><td class="num">63 bps</td><td>pull</td><td class="num pos">+$9,873</td><td class="num">-5.91%</td></tr><tr><td>Oct 23, 13:16</td><td class="num">59 bps</td><td>pull</td><td class="num pos">+$9,697</td><td class="num">-7.59%</td></tr></tbody></table></div><p class="chart-note">24 raw 5-min proxy hours at 50 bps; 20 model pulls; 4 did not produce a pull (2 re-arm lag, 2 book capital at zero): 473, 808, 832, 1001.</p></div><div class="card"><div class="table-wrap study-table"><table class="data-table"><thead><tr><th>Proxy</th><th class="num">Model pulls</th><th class="num">Raw proxy hours</th><th class="num">45d net</th><th class="num">20d net</th><th class="num">DD 45d</th><th class="num">Actions</th></tr></thead><tbody><tr><td>50 bps</td><td class="num">20</td><td class="num">24</td><td class="num neg">-$12.96</td><td class="num pos">+$19.47</td><td class="num">-7.90%</td><td class="num">602</td></tr><tr><td>100 bps</td><td class="num">3</td><td class="num">3</td><td class="num pos">+$134.75</td><td class="num neg">-$130.42</td><td class="num">-5.72%</td><td class="num">336</td></tr><tr><td>200 bps</td><td class="num">0</td><td class="num">0</td><td class="num pos">+$191.04</td><td class="num neg">-$105.62</td><td class="num">-5.19%</td><td class="num">276</td></tr></tbody></table></div><p class="chart-note">50 bps is a stress; 200 bps is the production proxy and recorded 0 hits on this tape. The real hook pull is EV-based.</p></div><div class="callout warn"><b>The guard is a proxy, not a metronome.</b> The 200 bps production proxy recorded 0 pulls on this tape; the 50 bps stress recorded 24 raw 5-min moves and 20 model pulls. Four raw hours did not produce a pull (2 re-arm lag, 2 book capital at zero): 473, 808, 832, 1001. The 50 bps churns 602 actions and loses the 45d; the 200 bps keeps the book in the fee window. The hook's real EV pull is not observable here.</div><div class="card chart-card" style="margin-top:16px"><div class="chart-head"><h3>LP mark versus HODL - 45d</h3><p>Residual after net carry, USD</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Cumulative LP mark versus HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">LP mark vs HODL</text>
+<line class="svg-grid" x1="66" x2="840" y1="242.0" y2="242.0"/>
+<text class="svg-tick" x="57" y="245.6" text-anchor="end">-$150</text>
+<line class="svg-grid" x1="66" x2="840" y1="193.5" y2="193.5"/>
+<text class="svg-tick" x="57" y="197.1" text-anchor="end">-$100</text>
+<line class="svg-grid" x1="66" x2="840" y1="145.0" y2="145.0"/>
+<text class="svg-tick" x="57" y="148.6" text-anchor="end">-$50</text>
+<line class="svg-grid" x1="66" x2="840" y1="96.5" y2="96.5"/>
+<text class="svg-tick" x="57" y="100.1" text-anchor="end">$0</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">+$50</text>
+<line class="svg-zero" x1="66" x2="840" y1="96.5" y2="96.5"/>
+<line class="svg-axis" x1="66.0" x2="66.0" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="66.0" y="260.0" text-anchor="middle">0</text>
+<line class="svg-axis" x1="209.5" x2="209.5" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="209.5" y="260.0" text-anchor="middle">200</text>
+<line class="svg-axis" x1="352.9" x2="352.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="352.9" y="260.0" text-anchor="middle">400</text>
+<line class="svg-axis" x1="496.4" x2="496.4" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="496.4" y="260.0" text-anchor="middle">600</text>
+<line class="svg-axis" x1="639.9" x2="639.9" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="639.9" y="260.0" text-anchor="middle">800</text>
+<line class="svg-axis" x1="783.3" x2="783.3" y1="48" y2="242" stroke-opacity=".45"/>
+<text class="svg-tick" x="783.3" y="260.0" text-anchor="middle">1,000</text>
+<text class="svg-axis-label" x="453.0" y="292" text-anchor="middle">Hour of the 45-day window</text>
+<path d="M66.0,96.5 L70.3,96.6 L74.6,97.2 L78.9,97.8 L83.2,98.6 L87.5,99.1 L91.8,99.2 L96.1,119.0 L100.4,117.3 L104.7,122.0 L109.0,109.3 L113.3,112.9 L117.6,120.4 L122.0,116.0 L126.3,114.8 L130.6,114.9 L134.9,120.0 L139.2,125.9 L143.5,146.0 L147.8,142.1 L152.1,146.0 L156.4,149.4 L160.7,184.5 L165.0,181.6 L169.3,176.3 L173.6,176.3 L177.9,179.5 L182.2,183.4 L186.5,178.4 L190.8,170.2 L195.1,167.4 L199.4,141.7 L203.7,152.9 L208.0,141.2 L212.3,130.2 L216.6,117.2 L220.9,114.8 L225.2,108.7 L229.6,106.2 L233.9,114.0 L238.2,101.8 L242.5,101.5 L246.8,101.7 L251.1,101.4 L255.4,101.8 L259.7,106.7 L264.0,107.9 L268.3,105.4 L272.6,103.7 L276.9,98.9 L281.2,97.0 L285.5,96.6 L289.8,97.4 L294.1,97.7 L298.4,97.7 L302.7,100.4 L307.0,99.6 L311.3,100.2 L315.6,101.7 L319.9,96.7 L324.2,96.6 L328.5,96.8 L332.8,100.1 L337.2,99.7 L341.5,97.5 L345.8,97.0 L350.1,96.7 L354.4,96.5 L358.7,96.6 L363.0,96.9 L367.3,97.2 L371.6,96.8 L375.9,97.1 L380.2,97.0 L384.5,96.6 L388.8,96.7 L393.1,97.0 L397.4,97.7 L401.7,97.2 L406.0,107.1 L410.3,102.2 L414.6,99.8 L418.9,109.1 L423.2,106.0 L427.5,99.1 L431.8,99.3 L436.1,99.3 L440.4,108.4 L444.8,101.5 L449.1,107.6 L453.4,106.7 L457.7,104.7 L462.0,110.5 L466.3,112.0 L470.6,123.7 L474.9,147.5 L479.2,126.5 L483.5,129.6 L487.8,131.2 L492.1,131.5 L496.4,134.6 L500.7,130.1 L505.0,131.9 L509.3,133.5 L513.6,135.2 L517.9,137.4 L522.2,136.7 L526.5,150.3 L530.8,175.7 L535.1,176.9 L539.4,187.9 L543.7,194.7 L548.0,172.8 L552.4,186.9 L556.7,170.9 L561.0,152.6 L565.3,156.9 L569.6,151.8 L573.9,141.6 L578.2,140.5 L582.5,109.2 L586.8,116.2 L591.1,134.6 L595.4,100.4 L599.7,99.1 L604.0,103.5 L608.3,102.8 L612.6,104.2 L616.9,104.1 L621.2,103.2 L625.5,104.7 L629.8,106.8 L634.1,106.4 L638.4,101.8 L642.7,99.9 L647.0,84.4 L651.3,81.4 L655.6,71.2 L659.9,71.6 L664.3,79.6 L668.6,96.4 L672.9,100.0 L677.2,96.2 L681.5,72.6 L685.8,71.2 L690.1,71.8 L694.4,73.6 L698.7,73.3 L703.0,72.8 L707.3,71.9 L711.6,72.6 L715.9,72.9 L720.2,80.9 L724.5,80.2 L728.8,79.9 L733.1,81.9 L737.4,86.7 L741.7,84.4 L746.0,81.9 L750.3,87.1 L754.6,80.4 L758.9,72.8 L763.2,73.6 L767.5,71.2 L771.9,73.3 L776.2,73.5 L780.5,74.4 L784.8,73.8 L789.1,71.4 L793.4,71.2 L797.7,71.2 L802.0,71.1 L806.3,71.6 L810.6,71.8 L814.9,73.8 L819.2,82.0 L823.5,83.3 L827.8,82.4 L832.1,83.1 L836.4,86.0 L840.0,89.3" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>LP mark vs HODL</title></path>
+<circle cx="840.0" cy="89.3" r="3.4" fill="#0f766e" stroke="#ffffff" stroke-width="1.4"/>
+</svg><p class="chart-note">Read directly from <code>cum_il_vs_hodl</code> in <code>baseline_paths.csv</code>. Positive is possible in a down tape when the book is underweight NVDA and sits out part of the fall; it is not static IL.</p></div><div class="card" style="margin-top:16px"><h3>Where capital sits - risk-only A, 45d</h3><p class="lead-in">Mode is the hourly keeper state; the allocation stack is the same hour in dollars.</p><div class="mode-strip" role="img" aria-label="Hourly keeper mode: BOOKS 811 hours, ARMS 269 hours"><div class="mode-seg books" style="width:54.537%" title="BOOKS: hour 0-588 (589h, 54.5%)">BOOKS 589h</div><div class="mode-seg arms" style="width:3.519%" title="ARMS: hour 589-626 (38h, 3.5%)"></div><div class="mode-seg books" style="width:6.759%" title="BOOKS: hour 627-699 (73h, 6.8%)"></div><div class="mode-seg arms" style="width:4.074%" title="ARMS: hour 700-743 (44h, 4.1%)"></div><div class="mode-seg books" style="width:0.093%" title="BOOKS: hour 744-744 (1h, 0.1%)"></div><div class="mode-seg arms" style="width:9.815%" title="ARMS: hour 745-850 (106h, 9.8%)">ARMS 106h</div><div class="mode-seg books" style="width:6.204%" title="BOOKS: hour 851-917 (67h, 6.2%)"></div><div class="mode-seg arms" style="width:7.500%" title="ARMS: hour 918-998 (81h, 7.5%)">ARMS 81h</div><div class="mode-seg books" style="width:7.500%" title="BOOKS: hour 999-1079 (81h, 7.5%)">BOOKS 81h</div></div><div class="mode-legend"><span><i class="swatch" style="background:#0f766e"></i>BOOKS</span><span><i class="swatch" style="background:#b45309"></i>ARMS</span><span>9 contiguous segments</span><span>BOOKS 811h (75%)</span><span>ARMS 269h (25%)</span></div><div style="margin-top:14px"><svg class="chart" viewBox="0 0 860 320" role="img" aria-label="Risk-only A allocation over 45 days" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#0f766e"/>
+<text class="svg-legend" x="78.0" y="18.0">Books A+B</text>
+<rect x="155.6" y="9.0" width="11" height="11" rx="2.5" fill="#b45309"/>
+<text class="svg-legend" x="171.6" y="18.0">Arm equity</text>
+<rect x="255.6" y="9.0" width="11" height="11" rx="2.5" fill="#52606d"/>
+<text class="svg-legend" x="271.6" y="18.0">Idle value</text>
+<line class="svg-grid" x1="66" x2="840" y1="262.0" y2="262.0"/>
+<text class="svg-tick" x="57" y="265.6" text-anchor="end">$0</text>
+<line class="svg-grid" x1="66" x2="840" y1="190.7" y2="190.7"/>
+<text class="svg-tick" x="57" y="194.3" text-anchor="end">$5.0k</text>
+<line class="svg-grid" x1="66" x2="840" y1="119.3" y2="119.3"/>
+<text class="svg-tick" x="57" y="122.9" text-anchor="end">$10.0k</text>
+<line class="svg-grid" x1="66" x2="840" y1="48.0" y2="48.0"/>
+<text class="svg-tick" x="57" y="51.6" text-anchor="end">$15.0k</text>
+<text class="svg-tick" x="66.0" y="280.0" text-anchor="middle">0</text>
+<text class="svg-tick" x="209.5" y="280.0" text-anchor="middle">200</text>
+<text class="svg-tick" x="352.9" y="280.0" text-anchor="middle">400</text>
+<text class="svg-tick" x="496.4" y="280.0" text-anchor="middle">600</text>
+<text class="svg-tick" x="639.9" y="280.0" text-anchor="middle">800</text>
+<text class="svg-tick" x="783.3" y="280.0" text-anchor="middle">1,000</text>
+<text class="svg-axis-label" x="453.0" y="312" text-anchor="middle">Hour of the 45-day window</text>
+<path d="M66.0,119.3 L70.3,119.2 L74.6,119.7 L78.9,119.8 L83.2,120.0 L87.5,120.0 L91.8,120.0 L96.1,121.7 L100.4,121.5 L104.7,121.8 L109.0,120.9 L113.3,121.1 L117.6,121.6 L122.0,121.3 L126.3,121.2 L130.6,121.2 L134.9,121.6 L139.2,121.9 L143.5,122.9 L147.8,122.7 L152.1,122.9 L156.4,123.1 L160.7,124.5 L165.0,124.4 L169.3,124.2 L173.6,124.2 L177.9,124.3 L182.2,124.4 L186.5,124.2 L190.8,123.9 L195.1,123.8 L199.4,122.6 L203.7,123.1 L208.0,122.5 L212.3,121.9 L216.6,121.1 L220.9,121.0 L225.2,120.5 L229.6,120.3 L233.9,120.8 L238.2,119.7 L242.5,119.7 L246.8,119.7 L251.1,119.7 L255.4,119.7 L259.7,120.2 L264.0,120.3 L268.3,120.1 L272.6,119.9 L276.9,119.3 L281.2,118.8 L285.5,118.6 L289.8,118.0 L294.1,117.9 L298.4,117.9 L302.7,117.5 L307.0,117.6 L311.3,117.5 L315.6,117.3 L319.9,118.5 L324.2,118.4 L328.5,118.6 L332.8,119.2 L337.2,119.1 L341.5,118.7 L345.8,118.5 L350.1,118.0 L354.4,118.2 L358.7,118.3 L363.0,118.4 L367.3,118.5 L371.6,118.4 L375.9,118.5 L380.2,118.5 L384.5,118.3 L388.8,118.4 L393.1,118.5 L397.4,118.6 L401.7,118.5 L406.0,116.6 L410.3,116.9 L414.6,117.1 L418.9,116.4 L423.2,116.5 L427.5,117.1 L431.8,117.1 L436.1,117.1 L440.4,116.3 L444.8,116.7 L449.1,116.3 L453.4,116.3 L457.7,116.4 L462.0,116.0 L466.3,116.0 L470.6,115.5 L474.9,114.9 L479.2,115.3 L483.5,115.2 L487.8,175.4 L492.1,175.4 L496.4,175.3 L500.7,175.4 L505.0,175.4 L509.3,175.3 L513.6,175.3 L517.9,175.2 L522.2,175.3 L526.5,175.0 L530.8,174.5 L535.1,174.5 L539.4,174.3 L543.7,174.2 L548.0,174.5 L552.4,174.3 L556.7,174.5 L561.0,174.8 L565.3,174.7 L569.6,174.8 L573.9,175.0 L578.2,175.0 L582.5,175.8 L586.8,175.6 L591.1,175.1 L595.4,176.1 L599.7,176.2 L604.0,176.0 L608.3,176.0 L612.6,176.0 L616.9,176.0 L621.2,176.0 L625.5,176.0 L629.8,262.0 L634.1,262.0 L638.4,262.0 L642.7,262.0 L647.0,262.0 L651.3,262.0 L655.6,262.0 L659.9,262.0 L664.3,262.0 L668.6,262.0 L672.9,262.0 L677.2,165.1 L681.5,166.8 L685.8,167.1 L690.1,167.8 L694.4,168.2 L698.7,168.1 L703.0,167.9 L707.3,167.7 L711.6,167.9 L715.9,167.9 L720.2,169.0 L724.5,168.9 L728.8,168.9 L733.1,169.1 L737.4,169.7 L741.7,169.4 L746.0,169.1 L750.3,169.6 L754.6,168.9 L758.9,167.8 L763.2,167.9 L767.5,167.2 L771.9,167.8 L776.2,167.9 L780.5,168.0 L784.8,167.9 L789.1,166.7 L793.4,166.8 L797.7,167.1 L802.0,166.8 L806.3,166.5 L810.6,167.3 L814.9,167.8 L819.2,168.8 L823.5,168.9 L827.8,168.8 L832.1,168.9 L836.4,169.2 L840.0,169.6 L840.0,262.0 L836.4,262.0 L832.1,262.0 L827.8,262.0 L823.5,262.0 L819.2,262.0 L814.9,262.0 L810.6,262.0 L806.3,262.0 L802.0,262.0 L797.7,262.0 L793.4,262.0 L789.1,262.0 L784.8,262.0 L780.5,262.0 L776.2,262.0 L771.9,262.0 L767.5,262.0 L763.2,262.0 L758.9,262.0 L754.6,262.0 L750.3,262.0 L746.0,262.0 L741.7,262.0 L737.4,262.0 L733.1,262.0 L728.8,262.0 L724.5,262.0 L720.2,262.0 L715.9,262.0 L711.6,262.0 L707.3,262.0 L703.0,262.0 L698.7,262.0 L694.4,262.0 L690.1,262.0 L685.8,262.0 L681.5,262.0 L677.2,262.0 L672.9,262.0 L668.6,262.0 L664.3,262.0 L659.9,262.0 L655.6,262.0 L651.3,262.0 L647.0,262.0 L642.7,262.0 L638.4,262.0 L634.1,262.0 L629.8,262.0 L625.5,262.0 L621.2,262.0 L616.9,262.0 L612.6,262.0 L608.3,262.0 L604.0,262.0 L599.7,262.0 L595.4,262.0 L591.1,262.0 L586.8,262.0 L582.5,262.0 L578.2,262.0 L573.9,262.0 L569.6,262.0 L565.3,262.0 L561.0,262.0 L556.7,262.0 L552.4,262.0 L548.0,262.0 L543.7,262.0 L539.4,262.0 L535.1,262.0 L530.8,262.0 L526.5,262.0 L522.2,262.0 L517.9,262.0 L513.6,262.0 L509.3,262.0 L505.0,262.0 L500.7,262.0 L496.4,262.0 L492.1,262.0 L487.8,262.0 L483.5,262.0 L479.2,262.0 L474.9,262.0 L470.6,262.0 L466.3,262.0 L462.0,262.0 L457.7,262.0 L453.4,262.0 L449.1,262.0 L444.8,262.0 L440.4,262.0 L436.1,262.0 L431.8,262.0 L427.5,262.0 L423.2,262.0 L418.9,262.0 L414.6,262.0 L410.3,262.0 L406.0,262.0 L401.7,262.0 L397.4,262.0 L393.1,262.0 L388.8,262.0 L384.5,262.0 L380.2,262.0 L375.9,262.0 L371.6,262.0 L367.3,262.0 L363.0,262.0 L358.7,262.0 L354.4,262.0 L350.1,262.0 L345.8,262.0 L341.5,262.0 L337.2,262.0 L332.8,262.0 L328.5,262.0 L324.2,262.0 L319.9,262.0 L315.6,262.0 L311.3,262.0 L307.0,262.0 L302.7,262.0 L298.4,262.0 L294.1,262.0 L289.8,262.0 L285.5,262.0 L281.2,262.0 L276.9,262.0 L272.6,262.0 L268.3,262.0 L264.0,262.0 L259.7,262.0 L255.4,262.0 L251.1,262.0 L246.8,262.0 L242.5,262.0 L238.2,262.0 L233.9,262.0 L229.6,262.0 L225.2,262.0 L220.9,262.0 L216.6,262.0 L212.3,262.0 L208.0,262.0 L203.7,262.0 L199.4,262.0 L195.1,262.0 L190.8,262.0 L186.5,262.0 L182.2,262.0 L177.9,262.0 L173.6,262.0 L169.3,262.0 L165.0,262.0 L160.7,262.0 L156.4,262.0 L152.1,262.0 L147.8,262.0 L143.5,262.0 L139.2,262.0 L134.9,262.0 L130.6,262.0 L126.3,262.0 L122.0,262.0 L117.6,262.0 L113.3,262.0 L109.0,262.0 L104.7,262.0 L100.4,262.0 L96.1,262.0 L91.8,262.0 L87.5,262.0 L83.2,262.0 L78.9,262.0 L74.6,262.0 L70.3,262.0 L66.0,262.0 Z" fill="#0f766e" fill-opacity=".82" stroke="#0f766e" stroke-width="1"><title>Books A+B</title></path>
+<path d="M66.0,119.3 L70.3,119.2 L74.6,119.7 L78.9,119.8 L83.2,120.0 L87.5,120.0 L91.8,120.0 L96.1,121.7 L100.4,121.5 L104.7,121.8 L109.0,120.9 L113.3,121.1 L117.6,121.6 L122.0,121.3 L126.3,121.2 L130.6,121.2 L134.9,121.6 L139.2,121.9 L143.5,122.9 L147.8,122.7 L152.1,122.9 L156.4,123.1 L160.7,124.5 L165.0,124.4 L169.3,124.2 L173.6,124.2 L177.9,124.3 L182.2,124.4 L186.5,124.2 L190.8,123.9 L195.1,123.8 L199.4,122.6 L203.7,123.1 L208.0,122.5 L212.3,121.9 L216.6,121.1 L220.9,121.0 L225.2,120.5 L229.6,120.3 L233.9,120.8 L238.2,119.7 L242.5,119.7 L246.8,119.7 L251.1,119.7 L255.4,119.7 L259.7,120.2 L264.0,120.3 L268.3,120.1 L272.6,119.9 L276.9,119.3 L281.2,118.8 L285.5,118.6 L289.8,118.0 L294.1,117.9 L298.4,117.9 L302.7,117.5 L307.0,117.6 L311.3,117.5 L315.6,117.3 L319.9,118.5 L324.2,118.4 L328.5,118.6 L332.8,119.2 L337.2,119.1 L341.5,118.7 L345.8,118.5 L350.1,118.0 L354.4,118.2 L358.7,118.3 L363.0,118.4 L367.3,118.5 L371.6,118.4 L375.9,118.5 L380.2,118.5 L384.5,118.3 L388.8,118.4 L393.1,118.5 L397.4,118.6 L401.7,118.5 L406.0,116.6 L410.3,116.9 L414.6,117.1 L418.9,116.4 L423.2,116.5 L427.5,117.1 L431.8,117.1 L436.1,117.1 L440.4,116.3 L444.8,116.7 L449.1,116.3 L453.4,116.3 L457.7,116.4 L462.0,116.0 L466.3,116.0 L470.6,115.5 L474.9,114.9 L479.2,115.3 L483.5,115.2 L487.8,175.4 L492.1,168.4 L496.4,174.1 L500.7,158.9 L505.0,172.4 L509.3,174.8 L513.6,175.2 L517.9,175.2 L522.2,175.3 L526.5,175.0 L530.8,174.5 L535.1,174.5 L539.4,174.3 L543.7,174.2 L548.0,174.5 L552.4,174.3 L556.7,174.5 L561.0,174.8 L565.3,174.7 L569.6,158.2 L573.9,172.1 L578.2,174.5 L582.5,175.7 L586.8,168.7 L591.1,173.9 L595.4,175.9 L599.7,176.2 L604.0,169.1 L608.3,145.8 L612.6,144.8 L616.9,143.2 L621.2,143.0 L625.5,142.0 L629.8,212.8 L634.1,212.0 L638.4,206.4 L642.7,224.4 L647.0,231.3 L651.3,232.5 L655.6,232.7 L659.9,232.7 L664.3,256.8 L668.6,261.1 L672.9,261.8 L677.2,165.1 L681.5,166.8 L685.8,167.1 L690.1,167.8 L694.4,168.2 L698.7,168.1 L703.0,167.9 L707.3,167.7 L711.6,167.9 L715.9,167.9 L720.2,169.0 L724.5,140.6 L728.8,139.5 L733.1,139.6 L737.4,140.2 L741.7,140.8 L746.0,140.0 L750.3,139.9 L754.6,139.6 L758.9,139.3 L763.2,139.6 L767.5,151.3 L771.9,165.0 L776.2,167.4 L780.5,167.9 L784.8,167.9 L789.1,166.7 L793.4,166.8 L797.7,167.1 L802.0,166.8 L806.3,166.5 L810.6,167.3 L814.9,167.8 L819.2,168.8 L823.5,168.9 L827.8,168.8 L832.1,168.9 L836.4,169.2 L840.0,169.6 L840.0,169.6 L836.4,169.2 L832.1,168.9 L827.8,168.8 L823.5,168.9 L819.2,168.8 L814.9,167.8 L810.6,167.3 L806.3,166.5 L802.0,166.8 L797.7,167.1 L793.4,166.8 L789.1,166.7 L784.8,167.9 L780.5,168.0 L776.2,167.9 L771.9,167.8 L767.5,167.2 L763.2,167.9 L758.9,167.8 L754.6,168.9 L750.3,169.6 L746.0,169.1 L741.7,169.4 L737.4,169.7 L733.1,169.1 L728.8,168.9 L724.5,168.9 L720.2,169.0 L715.9,167.9 L711.6,167.9 L707.3,167.7 L703.0,167.9 L698.7,168.1 L694.4,168.2 L690.1,167.8 L685.8,167.1 L681.5,166.8 L677.2,165.1 L672.9,262.0 L668.6,262.0 L664.3,262.0 L659.9,262.0 L655.6,262.0 L651.3,262.0 L647.0,262.0 L642.7,262.0 L638.4,262.0 L634.1,262.0 L629.8,262.0 L625.5,176.0 L621.2,176.0 L616.9,176.0 L612.6,176.0 L608.3,176.0 L604.0,176.0 L599.7,176.2 L595.4,176.1 L591.1,175.1 L586.8,175.6 L582.5,175.8 L578.2,175.0 L573.9,175.0 L569.6,174.8 L565.3,174.7 L561.0,174.8 L556.7,174.5 L552.4,174.3 L548.0,174.5 L543.7,174.2 L539.4,174.3 L535.1,174.5 L530.8,174.5 L526.5,175.0 L522.2,175.3 L517.9,175.2 L513.6,175.3 L509.3,175.3 L505.0,175.4 L500.7,175.4 L496.4,175.3 L492.1,175.4 L487.8,175.4 L483.5,115.2 L479.2,115.3 L474.9,114.9 L470.6,115.5 L466.3,116.0 L462.0,116.0 L457.7,116.4 L453.4,116.3 L449.1,116.3 L444.8,116.7 L440.4,116.3 L436.1,117.1 L431.8,117.1 L427.5,117.1 L423.2,116.5 L418.9,116.4 L414.6,117.1 L410.3,116.9 L406.0,116.6 L401.7,118.5 L397.4,118.6 L393.1,118.5 L388.8,118.4 L384.5,118.3 L380.2,118.5 L375.9,118.5 L371.6,118.4 L367.3,118.5 L363.0,118.4 L358.7,118.3 L354.4,118.2 L350.1,118.0 L345.8,118.5 L341.5,118.7 L337.2,119.1 L332.8,119.2 L328.5,118.6 L324.2,118.4 L319.9,118.5 L315.6,117.3 L311.3,117.5 L307.0,117.6 L302.7,117.5 L298.4,117.9 L294.1,117.9 L289.8,118.0 L285.5,118.6 L281.2,118.8 L276.9,119.3 L272.6,119.9 L268.3,120.1 L264.0,120.3 L259.7,120.2 L255.4,119.7 L251.1,119.7 L246.8,119.7 L242.5,119.7 L238.2,119.7 L233.9,120.8 L229.6,120.3 L225.2,120.5 L220.9,121.0 L216.6,121.1 L212.3,121.9 L208.0,122.5 L203.7,123.1 L199.4,122.6 L195.1,123.8 L190.8,123.9 L186.5,124.2 L182.2,124.4 L177.9,124.3 L173.6,124.2 L169.3,124.2 L165.0,124.4 L160.7,124.5 L156.4,123.1 L152.1,122.9 L147.8,122.7 L143.5,122.9 L139.2,121.9 L134.9,121.6 L130.6,121.2 L126.3,121.2 L122.0,121.3 L117.6,121.6 L113.3,121.1 L109.0,120.9 L104.7,121.8 L100.4,121.5 L96.1,121.7 L91.8,120.0 L87.5,120.0 L83.2,120.0 L78.9,119.8 L74.6,119.7 L70.3,119.2 L66.0,119.3 Z" fill="#b45309" fill-opacity=".82" stroke="#b45309" stroke-width="1"><title>Arm equity</title></path>
+<path d="M66.0,119.3 L70.3,119.2 L74.6,119.7 L78.9,119.8 L83.2,120.0 L87.5,120.0 L91.8,120.0 L96.1,121.7 L100.4,121.5 L104.7,121.8 L109.0,120.9 L113.3,121.1 L117.6,121.6 L122.0,121.3 L126.3,121.2 L130.6,121.2 L134.9,121.6 L139.2,121.9 L143.5,122.9 L147.8,122.7 L152.1,122.9 L156.4,123.1 L160.7,124.5 L165.0,124.4 L169.3,124.2 L173.6,124.2 L177.9,124.3 L182.2,124.4 L186.5,124.2 L190.8,123.9 L195.1,123.8 L199.4,122.6 L203.7,123.1 L208.0,122.5 L212.3,121.9 L216.6,121.1 L220.9,121.0 L225.2,120.5 L229.6,120.3 L233.9,120.8 L238.2,119.7 L242.5,119.7 L246.8,119.7 L251.1,119.7 L255.4,119.7 L259.7,120.2 L264.0,120.3 L268.3,120.1 L272.6,119.9 L276.9,119.3 L281.2,118.8 L285.5,118.6 L289.8,118.0 L294.1,117.9 L298.4,117.9 L302.7,117.5 L307.0,117.6 L311.3,117.5 L315.6,117.3 L319.9,118.5 L324.2,118.4 L328.5,118.6 L332.8,119.2 L337.2,119.1 L341.5,118.7 L345.8,118.5 L350.1,118.0 L354.4,118.2 L358.7,118.3 L363.0,118.4 L367.3,118.5 L371.6,118.4 L375.9,118.5 L380.2,118.5 L384.5,118.3 L388.8,118.4 L393.1,118.5 L397.4,118.6 L401.7,118.5 L406.0,116.6 L410.3,116.9 L414.6,117.1 L418.9,116.4 L423.2,116.5 L427.5,117.1 L431.8,117.1 L436.1,117.1 L440.4,116.3 L444.8,116.7 L449.1,116.3 L453.4,116.3 L457.7,116.4 L462.0,116.0 L466.3,116.0 L470.6,115.5 L474.9,114.9 L479.2,115.3 L483.5,115.2 L487.8,115.2 L492.1,115.2 L496.4,115.1 L500.7,115.2 L505.0,115.2 L509.3,115.1 L513.6,115.1 L517.9,115.0 L522.2,115.0 L526.5,114.7 L530.8,114.2 L535.1,114.2 L539.4,114.0 L543.7,113.9 L548.0,114.2 L552.4,114.0 L556.7,114.2 L561.0,114.5 L565.3,114.5 L569.6,114.6 L573.9,114.8 L578.2,114.8 L582.5,115.7 L586.8,115.4 L591.1,114.9 L595.4,116.0 L599.7,116.1 L604.0,115.9 L608.3,115.9 L612.6,115.9 L616.9,115.9 L621.2,115.9 L625.5,115.8 L629.8,115.8 L634.1,115.8 L638.4,116.0 L642.7,116.1 L647.0,116.7 L651.3,116.8 L655.6,117.3 L659.9,117.3 L664.3,116.9 L668.6,116.2 L672.9,116.1 L677.2,116.2 L681.5,118.0 L685.8,118.4 L690.1,119.1 L694.4,119.5 L698.7,119.4 L703.0,119.3 L707.3,119.0 L711.6,119.2 L715.9,119.3 L720.2,120.4 L724.5,120.3 L728.8,120.3 L733.1,120.5 L737.4,121.1 L741.7,120.9 L746.0,120.6 L750.3,121.1 L754.6,120.3 L758.9,119.2 L763.2,119.3 L767.5,118.5 L771.9,119.2 L776.2,119.3 L780.5,119.4 L784.8,119.3 L789.1,118.0 L793.4,118.1 L797.7,118.4 L802.0,118.1 L806.3,117.8 L810.6,118.7 L814.9,119.2 L819.2,120.2 L823.5,120.4 L827.8,120.3 L832.1,120.4 L836.4,120.7 L840.0,121.1 L840.0,169.6 L836.4,169.2 L832.1,168.9 L827.8,168.8 L823.5,168.9 L819.2,168.8 L814.9,167.8 L810.6,167.3 L806.3,166.5 L802.0,166.8 L797.7,167.1 L793.4,166.8 L789.1,166.7 L784.8,167.9 L780.5,167.9 L776.2,167.4 L771.9,165.0 L767.5,151.3 L763.2,139.6 L758.9,139.3 L754.6,139.6 L750.3,139.9 L746.0,140.0 L741.7,140.8 L737.4,140.2 L733.1,139.6 L728.8,139.5 L724.5,140.6 L720.2,169.0 L715.9,167.9 L711.6,167.9 L707.3,167.7 L703.0,167.9 L698.7,168.1 L694.4,168.2 L690.1,167.8 L685.8,167.1 L681.5,166.8 L677.2,165.1 L672.9,261.8 L668.6,261.1 L664.3,256.8 L659.9,232.7 L655.6,232.7 L651.3,232.5 L647.0,231.3 L642.7,224.4 L638.4,206.4 L634.1,212.0 L629.8,212.8 L625.5,142.0 L621.2,143.0 L616.9,143.2 L612.6,144.8 L608.3,145.8 L604.0,169.1 L599.7,176.2 L595.4,175.9 L591.1,173.9 L586.8,168.7 L582.5,175.7 L578.2,174.5 L573.9,172.1 L569.6,158.2 L565.3,174.7 L561.0,174.8 L556.7,174.5 L552.4,174.3 L548.0,174.5 L543.7,174.2 L539.4,174.3 L535.1,174.5 L530.8,174.5 L526.5,175.0 L522.2,175.3 L517.9,175.2 L513.6,175.2 L509.3,174.8 L505.0,172.4 L500.7,158.9 L496.4,174.1 L492.1,168.4 L487.8,175.4 L483.5,115.2 L479.2,115.3 L474.9,114.9 L470.6,115.5 L466.3,116.0 L462.0,116.0 L457.7,116.4 L453.4,116.3 L449.1,116.3 L444.8,116.7 L440.4,116.3 L436.1,117.1 L431.8,117.1 L427.5,117.1 L423.2,116.5 L418.9,116.4 L414.6,117.1 L410.3,116.9 L406.0,116.6 L401.7,118.5 L397.4,118.6 L393.1,118.5 L388.8,118.4 L384.5,118.3 L380.2,118.5 L375.9,118.5 L371.6,118.4 L367.3,118.5 L363.0,118.4 L358.7,118.3 L354.4,118.2 L350.1,118.0 L345.8,118.5 L341.5,118.7 L337.2,119.1 L332.8,119.2 L328.5,118.6 L324.2,118.4 L319.9,118.5 L315.6,117.3 L311.3,117.5 L307.0,117.6 L302.7,117.5 L298.4,117.9 L294.1,117.9 L289.8,118.0 L285.5,118.6 L281.2,118.8 L276.9,119.3 L272.6,119.9 L268.3,120.1 L264.0,120.3 L259.7,120.2 L255.4,119.7 L251.1,119.7 L246.8,119.7 L242.5,119.7 L238.2,119.7 L233.9,120.8 L229.6,120.3 L225.2,120.5 L220.9,121.0 L216.6,121.1 L212.3,121.9 L208.0,122.5 L203.7,123.1 L199.4,122.6 L195.1,123.8 L190.8,123.9 L186.5,124.2 L182.2,124.4 L177.9,124.3 L173.6,124.2 L169.3,124.2 L165.0,124.4 L160.7,124.5 L156.4,123.1 L152.1,122.9 L147.8,122.7 L143.5,122.9 L139.2,121.9 L134.9,121.6 L130.6,121.2 L126.3,121.2 L122.0,121.3 L117.6,121.6 L113.3,121.1 L109.0,120.9 L104.7,121.8 L100.4,121.5 L96.1,121.7 L91.8,120.0 L87.5,120.0 L83.2,120.0 L78.9,119.8 L74.6,119.7 L70.3,119.2 L66.0,119.3 Z" fill="#52606d" fill-opacity=".82" stroke="#52606d" stroke-width="1"><title>Idle value</title></path>
+</svg></div><p class="chart-note">Books are marked at pool value; arm equity is collateral minus debt; idle is uninvested USDG plus NVDA. Stack height should track NAV.</p></div><div class="grid-2" style="margin-top:16px"><div class="card chart-card"><div class="chart-head"><h3>Maximum drawdown - 45d and 20d</h3><p>Including HODL</p></div><svg class="chart" viewBox="0 0 860 300" role="img" aria-label="Maximum drawdown comparison including HODL" preserveAspectRatio="xMidYMid meet">
+<rect x="62.0" y="9.0" width="11" height="11" rx="2.5" fill="#b45309"/>
+<text class="svg-legend" x="78.0" y="18.0">DD 45d</text>
+<rect x="136.4" y="9.0" width="11" height="11" rx="2.5" fill="#b42318"/>
+<text class="svg-legend" x="152.4" y="18.0">DD 20d</text>
+<line class="svg-grid" x1="64" x2="842" y1="236.0" y2="236.0"/>
+<text class="svg-tick" x="55" y="239.6" text-anchor="end">-8.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="188.5" y2="188.5"/>
+<text class="svg-tick" x="55" y="192.1" text-anchor="end">-6.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="141.0" y2="141.0"/>
+<text class="svg-tick" x="55" y="144.6" text-anchor="end">-4.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="93.5" y2="93.5"/>
+<text class="svg-tick" x="55" y="97.1" text-anchor="end">-2.0%</text>
+<line class="svg-grid" x1="64" x2="842" y1="46.0" y2="46.0"/>
+<text class="svg-tick" x="55" y="49.6" text-anchor="end">0.0%</text>
+<line class="svg-axis" x1="64" x2="64" y1="46" y2="236"/>
+<rect x="104.3" y="46.0" width="36.0" height="158.1" rx="3" fill="#b45309"><title>DD 45d · HODL: -6.7%</title></rect>
+<text class="svg-value" x="122.3" y="216.1" text-anchor="middle">-6.7%</text>
+<rect x="143.3" y="46.0" width="36.0" height="155.0" rx="3" fill="#b42318"><title>DD 20d · HODL: -6.5%</title></rect>
+<text class="svg-value" x="161.3" y="213.0" text-anchor="middle">-6.5%</text>
+<text class="svg-cat" x="141.8" y="255.0" text-anchor="middle">HODL</text>
+<rect x="259.9" y="46.0" width="36.0" height="136.0" rx="3" fill="#b45309"><title>DD 45d · Always A: -5.7%</title></rect>
+<text class="svg-value" x="277.9" y="194.0" text-anchor="middle">-5.7%</text>
+<rect x="298.9" y="46.0" width="36.0" height="187.6" rx="3" fill="#b42318"><title>DD 20d · Always A: -7.9%</title></rect>
+<text class="svg-value" x="316.9" y="245.6" text-anchor="middle">-7.9%</text>
+<text class="svg-cat" x="297.4" y="255.0" text-anchor="middle">Always A</text>
+<rect x="415.5" y="46.0" width="36.0" height="123.2" rx="3" fill="#b45309"><title>DD 45d · Risk-only A: -5.2%</title></rect>
+<text class="svg-value" x="433.5" y="181.2" text-anchor="middle">-5.2%</text>
+<rect x="454.5" y="46.0" width="36.0" height="181.6" rx="3" fill="#b42318"><title>DD 20d · Risk-only A: -7.6%</title></rect>
+<text class="svg-value" x="472.5" y="239.6" text-anchor="middle">-7.6%</text>
+<text class="svg-cat" x="453.0" y="255.0" text-anchor="middle">Risk-only A</text>
+<rect x="571.1" y="46.0" width="36.0" height="104.2" rx="3" fill="#b45309"><title>DD 45d · A 2h/15k/75: -4.4%</title></rect>
+<text class="svg-value" x="589.1" y="162.2" text-anchor="middle">-4.4%</text>
+<rect x="610.1" y="46.0" width="36.0" height="158.0" rx="3" fill="#b42318"><title>DD 20d · A 2h/15k/75: -6.7%</title></rect>
+<text class="svg-value" x="628.1" y="216.0" text-anchor="middle">-6.7%</text>
+<text class="svg-cat" x="608.6" y="255.0" text-anchor="middle">A 2h/15k/75</text>
+<rect x="726.7" y="46.0" width="36.0" height="156.9" rx="3" fill="#b45309"><title>DD 45d · Always arms: -6.6%</title></rect>
+<text class="svg-value" x="744.7" y="214.9" text-anchor="middle">-6.6%</text>
+<rect x="765.7" y="46.0" width="36.0" height="153.9" rx="3" fill="#b42318"><title>DD 20d · Always arms: -6.5%</title></rect>
+<text class="svg-value" x="783.7" y="211.9" text-anchor="middle">-6.5%</text>
+<text class="svg-cat" x="764.2" y="255.0" text-anchor="middle">Always arms</text>
+</svg><p class="chart-note">The 45d cut flatters the strategy; the 20d cut does not. HODL is the dashed line in the charts above and the first pair of bars here.</p></div><div class="card">
+  <h3>How we leave</h3>
+  <ol class="clean">
+    <li><b>Risk HIGH.</b> Depeg, guard absent, or a volatility and volume blowout: stop
+    adding and let the keeper act.</li>
+    <li><b>Guard pull (designed first line).</b> The 200 bps five-minute proxy is meant to
+    pull the guard before the whole book is closed. It is a proxy, not a live auction; in
+    this run it did not fire, so the recall below did the work.</li>
+    <li><b>Allocator recall second.</b> Capital leaves the book for the arm or idle when
+    the book is not worth the IL. In this tape that is 2
+    recalls.</li>
+    <li><b>Re-arm when calm.</b> The keeper re-enters when risk normalizes; a recall is
+    not an exit from the strategy.</li>
+  </ol>
+  <p class="chart-note">Guard share 75 means the guard holds 75% of book capital, not a
+  75 bps width.</p>
+</div></div><div class="callout warn"><b>Protection is conditional.</b> The guard is designed as the first line and the allocator recall as the second. In this run it did not pull (guard_pulls = 0), so the allocator recall did the work: 2 recalls in risk-only A. The mode strip and allocation stack show capital leaving the book. Over 45 days the strategy drawdown is -5.19% versus HODL -6.66%, but over 20 days it is -7.65% versus -6.53%. The $15k floor improves the 20-day cut to -6.62% and the focus case to -6.65%, still not better than HODL in that window. Do not claim unconditional protection.</div></section><section id="takeaways"><div class="section-head"><div class="sec-num">08</div><div><h2>Takeaways</h2><p class="lede">Five things to carry into the next review, with the caveat attached.</p></div></div><div class="card"><ul class="clean"><li><b>Pool returns.</b> Fee APR is not return. The best USDG net APR is 14.6% (USDG/NVDA V4 0.30%: 22.4% fees minus 7.8% IL), but total APR is -11.1% in a falling tape. The ETH book's 38.7% net is in WETH.</li><li><b>Morpho and the arm.</b> Arm carry is $1.26 in risk-only A and $15.11 in always-arms over 45 days: a safe harbor, not the engine. The 107.29% borrow stress is a liquidity and exit trap, not free yield.</li><li><b>Strategy cases.</b> A 2h/15k/75 nets +$431.36 / +$46.95. The base risk-only A nets +$191.04 / -$105.62; the $15k floor flips the 20-day cut.</li><li><b>IL.</b> A $10,000 position in a ±5% range carries -$901.50 of IL at a 20% fall and -$876.23 at a 20% rise versus holding. Wider ranges carry less; narrower ranges earn more fees and lose more to IL.</li><li><b>Protection.</b> The guard is designed as the first line, the recall as the second; in this tape the recall did the work. The 45d drawdown is -5.19% versus HODL -6.66%, but the 20d cut is -7.65% versus -6.53%: protection is conditional.</li></ul></div><div class="future-note"><div class="fn-title">Not in this tape</div><p>A 45-minute keeper, no volume floor, a 24-hour recall, and a low-fee exit variant are not in this tape. Re-run the model on fresh tape before sizing any of them. The numbers here are decision support from one down regime, not a track record.</p></div></section><section id="caveats"><div class="section-head"><div class="sec-num">09</div><div><h2>Caveats</h2><p class="lede">Read these before quoting any number on this page.</p></div></div><div class="caveat-grid"><div class="caveat"><b>45-day down regime</b><span>NVDA fell over both windows; the HODL basket fell 3.17% over 45d and 5.03% over 20d. A rally would reorder the pool, arm and guard results.</span></div><div class="caveat"><b>Book A is a V3 0.05% proxy</b><span>No V4 USDG/NVDA 0.05% pool was available. Book A fees use the V3 pool as a fee-equivalent proxy; the model-to-research fee match is +0.19%.</span></div><div class="caveat"><b>Guard pull is a proxy</b><span>200 bps on five-minute moves, not a live auction or a Chainlink depeg. Guard 75 is a 75% fee share, not a width.</span></div><div class="caveat"><b>Arm rates are scenarios</b><span>3% USDG, 3% NVDA and 3% borrow are flat assumptions. The live and stress cases bracket observed USDG lending and borrow tails; they are not a rate history.</span></div><div class="caveat"><b>3% NVDA is a Spiral assumption</b><span>It is APR after borrowing cost, not a native Morpho collateral yield. The model grosses it up by LTV times borrow APR and subtracts borrow; the net NVDA contribution is 3% of collateral.</span></div><div class="caveat"><b>Gas is $0.02 per action</b><span>276 actions cost about $5.52. A congested chain or a larger action count changes the small-alpha runs.</span></div><div class="caveat"><b>No MEV or price impact</b><span>Fills are at the tape price. Book B depth and swap routing are not simulated; both would reduce net.</span></div><div class="caveat"><b>In-sample, not a forecast</b><span>One tape, two overlapping windows. No out-of-sample validation and no bootstrap on this page; the old dashboard's bootstrap p05 was negative for the focus run.</span></div><div class="caveat"><b>ETH quote is separate</b><span>ETH/NVDA totals are in WETH. There is no ETH/USD tape here, so they cannot be added to the USDG totals.</span></div></div><div class="callout"><b>Headline honesty.</b> The focus case is +$431.36 over 45 days and +$46.95 over 20. The second number is the one to defend: the edge is small, the 20-day base case is negative, and none of this is out-of-sample.</div></section>
+<div class="footer">
+  Generated from existing <code>out/</code> artifacts: 6 pool rows from
+  <code>eth_compare.csv</code>, baseline rows from <code>baseline_summary.csv</code>
+  (<code>risk_only_a</code>, <code>risk_only_a_vol15k</code> and the variation runs), and
+  1,080 hourly points from <code>baseline_paths.csv</code> for
+  <code>risk_only_a</code>.
+  Static IL uses <code>lp.py</code> at NVDA $225.80 and $10,000 capital. No model rerun.
+  Tape: 36-minute risk window, $15k floor, 200 bps five-minute pull proxy; 45d = 1,080
+  hours, 20d = 480 hours. Built by <code>build_pool_il_study.py</code>.
+</div>
+</main>
+</body>
+</html>

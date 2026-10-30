@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fee break-even: when is the 0.30 pool worth it?</title>
+<style>
+    :root{--bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e4e7ec;
+      --green:#0f9d76;--red:#dc2626;--amber:#d97706;--blue:#2563eb}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    .wrap{max-width:1120px;margin:0 auto;padding:34px 22px 60px}
+    h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.025em}
+    h2{font-size:21px;margin:36px 0 10px;letter-spacing:-.015em}
+    .sub{color:var(--muted);margin:0 0 18px;max-width:920px}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px;margin:14px 0}
+    .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+    .kpi-label{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:750}
+    .kpi-value{font-size:23px;font-weight:780;margin:4px 0 1px;letter-spacing:-.01em}
+    .kpi-sub{font-size:11.5px;color:var(--muted)}
+    .kpi.pos{border-top:3px solid var(--green)}.kpi.neg{border-top:3px solid var(--red)}
+    .callout{background:#ecfdf3;border:1px solid #abefc6;border-left:4px solid var(--green);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#054f31}
+    .warn{background:#fffaeb;border:1px solid #fedf89;border-left:4px solid var(--amber);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#93370d}
+    .tbl{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+      border-radius:12px;overflow:hidden;font-size:12px}
+    .tbl th{background:#f2f4f7;color:#344054;text-align:right;padding:8px 9px;font-weight:750;white-space:nowrap}
+    .tbl td{border-top:1px solid var(--line);padding:8px 9px;text-align:right;white-space:nowrap}
+    .tbl th:first-child,.tbl td:first-child{text-align:left}
+    .tbl tr:nth-child(even) td{background:#fbfcfe}
+    .table-wrap{overflow-x:auto;margin:10px 0}
+    .heat{padding:8px 7px!important;text-align:center!important;font-weight:650}
+    .pos{color:#0b7f5f;font-weight:700}.neg{color:#b42318;font-weight:700}
+    .formula{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+      font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054;margin:10px 0;overflow-x:auto}
+    .note{color:var(--muted);font-size:12.5px;margin:6px 0 14px;max-width:1050px}
+    .footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:36px;padding-top:16px}
+    </style></head><body><div class="wrap">
+
+<h1>Fee break-even: when is the 0.30 pool worth it?</h1>
+<p class="sub">The trigger is the fee ratio, not volume. Use the observed fees:
+<b>ρ = 0.30 pool fees / 0.05 pool fees</b> (currently 7.77%) and
+<b>r = 0.30 pool fees / your 0.05 fees at full capital</b> (currently 6.35). Volume is
+only an input to the 0.30 fee counter. The model sizes the sleeve with exact fee share and compares
+it with the risk-only engine on the remaining capital.</p>
+
+<div class="callout"><b>At current fees, a partial 0.30 sleeve is fee-positive but not yet
+better than our risk-only strategy.</b> The 0.30 pool earns <b>7.77%</b> of the
+0.05 pool's fees. A 28% sleeve becomes profitable versus all-0.05 at a fee ratio of
+<b>6.79%</b>, which it already exceeds. But to
+beat the risk-only engine it needs <b>9.99%</b>
+— about <b>1.29×</b> current volume. At <b>1.5×</b>
+fees (11.66%) the 28% sleeve adds <b>+$264</b>, and a 43%
+sleeve adds <b>+$318</b>.</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="kpi-label">Fee ratio now</div><div class="kpi-value">7.77%</div><div class="kpi-sub">0.30 fees / 0.05 fees</div></div>
+  <div class="kpi"><div class="kpi-label">28% break-even vs all-0.05</div><div class="kpi-value">6.79%</div><div class="kpi-sub">0.87× current volume</div></div>
+  <div class="kpi"><div class="kpi-label">28% break-even vs risk-only</div><div class="kpi-value">9.99%</div><div class="kpi-sub">1.29× current volume</div></div>
+  <div class="kpi pos"><div class="kpi-label">28% sleeve at 1.5×</div><div class="kpi-value">+$264</div><div class="kpi-sub">vs risk-only, 45d</div></div>
+</div>
+
+<h2>1. The break-even fee ratio by sleeve</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 sleeve</th><th>Your share</th><th>Break-even fee ratio vs all-0.05</th><th>Volume multiple</th><th>Break-even fee ratio vs risk-only</th><th>Volume multiple</th>
+</tr></thead><tbody><tr><td>5%</td><td>0.95%</td><td>6.46%</td><td>0.83×</td><td>9.50%</td><td>1.22×</td></tr><tr><td>10%</td><td>1.88%</td><td>6.53%</td><td>0.84×</td><td>9.61%</td><td>1.24×</td></tr><tr><td>15%</td><td>2.78%</td><td>6.60%</td><td>0.85×</td><td>9.72%</td><td>1.25×</td></tr><tr><td>20%</td><td>3.67%</td><td>6.68%</td><td>0.86×</td><td>9.82%</td><td>1.26×</td></tr><tr><td>25%</td><td>4.54%</td><td>6.75%</td><td>0.87×</td><td>9.93%</td><td>1.28×</td></tr><tr><td>28%</td><td>5.05%</td><td>6.79%</td><td>0.87×</td><td>9.99%</td><td>1.29×</td></tr><tr><td>33%</td><td>5.89%</td><td>6.86%</td><td>0.88×</td><td>10.10%</td><td>1.30×</td></tr><tr><td>43%</td><td>7.51%</td><td>7.01%</td><td>0.90×</td><td>10.31%</td><td>1.33×</td></tr><tr><td>50%</td><td>8.61%</td><td>7.11%</td><td>0.91×</td><td>10.46%</td><td>1.35×</td></tr><tr><td>75%</td><td>12.30%</td><td>7.47%</td><td>0.96×</td><td>10.99%</td><td>1.41×</td></tr><tr><td>100%</td><td>15.65%</td><td>7.83%</td><td>1.01×</td><td>11.52%</td><td>1.48×</td></tr></tbody></table></div>
+<p class="note">The fee ratio is the 0.30 pool's fees divided by the 0.05 pool's fees. The
+volume multiple is only the equivalent volume that produces that fee ratio; the trigger should be
+the fee ratio itself. At 100% sleeve the 0.30 pool needs 7.83% of the 0.05 fees to beat all-0.05;
+it is at 7.77%, just below. To beat the risk-only engine it needs 11.51%; at 1.5× (11.66%) it
+just clears.</p>
+
+<h2>2. Profit by sleeve and volume — combined with the risk-only engine</h2>
+<div class="table-wrap"><table class="tbl heat-tbl"><thead><tr><th>0.30 volume</th><th>0%</th><th>5%</th><th>10%</th><th>15%</th><th>20%</th><th>25%</th><th>28%</th><th>33%</th><th>43%</th><th>50%</th><th>75%</th><th>100%</th></tr></thead><tbody><tr><th>1.0×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(220,38,38,0.02)">-$44</td><td class="heat" style="background:rgba(220,38,38,0.05)">-$94</td><td class="heat" style="background:rgba(220,38,38,0.07)">-$148</td><td class="heat" style="background:rgba(220,38,38,0.10)">-$208</td><td class="heat" style="background:rgba(220,38,38,0.14)">-$272</td><td class="heat" style="background:rgba(220,38,38,0.16)">-$313</td><td class="heat" style="background:rgba(220,38,38,0.19)">-$384</td><td class="heat" style="background:rgba(220,38,38,0.27)">-$540</td><td class="heat" style="background:rgba(220,38,38,0.33)">-$659</td><td class="heat" style="background:rgba(220,38,38,0.35)">-$1,147</td><td class="heat" style="background:rgba(220,38,38,0.35)">-$1,722</td></tr><tr><th>1.1×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(220,38,38,0.01)">-$23</td><td class="heat" style="background:rgba(220,38,38,0.03)">-$51</td><td class="heat" style="background:rgba(220,38,38,0.04)">-$85</td><td class="heat" style="background:rgba(220,38,38,0.06)">-$124</td><td class="heat" style="background:rgba(220,38,38,0.08)">-$168</td><td class="heat" style="background:rgba(220,38,38,0.10)">-$197</td><td class="heat" style="background:rgba(220,38,38,0.12)">-$250</td><td class="heat" style="background:rgba(220,38,38,0.18)">-$369</td><td class="heat" style="background:rgba(220,38,38,0.23)">-$463</td><td class="heat" style="background:rgba(220,38,38,0.35)">-$866</td><td class="heat" style="background:rgba(220,38,38,0.35)">-$1,364</td></tr><tr><th>1.2×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(220,38,38,0.00)">-$1</td><td class="heat" style="background:rgba(220,38,38,0.00)">-$8</td><td class="heat" style="background:rgba(220,38,38,0.01)">-$21</td><td class="heat" style="background:rgba(220,38,38,0.02)">-$40</td><td class="heat" style="background:rgba(220,38,38,0.03)">-$65</td><td class="heat" style="background:rgba(220,38,38,0.04)">-$82</td><td class="heat" style="background:rgba(220,38,38,0.06)">-$115</td><td class="heat" style="background:rgba(220,38,38,0.10)">-$197</td><td class="heat" style="background:rgba(220,38,38,0.13)">-$266</td><td class="heat" style="background:rgba(220,38,38,0.29)">-$585</td><td class="heat" style="background:rgba(220,38,38,0.35)">-$1,007</td></tr><tr><th>1.3×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.01)">+$21</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$35</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$42</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$44</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$39</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$33</td><td class="heat" style="background:rgba(15,157,118,0.01)">+$19</td><td class="heat" style="background:rgba(220,38,38,0.01)">-$26</td><td class="heat" style="background:rgba(220,38,38,0.03)">-$69</td><td class="heat" style="background:rgba(220,38,38,0.15)">-$304</td><td class="heat" style="background:rgba(220,38,38,0.32)">-$650</td></tr><tr><th>1.4×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.02)">+$42</td><td class="heat" style="background:rgba(15,157,118,0.04)">+$78</td><td class="heat" style="background:rgba(15,157,118,0.05)">+$106</td><td class="heat" style="background:rgba(15,157,118,0.06)">+$127</td><td class="heat" style="background:rgba(15,157,118,0.07)">+$143</td><td class="heat" style="background:rgba(15,157,118,0.07)">+$149</td><td class="heat" style="background:rgba(15,157,118,0.08)">+$154</td><td class="heat" style="background:rgba(15,157,118,0.07)">+$146</td><td class="heat" style="background:rgba(15,157,118,0.06)">+$127</td><td class="heat" style="background:rgba(220,38,38,0.01)">-$24</td><td class="heat" style="background:rgba(220,38,38,0.15)">-$292</td></tr><tr><th>1.5×</th><td class="heat" style="background:rgba(220,38,38,0.00);outline:2px solid #2563eb;outline-offset:-2px">+$0</td><td class="heat" style="background:rgba(15,157,118,0.03);outline:2px solid #2563eb;outline-offset:-2px">+$64</td><td class="heat" style="background:rgba(15,157,118,0.06);outline:2px solid #2563eb;outline-offset:-2px">+$120</td><td class="heat" style="background:rgba(15,157,118,0.08);outline:2px solid #2563eb;outline-offset:-2px">+$169</td><td class="heat" style="background:rgba(15,157,118,0.11);outline:2px solid #2563eb;outline-offset:-2px">+$211</td><td class="heat" style="background:rgba(15,157,118,0.12);outline:2px solid #2563eb;outline-offset:-2px">+$246</td><td class="heat" style="background:rgba(15,157,118,0.13);outline:2px solid #2563eb;outline-offset:-2px">+$264</td><td class="heat" style="background:rgba(15,157,118,0.14);outline:2px solid #2563eb;outline-offset:-2px">+$288</td><td class="heat" style="background:rgba(15,157,118,0.16);outline:2px solid #2563eb;outline-offset:-2px">+$318</td><td class="heat" style="background:rgba(15,157,118,0.16);outline:2px solid #2563eb;outline-offset:-2px">+$324</td><td class="heat" style="background:rgba(15,157,118,0.13);outline:2px solid #2563eb;outline-offset:-2px">+$257</td><td class="heat" style="background:rgba(15,157,118,0.03);outline:2px solid #2563eb;outline-offset:-2px">+$65</td></tr><tr><th>1.6×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.04)">+$86</td><td class="heat" style="background:rgba(15,157,118,0.08)">+$163</td><td class="heat" style="background:rgba(15,157,118,0.12)">+$233</td><td class="heat" style="background:rgba(15,157,118,0.15)">+$295</td><td class="heat" style="background:rgba(15,157,118,0.17)">+$350</td><td class="heat" style="background:rgba(15,157,118,0.19)">+$379</td><td class="heat" style="background:rgba(15,157,118,0.21)">+$423</td><td class="heat" style="background:rgba(15,157,118,0.24)">+$489</td><td class="heat" style="background:rgba(15,157,118,0.26)">+$521</td><td class="heat" style="background:rgba(15,157,118,0.27)">+$538</td><td class="heat" style="background:rgba(15,157,118,0.21)">+$422</td></tr><tr><th>1.7×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.05)">+$107</td><td class="heat" style="background:rgba(15,157,118,0.10)">+$206</td><td class="heat" style="background:rgba(15,157,118,0.15)">+$297</td><td class="heat" style="background:rgba(15,157,118,0.19)">+$379</td><td class="heat" style="background:rgba(15,157,118,0.23)">+$453</td><td class="heat" style="background:rgba(15,157,118,0.25)">+$494</td><td class="heat" style="background:rgba(15,157,118,0.28)">+$557</td><td class="heat" style="background:rgba(15,157,118,0.33)">+$661</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$717</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$819</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$780</td></tr><tr><th>1.8×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.06)">+$129</td><td class="heat" style="background:rgba(15,157,118,0.12)">+$249</td><td class="heat" style="background:rgba(15,157,118,0.18)">+$360</td><td class="heat" style="background:rgba(15,157,118,0.23)">+$463</td><td class="heat" style="background:rgba(15,157,118,0.28)">+$557</td><td class="heat" style="background:rgba(15,157,118,0.30)">+$610</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$691</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$832</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$914</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,100</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,137</td></tr><tr><th>1.9×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.08)">+$151</td><td class="heat" style="background:rgba(15,157,118,0.15)">+$292</td><td class="heat" style="background:rgba(15,157,118,0.21)">+$424</td><td class="heat" style="background:rgba(15,157,118,0.27)">+$546</td><td class="heat" style="background:rgba(15,157,118,0.33)">+$661</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$725</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$826</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,004</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,111</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,381</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,494</td></tr><tr><th>2.0×</th><td class="heat" style="background:rgba(220,38,38,0.00)">+$0</td><td class="heat" style="background:rgba(15,157,118,0.09)">+$172</td><td class="heat" style="background:rgba(15,157,118,0.17)">+$335</td><td class="heat" style="background:rgba(15,157,118,0.24)">+$487</td><td class="heat" style="background:rgba(15,157,118,0.32)">+$630</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$764</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$840</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$960</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,176</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,307</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,661</td><td class="heat" style="background:rgba(15,157,118,0.35)">+$1,852</td></tr></tbody></table></div>
+<p class="note">Delta versus the risk-only run over 45 days. The 1.5× row is outlined. Red cells
+lose money; green cells beat staying in the risk-only strategy. At 1.5× the best sleeve is around
+43–50%, above the 5% share cap; the cap-constrained 28% is the practical choice.</p>
+
+<h2>3. The check and move function</h2>
+<div class="formula">rho = F_B_pool / F_A_pool      (the visible fee ratio)<br>
+r   = F_B / F_A = rho / share_A<br>
+s1  = your fee share if 100% were in 0.30<br>
+a   = s1 / (1 - s1)<br><br>
+Delta(w) = m * F_B * s(w) - w * (F_A + H)<br>
+s(w)    = w * a / (1 + w * a)<br><br>
+w* = ( sqrt( m * F_B * a / (F_A + H) ) - 1 ) / a<br>
+w  = clamp(w*, 0, w_cap),  w_cap = cap / (a * (1 - cap))<br><br>
+F_B = 0.30 pool fee revenue over the horizon<br>
+F_A = your 0.05 fee revenue at full capital<br>
+H   = risk-only net minus all-0.05 net (the return you give up by moving)<br>
+cap = your limit on the 0.30 share</div>
+<p class="note">This is the whole rule. <b>H</b> is the “further loss” term: moving capital out of
+the risk-only engine costs <b>w × H</b>, so the fee gain must clear it. If you compare only with
+passive all-0.05, set H = 0; the same formula gives the pool-only optimum. At current fees the
+risk-only version gives w* = 0, while the fee-only version gives 46%. At 1.5× the risk-only
+version gives about 51%, capped at 28%; at 2× it wants 100%, capped at 28%.</p>
+
+<h2>4. What 1.5× actually does</h2>
+<h3>The 28% sleeve: fee gain vs the cost of leaving risk-only</h3>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>Fee gain vs all-0.05</th><th>Cost of leaving risk-only</th><th>Net vs risk-only</th>
+</tr></thead><tbody><tr><td>1.0×</td><td class="pos">+$162</td><td class="neg">−$475</td><td class="neg">-$313</td></tr><tr><td>1.2×</td><td class="pos">+$393</td><td class="neg">−$475</td><td class="neg">-$82</td></tr><tr><td>1.3×</td><td class="pos">+$508</td><td class="neg">−$475</td><td class="pos">+$33</td></tr><tr><td>1.4×</td><td class="pos">+$624</td><td class="neg">−$475</td><td class="pos">+$149</td></tr><tr><td>1.5×</td><td class="pos">+$739</td><td class="neg">−$475</td><td class="pos">+$264</td></tr><tr><td>2.0×</td><td class="pos">+$1,315</td><td class="neg">−$475</td><td class="pos">+$840</td></tr></tbody></table></div>
+<p class="note">The cost is <b>w × H</b>, where H is the risk-only engine's return above all-0.05
+(here +$1,696 per $100k). At 1× the fee gain is too small to cover it; at 1.3× the
+two are roughly equal; at 1.5× the fee gain clears the cost by about +$264.</p>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>Sleeve</th><th>1.0×</th><th>1.5×</th><th>2.0×</th>
+</tr></thead><tbody><tr><td>5%</td><td>-44</td><td>+64</td><td>+172</td></tr><tr><td>10%</td><td>-94</td><td>+120</td><td>+335</td></tr><tr><td>20%</td><td>-208</td><td>+211</td><td>+630</td></tr><tr><td>28%</td><td>-313</td><td>+264</td><td>+840</td></tr><tr><td>43%</td><td>-540</td><td>+318</td><td>+1,176</td></tr><tr><td>50%</td><td>-659</td><td>+324</td><td>+1,307</td></tr><tr><td>100%</td><td>-1,722</td><td>+65</td><td>+1,852</td></tr></tbody></table></div>
+<p class="note">Delta versus the risk-only run, 45 days. At 1× every sleeve loses to the risk-only
+engine. At 1.5× the 5% sleeve is +64, the 28% sleeve is
++264, and the 43% sleeve is +318. The 100% sleeve is only
++65, because it gives up the risk-only engine entirely.</p>
+
+<h2>5. The historical fee signal</h2>
+<p class="note">Seven-day rolling fee ratio over the 45-day tape: min
+<b>4.51%</b>, median <b>8.06%</b>, max
+<b>23.60%</b>. At 1.5× those become
+<b>6.76%</b> / <b>12.09%</b> /
+<b>35.39%</b>. The 28% risk-only threshold is
+<b>9.99%</b>; the signal crosses it in the
+better weeks and falls below it in the weaker weeks. That is why the keeper needs a rolling
+window and hysteresis, not a single 45-day average.</p>
+
+<h2>6. What this does and does not prove</h2>
+<div class="warn"><b>The fee ratio is historical, not a forecast.</b> The volume multiples scale
+the 0.30 fee counter while holding liquidity fixed; real volume growth attracts liquidity and
+dilutes the fee APR. The sleeves are passive: no re-centering, no skew, no Morpho overlay on the
+0.30 side. The risk-only comparison is an overlay approximation. The result that survives is the
+function and the break-even levels: the 0.30 pool is already fee-positive for a partial sleeve,
+but only beats the risk-only engine at about 1.3× the current fee ratio. At 1.5× the 28% sleeve
+is worth roughly +264.</div>
+
+<div class="footer">45-day real tape ending 2026-10-24 · $100,000 · in-sample · 76 tests.
+0.05 pool = deep, low fee tier; 0.30 pool = thin, 6× fee tier. Research display, not investment
+advice.</div>
+</div></body></html>

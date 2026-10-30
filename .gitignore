@@ -12,6 +12,18 @@ broadcast/
 node_modules/
 agent/.cache/
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # Research downloads (local, regenerable)
 research/data/
 research/out/

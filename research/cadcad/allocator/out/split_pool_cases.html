@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Should we split between the 0.05 and 0.30 pools?</title>
+<style>
+    :root{--bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e4e7ec;
+      --green:#0f9d76;--red:#dc2626;--amber:#d97706}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    .wrap{max-width:1120px;margin:0 auto;padding:34px 22px 60px}
+    h1{font-size:30px;line-height:1.15;margin:0 0 6px;letter-spacing:-.025em}
+    h2{font-size:21px;margin:36px 0 10px;letter-spacing:-.015em}
+    h3{font-size:15px;margin:20px 0 6px}
+    .sub{color:var(--muted);margin:0 0 18px;max-width:920px}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}
+    .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+    .kpi-label{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:750}
+    .kpi-value{font-size:23px;font-weight:780;margin:4px 0 1px;letter-spacing:-.01em}
+    .kpi-sub{font-size:11.5px;color:var(--muted)}
+    .kpi.pos{border-top:3px solid var(--green)} .kpi.neg{border-top:3px solid var(--red)}
+    .callout{background:#ecfdf3;border:1px solid #abefc6;border-left:4px solid var(--green);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#054f31}
+    .warn{background:#fffaeb;border:1px solid #fedf89;border-left:4px solid var(--amber);
+      border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#93370d}
+    .tbl{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+      border-radius:12px;overflow:hidden;font-size:12px}
+    .tbl th{background:#f2f4f7;color:#344054;text-align:right;padding:8px 9px;font-weight:750;white-space:nowrap}
+    .tbl td{border-top:1px solid var(--line);padding:8px 9px;text-align:right;white-space:nowrap}
+    .tbl th:first-child,.tbl td:first-child{text-align:left}
+    .tbl tr:nth-child(even) td{background:#fbfcfe}
+    .table-wrap{overflow-x:auto;margin:10px 0}
+    .pos{color:#0b7f5f;font-weight:700}.neg{color:#b42318;font-weight:700}
+    .chart{width:100%;height:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;margin:10px 0}
+    .chart-title{fill:#17202a;font-size:12px;font-weight:750}
+    .axis{fill:#667085;font-size:10px}.grid{stroke:#e4e7ec;stroke-width:1}.zero{stroke:#98a2b3;stroke-width:1.2}
+    .note{color:var(--muted);font-size:12.5px;margin:6px 0 14px;max-width:1050px}
+    .formula{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+      font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace;color:#344054;margin:10px 0;overflow-x:auto}
+    .footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:36px;padding-top:16px}
+    </style></head><body><div class="wrap">
+
+<h1>Should we split between the 0.05 and 0.30 pools?</h1>
+<p class="sub">Two sleeves, same $100,000, same 45-day tape. The 0.05 sleeve and the 0.30 sleeve run
+at the same time, each with the recommended 75% guard / 25% base shape. Fees use the exact
+share <b>L / (pool L + L)</b>, so moving more into the thin pool dilutes your own fee share.
+No re-centering and no inventory skew: this isolates the pool-choice effect.</p>
+
+<div class="callout"><b>Pool-only, a partial sleeve beats both 100% 0.05 and 100% 0.30.</b>
+On the actual tape the best pool-only split is about <b>43% in the 0.30 pool</b>, worth
+<b>+$189</b> over 45 days versus all-0.05. But against our <i>actual</i> risk-only
+strategy, the sleeve is negative at 1×. It turns positive at 2× over 45 days (3× over the last
+20) and adds about <b>+$10,064</b> at 10× with a 28% sleeve. Moving 100% into the
+0.30 pool is not “owning 100%” — it makes you about
+<b>15.6%</b> of that pool.</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="kpi-label">Pool-only best split</div><div class="kpi-value">43%</div><div class="kpi-sub">+$189 vs all-0.05; not vs our strategy</div></div>
+  <div class="kpi"><div class="kpi-label">28% sleeve at 10×</div><div class="kpi-value">+$10,539</div><div class="kpi-sub">pool-only vs all-0.05</div></div>
+  <div class="kpi pos"><div class="kpi-label">28% sleeve + risk-only</div><div class="kpi-value">+$10,064</div><div class="kpi-sub">vs risk-only at 10×</div></div>
+  <div class="kpi"><div class="kpi-label">All-in 0.30 share</div><div class="kpi-value">15.6%</div><div class="kpi-sub">at this size, not 100%</div></div>
+</div>
+
+<h2>1. The actual tape: 1× volume</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 sleeve</th><th>Your share of 0.30</th><th>Gain vs all-0.05</th><th>Net vs HODL</th>
+</tr></thead><tbody><tr><td>0%</td><td>0.00%</td><td class="">+$0</td><td>+$2,017</td></tr><tr><td>1%</td><td>0.19%</td><td class="pos">+$9</td><td>+$2,026</td></tr><tr><td>2%</td><td>0.38%</td><td class="pos">+$17</td><td>+$2,034</td></tr><tr><td>5%</td><td>0.95%</td><td class="pos">+$41</td><td>+$2,058</td></tr><tr><td>10%</td><td>1.88%</td><td class="pos">+$76</td><td>+$2,093</td></tr><tr><td>15%</td><td>2.78%</td><td class="pos">+$106</td><td>+$2,123</td></tr><tr><td>20%</td><td>3.67%</td><td class="pos">+$132</td><td>+$2,149</td></tr><tr><td>25%</td><td>4.54%</td><td class="pos">+$152</td><td>+$2,169</td></tr><tr><td>28%</td><td>5.05%</td><td class="pos">+$162</td><td>+$2,179</td></tr><tr><td>33%</td><td>5.89%</td><td class="pos">+$176</td><td>+$2,193</td></tr><tr><td>40%</td><td>7.03%</td><td class="pos">+$187</td><td>+$2,204</td></tr><tr><td>43%</td><td>7.51%</td><td class="pos">+$189</td><td>+$2,206</td></tr><tr><td>50%</td><td>8.61%</td><td class="pos">+$189</td><td>+$2,206</td></tr><tr><td>60%</td><td>10.13%</td><td class="pos">+$175</td><td>+$2,192</td></tr><tr><td>75%</td><td>12.30%</td><td class="pos">+$125</td><td>+$2,142</td></tr><tr><td>100%</td><td>15.65%</td><td class="neg">-$25</td><td>+$1,992</td></tr></tbody></table></div>
+<p class="note">All-0.05 net is +$2,017. The curve peaks around
+43–50%; 100% 0.30 is slightly <i>worse</i> than all-0.05 because the sleeve dilutes its own fee share.
+The 5% pool-share cap allows about a 28% sleeve at this size.</p>
+
+<h2>2. The 0.30 pool at 10× volume</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 sleeve</th><th>Your share of 0.30</th><th>Gain vs all-0.05</th><th>Net vs HODL</th>
+</tr></thead><tbody><tr><td>0%</td><td>0.00%</td><td class="">+$0</td><td>+$2,017</td></tr><tr><td>1%</td><td>0.19%</td><td class="pos">+$402</td><td>+$2,419</td></tr><tr><td>2%</td><td>0.38%</td><td class="pos">+$802</td><td>+$2,819</td></tr><tr><td>5%</td><td>0.95%</td><td class="pos">+$1,990</td><td>+$4,007</td></tr><tr><td>10%</td><td>1.88%</td><td class="pos">+$3,931</td><td>+$5,948</td></tr><tr><td>15%</td><td>2.78%</td><td class="pos">+$5,824</td><td>+$7,841</td></tr><tr><td>20%</td><td>3.67%</td><td class="pos">+$7,673</td><td>+$9,690</td></tr><tr><td>25%</td><td>4.54%</td><td class="pos">+$9,477</td><td>+$11,494</td></tr><tr><td>28%</td><td>5.05%</td><td class="pos">+$10,539</td><td>+$12,556</td></tr><tr><td>33%</td><td>5.89%</td><td class="pos">+$12,277</td><td>+$14,294</td></tr><tr><td>40%</td><td>7.03%</td><td class="pos">+$14,642</td><td>+$16,659</td></tr><tr><td>43%</td><td>7.51%</td><td class="pos">+$15,632</td><td>+$17,649</td></tr><tr><td>50%</td><td>8.61%</td><td class="pos">+$17,890</td><td>+$19,907</td></tr><tr><td>60%</td><td>10.13%</td><td class="pos">+$20,995</td><td>+$23,012</td></tr><tr><td>75%</td><td>12.30%</td><td class="pos">+$25,400</td><td>+$27,417</td></tr><tr><td>100%</td><td>15.65%</td><td class="pos">+$32,136</td><td>+$34,153</td></tr></tbody></table></div>
+<p class="note">At 10× volume more 0.30 is better all the way to 100%, because the fee yield is
+large enough to overcome self-dilution. The 5% share cap stops at a 28% sleeve; the 10% cap
+allows about 60%; 100% is a 15.6% share.</p>
+<p class="note">The 0.30 pool is not a bigger fee pool. At 1× it earns <b>$22,839</b> over 45
+days versus <b>$293,889</b> in the 0.05 pool. It is a higher fee <i>rate</i> on a much smaller
+base. A “100% sleeve” means 100% of your capital and only 15.6% of the pool; owning the pool
+outright would mean buying its existing liquidity, not just adding capital.</p>
+
+<h2>3. What the cap does</h2>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>Share cap</th><th>Max 0.30 sleeve</th><th>Actual share</th><th>Pool-only gain (10×)</th><th>Combined gain vs risk-only</th>
+</tr></thead><tbody><tr><td>5%</td><td>28%</td><td>≈5.1%</td><td class="pos">+$10,671</td><td class="pos">+$10,190</td></tr><tr><td>10%</td><td>60%</td><td>≈10.1%</td><td class="pos">+$20,966</td><td class="pos">+$19,950</td></tr><tr><td>15%</td><td>95%</td><td>≈15.0%</td><td class="pos">+$30,883</td><td class="pos">+$29,269</td></tr></tbody></table></div>
+<p class="note">A 5% cap does not mean a 5% sleeve. Because a $100k position is small relative to the
+pool's active liquidity, you can put about 28% of the capital in before you own 5% of the 0.30 pool.</p>
+
+<h2>4. The dynamic rule</h2>
+<p class="note">Move into the 0.30 pool until its <b>marginal</b> fee dollar equals the 0.05
+sleeve's fee dollar. The marginal yield falls as your share rises, so the optimum is finite:</p>
+<div class="formula">s1 = your fee share if 100% were in 0.30<br>
+a  = s1 / (1 - s1)<br>
+w* = ( sqrt(F_B * a / F_A) - 1 ) / a<br>
+w  = min(w*, w_cap),  w_cap = cap / (a * (1 - cap))<br><br>
+F_B = 0.30 pool fee revenue over the horizon<br>
+F_A = your 0.05 fee revenue at full capital<br>
+cap = your risk limit on owning the 0.30 pool</div>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>All-in share s1</th><th>Unconstrained w*</th><th>5% cap</th><th>10% cap</th>
+</tr></thead><tbody><tr><td>1×</td><td>15.65%</td><td>46%</td><td>28%</td><td>60%</td></tr><tr><td>2×</td><td>15.65%</td><td>100%</td><td>28%</td><td>60%</td></tr><tr><td>3×</td><td>15.65%</td><td>100%</td><td>28%</td><td>60%</td></tr><tr><td>5×</td><td>15.65%</td><td>100%</td><td>28%</td><td>60%</td></tr><tr><td>10×</td><td>15.65%</td><td>100%</td><td>28%</td><td>60%</td></tr></tbody></table></div>
+<p class="note">At 1× the formula says 46%, but the 5% cap limits it to 28%. At 2× and above it
+wants 100%, so the cap is the binding constraint. In production, recompute <b>w*</b> from trailing
+24h pool fees and your current share every 2h; move in 5-point steps with a 10% hysteresis band,
+and pull the sleeve to 0 if the 0.30 edge disappears.</p>
+
+<h2>5. Combined with the risk-only strategy</h2>
+<h3>Which split beats our current strategy?</h3>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>0%</th><th>5%</th><th>28%</th><th>43%</th><th>100%</th>
+</tr></thead><tbody><tr><td><b>1×</b></td><td class="">+$0</td><td class="neg">-$44</td><td class="neg">-$313</td><td class="neg">-$540</td><td class="neg">-$1,722</td></tr><tr><td><b>2×</b></td><td class="">+$0</td><td class="pos">+$172</td><td class="pos">+$840</td><td class="pos">+$1,176</td><td class="pos">+$1,852</td></tr><tr><td><b>10×</b></td><td class="">+$0</td><td class="pos">+$1,905</td><td class="pos">+$10,064</td><td class="pos">+$14,902</td><td class="pos">+$30,439</td></tr></tbody></table></div>
+<p class="note">Delta versus the risk-only run (45 days). At 1× the best choice is <b>0%</b>:
+the 0.30 sleeve earns less than the 0.05/Morpho engine. At 2× and above the best unconstrained
+choice is 100%, but the 5% pool-share cap stops at a 28% sleeve. That cap-constrained sleeve is
+the practical optimum.</p>
+<svg viewBox="0 0 760 260" class="chart" role="img" aria-label="Combined gain at a 28% 0.30 sleeve"><text x="64" y="16" class="chart-title">Combined 45-day gain vs the risk-only run — 28% sleeve in the 0.30 pool</text><line x1="64" y1="218.0" x2="740" y2="218.0" class="grid"/><text x="56" y="222.0" class="axis" text-anchor="end">-$313</text><line x1="64" y1="171.0" x2="740" y2="171.0" class="grid"/><text x="56" y="175.0" class="axis" text-anchor="end">+$2,282</text><line x1="64" y1="124.0" x2="740" y2="124.0" class="grid"/><text x="56" y="128.0" class="axis" text-anchor="end">+$4,876</text><line x1="64" y1="77.0" x2="740" y2="77.0" class="grid"/><text x="56" y="81.0" class="axis" text-anchor="end">+$7,470</text><line x1="64" y1="30.0" x2="740" y2="30.0" class="grid"/><text x="56" y="34.0" class="axis" text-anchor="end">+$10,064</text><rect x="93.7" y="212.3" width="75.7" height="5.7" rx="4" fill="#dc2626" opacity=".85"/><text x="131.6" y="207.3" class="axis" text-anchor="middle">-$313</text><text x="131.6" y="246" class="axis" text-anchor="middle">1×</text><rect x="228.9" y="197.1" width="75.7" height="15.2" rx="4" fill="#0f9d76" opacity=".85"/><text x="266.8" y="192.1" class="axis" text-anchor="middle">+$840</text><text x="266.8" y="246" class="axis" text-anchor="middle">2×</text><rect x="364.1" y="176.2" width="75.7" height="36.1" rx="4" fill="#0f9d76" opacity=".85"/><text x="402.0" y="171.2" class="axis" text-anchor="middle">+$1,993</text><text x="402.0" y="246" class="axis" text-anchor="middle">3×</text><rect x="499.3" y="134.4" width="75.7" height="77.9" rx="4" fill="#0f9d76" opacity=".85"/><text x="537.2" y="129.4" class="axis" text-anchor="middle">+$4,299</text><text x="537.2" y="246" class="axis" text-anchor="middle">5×</text><rect x="634.5" y="30.0" width="75.7" height="182.3" rx="4" fill="#0f9d76" opacity=".85"/><text x="672.4" y="25.0" class="axis" text-anchor="middle">+$10,064</text><text x="672.4" y="246" class="axis" text-anchor="middle">10×</text><line x1="64" y1="212.3" x2="740" y2="212.3" class="zero"/></svg>
+<div class="table-wrap"><table class="tbl"><thead><tr>
+<th>0.30 volume</th><th>Your share</th><th>Pool-only delta (45d)</th><th>Combined delta (45d)</th><th>Pool-only delta (20d)</th><th>Combined delta (20d)</th>
+</tr></thead><tbody><tr><td>1×</td><td>5.05%</td><td class="pos">+$162</td><td class="neg">-$313</td><td class="neg">-$0</td><td class="neg">-$445</td></tr><tr><td>2×</td><td>5.05%</td><td class="pos">+$1,315</td><td class="pos">+$840</td><td class="pos">+$240</td><td class="neg">-$204</td></tr><tr><td>3×</td><td>5.05%</td><td class="pos">+$2,468</td><td class="pos">+$1,993</td><td class="pos">+$481</td><td class="pos">+$36</td></tr><tr><td>5×</td><td>5.05%</td><td class="pos">+$4,774</td><td class="pos">+$4,299</td><td class="pos">+$962</td><td class="pos">+$517</td></tr><tr><td>10×</td><td>5.05%</td><td class="pos">+$10,539</td><td class="pos">+$10,064</td><td class="pos">+$2,164</td><td class="pos">+$1,719</td></tr></tbody></table></div>
+<p class="note">The combined column keeps the existing risk-only 0.05/Morpho engine on the
+remaining capital and adds the 0.30 sleeve on top. It is an overlay approximation; the live
+keeper needs a split-sleeve implementation. At 1× the sleeve is negative versus the risk-only run;
+at 2× it turns positive over 45 days, but over the last 20 days it needs 3× volume. At 10× it
+adds about +$10,064 over 45 days and +$1,719 over the last 20.</p>
+
+<h2>6. What this does and does not prove</h2>
+<div class="warn"><b>The 10× volume is a sensitivity, not a forecast.</b> It holds the 0.30 pool's
+liquidity fixed while multiplying its volume 10×. In reality that volume would attract more
+liquidity and dilute the fee APR. The sleeves are also passive: no re-centering, no inventory
+skew, and no Morpho overlay on the 0.30 side. The 20-day column is the tail of the same tape,
+not independent evidence. The result that survives all of these caveats is the shape: pool-only,
+a partial sleeve beats both extremes at 1×; against the risk-only engine, the sleeve only pays at
+2× or more; and the cap — not the fee math — is what limits the 10× case.</div>
+
+<div class="footer">45-day real tape ending 2026-10-24 · $100,000 · in-sample · 76 tests.
+0.05 pool = deep, low fee tier; 0.30 pool = thin, 6× fee tier. Research display, not investment
+advice.</div>
+</div></body></html>
