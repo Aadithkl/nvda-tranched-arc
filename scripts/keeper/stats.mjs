@@ -5,8 +5,9 @@
 //   - fees (volume * pool fee)
 //   - fee APR on the pool's active liquidity
 //   - price fluctuation (max-min range) and first/last move
-//   - IL for a configured concentrated range
-//   - net APR = fee APR - |IL APR|
+//   - IL for a configured concentrated range, and the worst |IL| along the tick path
+//   - guard-uptime-adjusted fee share (base + guard * uptime)
+//   - net APR = fee APR - |IL APR| * ilMultiple
 //
 // Assumes USDG/NVDA with USDG as token0 (0x5fc5... < 0xd060...).
 
@@ -17,6 +18,13 @@ export const SWAP_EVENT = parseAbiItem(
 );
 
 const Q192 = 1n << 192n;
+
+/** Clamp a possibly-unparseable number into [0, 1]; non-finite input clamps to 0. */
+function clamp01(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
 
 /** Raw token1/token0 price from sqrtPriceX96, scaled by 1e18. */
 export function priceFromSqrtX96(sqrtPriceX96) {
@@ -48,6 +56,8 @@ export function summarizeBook({
   let lastPrice = 0;
   let tickFirst = 0;
   let tickLast = 0;
+  let tickMin = 0;
+  let tickMax = 0;
 
   for (const s of swaps) {
     const a0 = BigInt(s.amount0);
@@ -64,8 +74,14 @@ export function summarizeBook({
 
     const tick = Number(s.tick);
     if (Number.isFinite(tick)) {
-      if (tickCount === 0) tickFirst = tick;
+      if (tickCount === 0) {
+        tickFirst = tick;
+        tickMin = tick;
+        tickMax = tick;
+      }
       tickLast = tick;
+      tickMin = Math.min(tickMin, tick);
+      tickMax = Math.max(tickMax, tick);
       tickCount += 1;
     }
   }
@@ -91,6 +107,8 @@ export function summarizeBook({
     priceLast: lastPrice,
     tickFirst,
     tickLast,
+    tickMin: tickCount > 0 ? tickMin : 0,
+    tickMax: tickCount > 0 ? tickMax : 0,
     priceMin: count > 0 ? min : 0,
     priceMax: count > 0 ? max : 0,
     priceAvg: avg,
@@ -231,6 +249,17 @@ export function feeAprFromActiveLiquidity({ feesUsd, activeLiquidityUsd, windowS
 /**
  * Full market read for one candidate:
  * fees + volume + volatility + IL + net APR (fees after IL).
+ *
+ * Optional inputs are backward compatible:
+ *   - `guardUptime` (0..1) with `baseShare`/`guardShare`: the book's fee share is
+ *     `baseShare + guardShare * guardUptime`, so time spent with the guard pulled
+ *     does not earn guard-range fees. Without `baseShare`/`guardShare` the share is
+ *     `bookShare` unchanged.
+ *   - `ilWorst` is the largest |IL| between the start tick and the end/min/max ticks.
+ *     `tickMin`/`tickMax` default to the fields recorded by `summarizeBook`.
+ *   - `ilMultipleBps` (default 1x) stresses the worst-case IL when scoring net APR.
+ *
+ * `ilBps` stays signed (the endpoint read); `ilWorstBps` and `ilAprBps` are magnitudes.
  */
 export function marketStats({
   book,
@@ -242,17 +271,29 @@ export function marketStats({
   bookRange,
   tickStart,
   tickEnd,
+  tickMin,
+  tickMax,
+  guardUptime = 1,
+  baseShare,
+  guardShare,
+  ilMultipleBps = 10_000,
 }) {
   const annualization = windowSeconds > 0 ? (365 * 24 * 3600) / windowSeconds : 0;
 
+  const uptime = clamp01(guardUptime);
+  const hasShareSplit = baseShare != null || guardShare != null;
+  const effectiveShare = hasShareSplit
+    ? clamp01(Number(baseShare ?? 0) + Number(guardShare ?? 0) * uptime)
+    : bookShare;
+
   let feeAprBps;
-  if (bookShare != null) {
+  if (effectiveShare != null) {
     // Position-level fees: pool fees × L_book/L_pool, divided by the book's LP value.
     // Zero share or zero position value means the book earned nothing (guard pulled/out of range).
     feeAprBps =
       Number(bookValueUsd) > 0
         ? Math.round(
-            ((Number(book.feesUsd) * Number(bookShare)) / Number(bookValueUsd)) *
+            ((Number(book.feesUsd) * Number(effectiveShare)) / Number(bookValueUsd)) *
               annualization *
               10_000,
           )
@@ -265,33 +306,249 @@ export function marketStats({
     });
   }
 
+  const tickRange =
+    bookRange != null
+      ? { tickLower: Number(bookRange.tickLower), tickUpper: Number(bookRange.tickUpper) }
+      : null;
+
+  // Endpoint IL: unchanged from the original behaviour (tick path, else price path).
   const il =
-    bookRange && Number.isFinite(Number(tickStart)) && Number.isFinite(Number(tickEnd))
-      ? ilBpsForTicks({
-          tickStart,
-          tickEnd,
-          tickLower: bookRange.tickLower,
-          tickUpper: bookRange.tickUpper,
-        })
+    tickRange && Number.isFinite(Number(tickStart)) && Number.isFinite(Number(tickEnd))
+      ? ilBpsForTicks({ tickStart, tickEnd, ...tickRange })
       : ilBps({
           priceStart: book.priceFirst,
           priceEnd: book.priceLast,
           halfWidthBps: rangeHalfWidthBps,
         });
 
-  const ilAprBps = Math.round(il * annualization);
+  // Worst case: the path may leave the range and come back, so the endpoint IL
+  // can be zero while the book actually took the excursion loss.
+  let ilWorst = Math.abs(il);
+  if (tickRange && Number.isFinite(Number(tickStart))) {
+    for (const tick of [tickEnd, tickMin ?? book.tickMin, tickMax ?? book.tickMax]) {
+      if (!Number.isFinite(Number(tick))) continue;
+      const worstTick = Math.abs(ilBpsForTicks({ tickStart, tickEnd: tick, ...tickRange }));
+      if (worstTick > ilWorst) ilWorst = worstTick;
+    }
+  }
+
+  const ilAprBps = Math.round(ilWorst * annualization);
+  const multiple = Number(ilMultipleBps);
+  const ilStress = Number.isFinite(multiple) && multiple >= 0 ? multiple : 10_000;
 
   return {
     ...book,
     activeLiquidityUsd,
+    effectiveShare,
+    guardUptime: uptime,
     feeAprBps,
     ilBps: il,
+    ilWorstBps: ilWorst,
     ilAprBps,
-    netAprBps: feeAprBps - Math.abs(ilAprBps),
+    netAprBps: Math.round(feeAprBps - (Math.abs(ilAprBps) * ilStress) / 10_000),
   };
 }
 
-/** Fetch and summarize one v4 book's Swap logs. */
+/**
+ * Split [fromBlock, toBlock] into inclusive BigInt chunks of at most `chunkBlocks`.
+ * An inverted range or a non-positive/unparseable chunk size returns [] (never loops).
+ */
+export function chunkedBlockRanges({ fromBlock, toBlock, chunkBlocks }) {
+  let from;
+  let to;
+  let size;
+  try {
+    from = BigInt(fromBlock);
+    to = BigInt(toBlock);
+    size = BigInt(chunkBlocks);
+  } catch {
+    return [];
+  }
+  if (size <= 0n || to < from) return [];
+
+  const ranges = [];
+  for (let start = from; start <= to; start += size) {
+    const last = start + size - 1n;
+    ranges.push({ fromBlock: start, toBlock: last < to ? last : to });
+  }
+  return ranges;
+}
+
+/** Event time in seconds: `timestamp` when usable, else `blockNumber * blockTimeSeconds`. */
+function guardEventTime(event, blockTimeSeconds) {
+  if (event == null) return null;
+  if (event.timestamp != null) {
+    const t = Number(event.timestamp);
+    if (Number.isFinite(t)) return t;
+  }
+  if (event.blockNumber != null) {
+    const b = Number(event.blockNumber);
+    const step = Number(blockTimeSeconds);
+    if (!Number.isFinite(b) || !Number.isFinite(step)) return null;
+    return b * step;
+  }
+  return null;
+}
+
+/**
+ * Fraction of [windowStart, windowEnd] the guard was deployed.
+ *
+ * `events` are `{ type: "pulled" | "deployed", timestamp?, blockNumber? }`; a
+ * `pulled` opens a down interval and a `deployed` closes it. Intervals are clipped
+ * to the window, so a pull before the window counts from `windowStart` and a pull
+ * still open at the end counts to `windowEnd`. Returns
+ * `{ uptime, pulledSeconds, intervals }` with `uptime` in [0, 1].
+ */
+export function computeGuardUptime({
+  events,
+  windowStart,
+  windowEnd,
+  blockTimeSeconds = 0.1,
+}) {
+  const start = Number(windowStart);
+  const end = Number(windowEnd);
+  const windowSeconds = end - start;
+  // No observable window: nothing was pulled, so the guard counts as up.
+  if (!(windowSeconds > 0)) return { uptime: 1, pulledSeconds: 0, intervals: [] };
+
+  const timed = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    const time = guardEventTime(event, blockTimeSeconds);
+    if (time != null) timed.push({ type: event.type, time });
+  }
+  timed.sort((a, b) => a.time - b.time);
+
+  const raw = [];
+  let downStart = null;
+  for (const event of timed) {
+    if (event.type === "pulled") {
+      if (downStart == null) downStart = event.time;
+    } else if (event.type === "deployed" && downStart != null) {
+      raw.push({ from: downStart, to: event.time });
+      downStart = null;
+    }
+  }
+  if (downStart != null) raw.push({ from: downStart, to: end });
+
+  const intervals = [];
+  let pulledSeconds = 0;
+  for (const interval of raw) {
+    const from = Math.max(interval.from, start);
+    const to = Math.min(interval.to, end);
+    if (!(to > from)) continue;
+    intervals.push({ from, to, seconds: to - from });
+    pulledSeconds += to - from;
+  }
+  pulledSeconds = Math.min(Math.max(pulledSeconds, 0), windowSeconds);
+
+  return { uptime: clamp01(1 - pulledSeconds / windowSeconds), pulledSeconds, intervals };
+}
+
+/** Parse a block-like value; null when absent or unparseable. */
+function blockNumberOrNull(value) {
+  if (value == null) return null;
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Swaps whose `blockNumber` is inside the inclusive [fromBlock, toBlock] range.
+ * Swaps without a parseable `blockNumber` are kept rather than dropped silently.
+ */
+export function filterSwapsByBlock(swaps, fromBlock, toBlock) {
+  const from = blockNumberOrNull(fromBlock);
+  const to = blockNumberOrNull(toBlock);
+  return (Array.isArray(swaps) ? swaps : []).filter((swap) => {
+    const block = blockNumberOrNull(swap?.blockNumber);
+    if (block == null) return true;
+    if (from != null && block < from) return false;
+    if (to != null && block > to) return false;
+    return true;
+  });
+}
+
+/** Drop cached swaps below `fromBlock`; entries without a block number are kept. */
+export function pruneSwapCache({ entries, fromBlock } = {}) {
+  const list = Array.isArray(entries) ? entries : [];
+  const from = blockNumberOrNull(fromBlock);
+  if (from == null) return list.slice();
+  return list.filter((entry) => {
+    const block = blockNumberOrNull(entry?.blockNumber);
+    return block == null || block >= from;
+  });
+}
+
+/** Stable identity for a cached swap, or null when it carries none. */
+function swapCacheKey(entry) {
+  const block = blockNumberOrNull(entry?.blockNumber);
+  if (block == null) return null;
+  if (entry.logIndex != null) return `${block}:log:${String(entry.logIndex)}`;
+  if (entry.transactionHash != null && entry.index != null) {
+    return `${block}:tx:${String(entry.transactionHash).toLowerCase()}:${String(entry.index)}`;
+  }
+  return null;
+}
+
+/**
+ * Append `incoming` to `existing`, dropping duplicates by block + logIndex, or
+ * block + transactionHash + index when logIndex is absent. Entries with no
+ * identity are kept as-is (there is nothing to dedupe them on).
+ */
+export function mergeSwapCache(existing, incoming) {
+  const merged = Array.isArray(existing) ? existing.slice() : [];
+  const seen = new Set();
+  for (const entry of merged) {
+    const key = swapCacheKey(entry);
+    if (key != null) seen.add(key);
+  }
+  for (const entry of Array.isArray(incoming) ? incoming : []) {
+    const key = swapCacheKey(entry);
+    if (key != null) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    merged.push(entry);
+  }
+  return merged;
+}
+
+/** Positive BigInt chunk size, or 0n when absent/invalid (single getLogs call). */
+function positiveBlockChunk(chunkBlocks) {
+  if (chunkBlocks == null) return 0n;
+  try {
+    const size = BigInt(chunkBlocks);
+    return size > 0n ? size : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+/** getLogs for one book, split into block chunks when `chunkBlocks` is positive. */
+async function getSwapLogs({ publicClient, poolManager, poolId, fromBlock, toBlock, chunkBlocks }) {
+  const query = { address: poolManager, event: SWAP_EVENT, args: { id: poolId } };
+  const chunk = positiveBlockChunk(chunkBlocks);
+
+  if (chunk > 0n && fromBlock != null && toBlock != null) {
+    const ranges = chunkedBlockRanges({ fromBlock, toBlock, chunkBlocks: chunk });
+    const logs = [];
+    for (const range of ranges) {
+      const part = await publicClient.getLogs({ ...query, ...range });
+      logs.push(...part);
+    }
+    return logs;
+  }
+
+  return publicClient.getLogs({ ...query, fromBlock, toBlock });
+}
+
+/**
+ * Fetch and summarize one v4 book's Swap logs.
+ * `chunkBlocks` (optional) splits the block range into sequential getLogs calls.
+ * Each swap arg carries `blockNumber` so callers can filter/prune the cache.
+ */
 export async function fetchBookStats({
   publicClient,
   poolManager,
@@ -303,17 +560,19 @@ export async function fetchBookStats({
   windowSeconds = 21_600,
   token0Decimals = 6,
   token1Decimals = 18,
+  chunkBlocks,
 }) {
-  const logs = await publicClient.getLogs({
-    address: poolManager,
-    event: SWAP_EVENT,
-    args: { id: poolId },
+  const logs = await getSwapLogs({
+    publicClient,
+    poolManager,
+    poolId,
     fromBlock,
     toBlock,
+    chunkBlocks,
   });
 
   return summarizeBook({
-    swaps: logs.map((l) => l.args),
+    swaps: logs.map((l) => ({ ...l.args, blockNumber: l.blockNumber })),
     feePips,
     nav,
     windowSeconds,
