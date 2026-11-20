@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { IBookHook } from "../interfaces/IBookHook.sol";
 import { ITrancheAccountant } from "../interfaces/ITrancheAccountant.sol";
 import { IStrategyModule } from "../adapters/IStrategyModule.sol";
@@ -52,7 +53,7 @@ library LedgerSettlement {
         IERC20 equity,
         address accountant,
         bool allowHaircut
-    ) public {
+    ) public returns (uint256 externalQuote, uint256 externalEquity, uint256 externalShares) {
         if (accountant == address(0)) revert AccountantUnset();
         ITrancheAccountant accountant_ = ITrancheAccountant(accountant);
         address seniorVault = accountant_.seniorVault();
@@ -90,6 +91,10 @@ library LedgerSettlement {
 
         uint256 hSenior = shareToken.balanceOf(seniorVault);
         uint256 hJunior = shareToken.balanceOf(juniorVault);
+        uint256 hTotal = shareToken.totalSupply();
+        if (hTotal == 0) revert SettlementNotReady();
+        uint256 hTranches = hSenior + hJunior;
+        externalShares = hTotal > hTranches ? hTotal - hTranches : 0;
 
         uint256 quoteUnits = quote.balanceOf(address(this));
         uint256 equityUnits = equity.balanceOf(address(this));
@@ -97,19 +102,37 @@ library LedgerSettlement {
         uint256 seniorGuarantee = accountant_.seniorGuaranteeQuote();
         if (!allowHaircut && quoteUnits < seniorGuarantee) revert SettlementNotReady();
 
+        // Senior guarantee first, from the whole pool. The residual is split between
+        // the junior tranche and hook shares held outside the vaults; an in-kind
+        // redemption gives up senior priority and becomes a residual claim.
         uint256 quoteToSenior = quoteUnits < seniorGuarantee ? quoteUnits : seniorGuarantee;
-        uint256 quoteToJunior = quoteUnits - quoteToSenior;
+        // A zero-supply senior vault has no claimant; do not strand the guarantee there.
+        if (hSenior == 0) quoteToSenior = 0;
+        uint256 quoteRemaining = quoteUnits - quoteToSenior;
+        uint256 juniorAndExternal = hJunior + externalShares;
+        uint256 quoteToJunior = juniorAndExternal == 0 ? 0 : Math.mulDiv(quoteRemaining, hJunior, juniorAndExternal);
+        externalQuote = quoteRemaining - quoteToJunior;
+        uint256 equityToJunior = juniorAndExternal == 0 ? 0 : Math.mulDiv(equityUnits, hJunior, juniorAndExternal);
+        externalEquity = equityUnits - equityToJunior;
+        // A zero-supply junior vault has no claimant; route its residual to external
+        // holders when they exist, otherwise leave it in the vault.
+        if (hJunior == 0) {
+            externalQuote += quoteToJunior;
+            externalEquity += equityToJunior;
+            quoteToJunior = 0;
+            equityToJunior = 0;
+        }
 
         if (hSenior != 0) shareToken.burn(seniorVault, hSenior);
         if (hJunior != 0) shareToken.burn(juniorVault, hJunior);
 
         if (quoteToSenior != 0) quote.safeTransfer(seniorVault, quoteToSenior);
         if (quoteToJunior != 0) quote.safeTransfer(juniorVault, quoteToJunior);
-        if (equityUnits != 0) equity.safeTransfer(juniorVault, equityUnits);
+        if (equityToJunior != 0) equity.safeTransfer(juniorVault, equityToJunior);
 
         ILedgerMaturedVault(seniorVault).creditSettlement(quoteToSenior, 0);
-        ILedgerMaturedVault(juniorVault).creditSettlement(quoteToJunior, equityUnits);
+        ILedgerMaturedVault(juniorVault).creditSettlement(quoteToJunior, equityToJunior);
 
-        emit SettlementFinalized(hSenior, hJunior, quoteToSenior, quoteToJunior, equityUnits);
+        emit SettlementFinalized(hSenior, hJunior, quoteToSenior, quoteToJunior, equityToJunior);
     }
 }

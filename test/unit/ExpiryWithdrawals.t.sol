@@ -19,6 +19,7 @@ import { PoolGuardSimulator } from "../../src/hook/PoolGuardSimulator.sol";
 import { GuardParams } from "../../src/hook/libraries/GuardParams.sol";
 import { LedgerVault } from "../../src/vaults/LedgerVault.sol";
 import { TrancheAccountant } from "../../src/vaults/TrancheAccountant.sol";
+import { TrancheVault } from "../../src/vaults/TrancheVault.sol";
 import { SeniorVault } from "../../src/vaults/SeniorVault.sol";
 import { JuniorVault } from "../../src/vaults/JuniorVault.sol";
 import { StrategyModule } from "../../src/adapters/StrategyModule.sol";
@@ -54,6 +55,8 @@ contract ExpiryWithdrawalsTest is Test {
     StrategyModule internal module;
     MockERC4626 internal venue4626;
     ERC4626Adapter internal lendAdapter;
+    MockERC4626 internal deadVenue;
+    ERC4626Adapter internal deadAdapter;
 
     PoolKey internal key;
     uint64 internal expiry;
@@ -148,6 +151,12 @@ contract ExpiryWithdrawalsTest is Test {
         lendAdapter = new ERC4626Adapter(address(module), address(venue4626), address(quote));
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
+
+        // Non-redemption-safe sleeve used to park liquidity the exit ladder must skip.
+        deadVenue = new MockERC4626(address(quote));
+        deadAdapter = new ERC4626Adapter(address(module), address(deadVenue), address(quote));
+        module.submitAdapter(address(deadAdapter), false, false, 1_000_000e6, 10_000);
+        module.executeAdapter(address(deadAdapter));
 
         readiness = new VaultReadiness();
 
@@ -281,6 +290,51 @@ contract ExpiryWithdrawalsTest is Test {
     // Post-settlement exit: request -> fulfill -> claim
     // ------------------------------------------------------------------
 
+    function test_redeemInKind_revertsAfterExpiry() public {
+        _depositJunior(400e6);
+        _depositSenior(1_000e6);
+
+        uint256 shares = senior.balanceOf(address(this));
+        senior.requestRedeem(shares, address(this), address(this));
+        // Keeper is the test contract; fulfill before expiry so the shares are claimable.
+        accountant.fulfillRedeem(true, address(this));
+        uint256 claimable = senior.maxRedeem(address(this));
+        assertGt(claimable, 0, "claimable before expiry");
+
+        _warpToExpiry();
+        vm.expectRevert(TrancheVault.Expired.selector);
+        senior.redeem(claimable, address(this), address(this));
+    }
+
+    function test_externalHookShares_claimAtSettlement() public {
+        _depositJunior(400e6);
+        _depositSenior(1_000e6);
+
+        // Redeem in-kind BEFORE expiry: the user holds hook shares outside the vaults.
+        uint256 shares = senior.balanceOf(address(this));
+        senior.requestRedeem(shares, address(this), address(this));
+        accountant.fulfillRedeem(true, address(this));
+        uint256 claimable = senior.maxRedeem(address(this));
+        senior.redeem(claimable, address(this), address(this));
+
+        IERC20 hookShares = IERC20(address(vault.shareToken()));
+        uint256 externalShares = hookShares.balanceOf(address(this));
+        assertGt(externalShares, 0, "external hook shares");
+
+        _warpToExpiry();
+        vault.haltIfExpired();
+        vault.finalizeSettlement();
+
+        assertTrue(vault.externalSettlementOpen(), "external claim opened");
+        assertGt(vault.settlementQuotePerShare(), 0);
+
+        hookShares.approve(address(vault), externalShares);
+        uint256 before = quote.balanceOf(address(this));
+        vault.claimExternalSettlement(externalShares);
+        assertGt(quote.balanceOf(address(this)) - before, 0, "external holder paid");
+        assertEq(hookShares.balanceOf(address(this)), 0);
+    }
+
     function test_postSettlement_requestFulfillClaim_senior() public {
         _depositJunior(400e6);
         _depositSenior(1_000e6);
@@ -402,8 +456,9 @@ contract ExpiryWithdrawalsTest is Test {
         vm.expectRevert(LedgerVault.OracleInvalid.selector);
         vault.unwrapEquity(shares, address(this), 0);
 
-        // Proportional is oracle-free and still works.
-        (uint256 outUsdc, uint256 outEquity) = vault.unwrapProportional(shares / 2, address(this), 0, 0);
+        // Proportional is oracle-free but no longer slippage-free: a closed-market
+        // exit must bound both legs explicitly.
+        (uint256 outUsdc, uint256 outEquity) = vault.unwrapProportional(shares / 2, address(this), 1, 1);
         assertGt(outUsdc + outEquity, 0);
     }
 
@@ -432,19 +487,16 @@ contract ExpiryWithdrawalsTest is Test {
         (uint256 idleUsdc,) = hook.inventory();
         uint256 payout = idleUsdc + 20e6; // shortfall the guard must cover
 
-        // Drain the vault into the strategy, then disable the adapter so it cannot fund redemptions.
+        // Drain the vault into a NON-redemption-safe sleeve: the exit ladder skips it
+        // by kind (not redemption-safe), so the guard is the only funding source.
         // No standing allowance — one-shot keeper approval per pull.
         vault.approveStrategy(address(quote), quote.balanceOf(address(vault)));
-        module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
-        module.disableAdapter(address(lendAdapter));
+        module.allocate(address(deadAdapter), quote.balanceOf(address(vault)));
 
         // Wrap the payout, then drain again so only hook idle + guard remain.
         shares = _wrapAsSenior(payout, address(this));
-        module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
-        module.executeAdapter(address(lendAdapter));
         vault.approveStrategy(address(quote), quote.balanceOf(address(vault)));
-        module.allocate(address(lendAdapter), quote.balanceOf(address(vault)));
-        module.disableAdapter(address(lendAdapter));
+        module.allocate(address(deadAdapter), quote.balanceOf(address(vault)));
 
         assertEq(quote.balanceOf(address(vault)), 0);
     }

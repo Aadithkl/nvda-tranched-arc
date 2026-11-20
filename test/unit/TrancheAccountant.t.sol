@@ -277,6 +277,16 @@ contract TrancheAccountantTest is Test {
         accountant.setKeeper(alice);
     }
 
+    function test_setHook_lockedAfterDeposit() public {
+        vm.expectRevert(TrancheAccountant.HookLocked.selector);
+        accountant.setHook(address(valueSource));
+    }
+
+    function test_setVaults_lockedAfterDeposit() public {
+        vm.expectRevert(TrancheAccountant.VaultsLocked.selector);
+        accountant.setVaults(address(senior), address(junior));
+    }
+
     function test_hookRiskBudget_readsAccountant() public {
         assertEq(accountant.juniorClaim(), 100e6);
         valueSource.setRate(1.05e6);

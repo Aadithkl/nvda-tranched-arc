@@ -17,6 +17,10 @@ interface ITrancheAccountant {
     /// @notice Minimum junior slice of tranche backing (bps of 10_000), immutable.
     function minJuniorFloorBps() external view returns (uint16);
 
+    /// @notice Junior shares already locked for fulfilled claims. They are still in the
+    ///         junior vault but no longer back the tranche.
+    function claimableJunior() external view returns (uint256);
+
     /// @notice Advances the withdrawal clock past a 24h boundary (permissionless).
     function executeEpoch() external returns (uint256 id);
 

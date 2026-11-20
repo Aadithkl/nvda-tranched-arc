@@ -54,6 +54,10 @@ contract MockAccountant is ITrancheAccountant {
         return 0;
     }
 
+    function claimableJunior() external pure override returns (uint256) {
+        return 0;
+    }
+
     function executeEpoch() external pure override returns (uint256) {
         return 0;
     }

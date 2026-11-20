@@ -231,6 +231,58 @@ contract EpochsTest is Test {
         _warpToBoundary(3);
         assertEq(accountant.executeEpoch(), 3);
     }
+
+    function test_claimEpoch_repeatedCallsCapped() public {
+        _deposit(junior, bob, 30e18);
+        _deposit(senior, alice, 70e18);
+        _requestAll(junior, bob);
+
+        _warpToBoundary(1);
+        accountant.executeEpoch();
+        (,, uint16 fJ,,) = accountant.epochSnaps(1);
+        assertLt(fJ, 10_000, "junior trimmed by the floor");
+
+        accountant.claimEpoch(false, bob);
+        uint256 remainder = junior.pendingRedeemRequest(0, bob);
+        assertGt(remainder, 0, "remainder rolls");
+
+        // The second call must not re-apply fJ to the smaller remainder.
+        vm.expectRevert(TrancheAccountant.NothingToFulfill.selector);
+        accountant.claimEpoch(false, bob);
+        assertEq(junior.pendingRedeemRequest(0, bob), remainder);
+    }
+
+    function test_claimEpoch_rejectsRequestAfterSnapshot() public {
+        _deposit(junior, bob, 30e18);
+        _deposit(senior, alice, 70e18);
+
+        _warpToBoundary(1);
+        accountant.executeEpoch();
+        _requestAll(junior, bob);
+
+        vm.expectRevert(abi.encodeWithSelector(TrancheAccountant.EpochNotReady.selector, 1));
+        accountant.claimEpoch(false, bob);
+    }
+
+    function test_fulfillRedeem_rejectsPostSnapshotRequest() public {
+        address carol = makeAddr("carol");
+        _deposit(junior, bob, 30e18);
+        _deposit(senior, alice, 70e18);
+        _requestAll(junior, bob);
+
+        _warpToBoundary(1);
+        accountant.executeEpoch();
+        (,, uint16 fJ,,) = accountant.epochSnaps(1);
+        assertLt(fJ, 10_000, "junior fill is partial, rationing is active");
+
+        // Carol's request postdates the snapshot: the keeper cannot spot-fill her past
+        // the epoch queue (L-14).
+        _deposit(junior, carol, 10e18);
+        _requestAll(junior, carol);
+
+        vm.expectRevert(abi.encodeWithSelector(TrancheAccountant.EpochNotReady.selector, 1));
+        accountant.fulfillRedeem(false, carol);
+    }
 }
 
 contract MockHookValueLocal {

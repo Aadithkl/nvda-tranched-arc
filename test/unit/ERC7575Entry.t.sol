@@ -144,12 +144,18 @@ contract ERC7575EntryTest is Test {
     /// @notice Seeds hook shares straight to a user through the gated wrap door
     ///         (caller == registered tranche). Entry deposits themselves are closed (D2).
     function _seedShares(address user, uint256 amount) internal returns (uint256 shares) {
-        vault.setAccountant(address(new MockAccountant(user, user)));
-        quote.mint(user, amount);
-        vm.startPrank(user);
+        // The vault accountant is timelocked after the first wiring. Rotate it to the
+        // test contract, warp the delay, and refresh the pushed oracle so wrapQuote
+        // does not fail the freshness gate.
+        vault.setAccountant(address(new MockAccountant(address(this), address(this))));
+        vm.warp(block.timestamp + vault.ACCOUNTANT_TIMELOCK());
+        vault.executeAccountant();
+        oracle.updatePrice(int192(int256(hook.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+
+        quote.mint(address(this), amount);
         quote.approve(address(vault), amount);
-        shares = vault.wrapQuote(amount, user);
-        vm.stopPrank();
+        shares = vault.wrapQuote(amount, address(this));
+        shareToken.transfer(user, shares);
     }
 
     // ------------------------------------------------------------------
@@ -278,7 +284,7 @@ contract ERC7575EntryTest is Test {
     // ------------------------------------------------------------------
 
     function test_max_gating_expiry() public {
-        assertEq(entry.maxDeposit(alice), type(uint256).max);
+        assertEq(entry.maxDeposit(alice), 0);
 
         vm.warp(expiry + 1);
         assertEq(entry.maxDeposit(alice), 0);

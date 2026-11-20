@@ -47,6 +47,10 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     mapping(uint256 => EpochSnap) public epochSnaps;
+    /// @notice Per-epoch, per-user fill snapshot. `claimEpoch` fills at most
+    ///         `snapshot * fBps` in total, so repeated calls cannot re-apply the fraction.
+    mapping(uint256 => mapping(address => uint256)) public epochPendingSnapshot;
+    mapping(uint256 => mapping(address => uint256)) public epochClaimedShares;
 
     event HookUpdated(address indexed hook);
     event VaultsUpdated(address indexed seniorVault, address indexed juniorVault);
@@ -66,6 +70,9 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     error ZeroAddress();
     error InvalidEscrowBps(uint16 escrowBps);
     error EscrowLocked();
+    error HookLocked();
+    error VaultsLocked();
+    error FrozenLocked();
     error SeniorPriority();
     error NothingToFulfill();
     error EpochNotReady(uint256 id);
@@ -91,12 +98,14 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
 
     function setHook(address hook_) external onlyOwner {
         if (hook_ == address(0)) revert ZeroAddress();
+        if (seniorPrincipal != 0 || juniorPrincipal != 0) revert HookLocked();
         hook = hook_;
         emit HookUpdated(hook_);
     }
 
     function setVaults(address seniorVault_, address juniorVault_) external onlyOwner {
         if (seniorVault_ == address(0) || juniorVault_ == address(0)) revert ZeroAddress();
+        if (seniorPrincipal != 0 || juniorPrincipal != 0) revert VaultsLocked();
         seniorVault = seniorVault_;
         juniorVault = juniorVault_;
         emit VaultsUpdated(seniorVault_, juniorVault_);
@@ -113,6 +122,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     }
 
     function setFrozen(bool frozen_) external onlyOwner {
+        if (frozen && !frozen_) revert FrozenLocked();
         frozen = frozen_;
         emit FrozenSet(frozen_);
     }
@@ -269,13 +279,26 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         if (seniorVault == address(0)) revert VaultsNotSet();
         // Dust + frozen bypass — 1 wei of senior pending no longer bricks juniors.
         if (!senior && !frozen) {
-            uint256 seniorPending = TrancheVault(seniorVault).totalPendingRedeemShares();
+            uint256 seniorPending =
+                TrancheVault(seniorVault).convertToAssets(TrancheVault(seniorVault).totalPendingRedeemShares());
             if (seniorPending > SENIOR_PRIORITY_DUST) revert SeniorPriority();
         }
 
         TrancheVault vault = TrancheVault(senior ? seniorVault : juniorVault);
         uint256 shares = vault.pendingRedeemRequest(0, user);
         if (shares == 0) revert NothingToFulfill();
+        // Rationing guard: once an epoch snapshot filled this side partially, a keeper
+        // spot fill must not let a request created after the snapshot jump the queue.
+        if (!_expired()) {
+            EpochSnap memory snap = epochSnaps[lastExecutedEpoch];
+            uint16 fBps = senior ? snap.fSeniorBps : snap.fJuniorBps;
+            if (
+                snap.id != 0 && fBps != 0 && fBps < 10_000
+                    && vault.requestTimestamp(user) >= lastExecutedEpoch * EPOCH_LENGTH
+            ) {
+                revert EpochNotReady(lastExecutedEpoch);
+            }
+        }
 
         _rebalance();
         uint256 assets = vault.convertToAssets(shares);
@@ -302,6 +325,7 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
                 if (assets > capShares) assets = capShares;
             }
         }
+        if (assets == 0) revert NothingToFulfill();
         vault.fulfillRedeem(shares, assets, user);
         emit RedeemFulfilled(senior, user, shares, assets);
     }
@@ -405,16 +429,29 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
     function claimEpoch(bool senior, address user) external {
         if (_expired()) revert Expired();
         if (seniorVault == address(0)) revert VaultsNotSet();
-        EpochSnap memory snap = epochSnaps[lastExecutedEpoch];
-        if (snap.id == 0) revert EpochNotReady(lastExecutedEpoch);
+        uint256 epochId = lastExecutedEpoch;
+        EpochSnap memory snap = epochSnaps[epochId];
+        if (snap.id == 0) revert EpochNotReady(epochId);
         TrancheVault vault = TrancheVault(senior ? seniorVault : juniorVault);
         uint256 pending = vault.pendingRedeemRequest(0, user);
         if (pending == 0) revert NothingToFulfill();
+        // A request created after the epoch snapshot must not claim at the stale rate.
+        if (vault.requestTimestamp(user) >= epochId * EPOCH_LENGTH) revert EpochNotReady(epochId);
         uint256 fBps = senior ? snap.fSeniorBps : snap.fJuniorBps;
         uint256 rate = senior ? snap.rateSenior : snap.rateJunior;
         if (fBps == 0 || rate == 0) revert NothingToFulfill();
-        uint256 fillT = pending * fBps / 10_000;
+        uint256 snapshot = epochPendingSnapshot[epochId][user];
+        if (snapshot == 0) {
+            snapshot = pending;
+            epochPendingSnapshot[epochId][user] = snapshot;
+        }
+        uint256 target = snapshot * fBps / 10_000;
+        uint256 claimed = epochClaimedShares[epochId][user];
+        if (target <= claimed) revert NothingToFulfill();
+        uint256 fillT = target - claimed;
+        if (fillT > pending) fillT = pending;
         if (fillT == 0) revert NothingToFulfill();
+        epochClaimedShares[epochId][user] = claimed + fillT;
         uint256 fillA = fillT * rate / 1e18;
         if (fillA == 0) revert NothingToFulfill();
         _applyFill(senior, vault, user, fillT, fillA);
@@ -441,6 +478,9 @@ contract TrancheAccountant is ITrancheAccountant, Ownable2Step {
         if (!source.oracleValid()) revert OracleInvalid();
         (bool ok, uint256 deviationBps) = source.spotDeviationBps();
         uint16 maxDeviation = source.maxUnwrapDeviationBps();
+        // Zero is a deliberate product decision, not a misconfiguration: with the band
+        // off, mid-life exits stay open through a dead-oracle crash (TrancheEconomics
+        // `test_seniorUnderwater_paysNAV`). The band is on by default (200 bps).
         if (maxDeviation != 0 && (!ok || deviationBps > maxDeviation)) revert OracleInvalid();
     }
 

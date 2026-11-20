@@ -41,6 +41,9 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
     uint256 public settledAt;
     uint256 public quotePerShare1e18;
     uint256 public equityPerShare1e18;
+    /// @notice Timestamp of the latest redeem request per controller. The accountant
+    ///         uses it to reject requests created after an epoch snapshot.
+    mapping(address => uint256) public requestTimestamp;
     uint256 private _pendingMaturedShares;
 
     event OwnerUpdated(address indexed owner);
@@ -262,6 +265,8 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         address juniorVault = accountant_.juniorVault();
         if (seniorVault == address(0) || juniorVault == address(0)) return;
         uint256 juniorBal = IERC20(address(hookShare)).balanceOf(juniorVault);
+        uint256 juniorLocked = accountant_.claimableJunior();
+        juniorBal = juniorBal > juniorLocked ? juniorBal - juniorLocked : 0;
         uint256 seniorBal = IERC20(address(hookShare)).balanceOf(seniorVault);
         if (juniorBal * 10_000 < floor * (juniorBal + seniorBal)) revert FloorBreach(juniorBal, seniorBal);
     }
@@ -290,6 +295,10 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         virtual
         override
     {
+        // After expiry, exits belong to settlement. Allowing an in-kind hook-share
+        // redemption here creates shares that settlement does not burn or credit, and
+        // every unwrap door is closed once `expired()` is true.
+        if (expired() && !matured) revert Expired();
         if (matured) _pendingMaturedShares = shares;
         super._withdraw(caller, receiver, sharesOwner, assets, shares);
         if (matured) _pendingMaturedShares = 0;
@@ -478,7 +487,9 @@ abstract contract TrancheVault is ERC7540SyncDeposit, ERC7540AdminRedeem, Reentr
         override(ERC7540, ERC7540AdminRedeem)
         returns (uint256)
     {
-        return super._requestRedeem(shares, controller, sharesOwner, requestId);
+        uint256 id = super._requestRedeem(shares, controller, sharesOwner, requestId);
+        requestTimestamp[controller] = block.timestamp;
+        return id;
     }
 
     /// @notice Medium (first-depositor inflation): the virtual-share offset scales the

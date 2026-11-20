@@ -78,7 +78,15 @@ contract ShareMath18Test is Test {
     /// @notice Wrap doors admit registered tranches only (D2) — point the gate at the
     ///         acting party before it wraps. Exits and donations need no gate.
     function _gate(address party) internal {
+        // First wiring is immediate; rotations are timelocked.
+        if (vault.accountant() == address(0)) {
+            vault.setAccountant(address(new MockAccountant(party, party)));
+            return;
+        }
         vault.setAccountant(address(new MockAccountant(party, party)));
+        vm.warp(block.timestamp + vault.ACCOUNTANT_TIMELOCK());
+        vault.executeAccountant();
+        oracle.updatePrice(8e6, 2, uint32(block.timestamp), bytes32(0));
     }
 
     /// @notice Genesis prices 1 WETH at 1e15 hook-shares — same range as the old $1 -> 1e15.

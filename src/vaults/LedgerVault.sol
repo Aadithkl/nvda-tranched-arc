@@ -79,6 +79,12 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     address public keeper;
     address public accountant;
+    /// @notice Accountant rotation is timelocked once the first accountant is set.
+    ///         The accountant decides settlement recipients, so an instant swap is a
+    ///         terminal-waterfall redirect.
+    address public pendingAccountant;
+    uint64 public accountantExecutableAt;
+    uint64 public constant ACCOUNTANT_TIMELOCK = 24 hours;
     uint16 public conversionFeeBps;
     /// @notice One-shot exit schedule (D5 fee lock): flat redemption fee + early-exit fine
     ///         decaying to zero at expiry, both pool-kept. Set once, then locked forever.
@@ -87,6 +93,11 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     uint64 public startTimestamp;
     bool public feeScheduleLocked;
     bool public settled;
+    /// @notice Frozen rate for hook shares that were held outside the two tranche
+    ///         vaults at settlement. Those holders claim their pro-rata backing here.
+    uint256 public settlementQuotePerShare;
+    uint256 public settlementEquityPerShare;
+    bool public externalSettlementOpen;
     /// @notice When true, redemptions that exhaust idle/hook/venue/strategy liquidity recall the
     ///         guard position (and claims) as a last resort. Base stays until halt/settlement.
     bool public guardRecallOnWithdraw = true;
@@ -145,6 +156,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     event KeeperUpdated(address indexed keeper);
     event AccountantUpdated(address indexed accountant);
+    event AccountantSubmitted(address indexed pendingAccountant, uint64 executableAt);
     event VenueUpdated(address indexed venue, address indexed aToken);
     event StrategyModuleUpdated(address indexed module);
     event GuardRecallOnWithdrawSet(bool enabled);
@@ -162,6 +174,8 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     event ConversionFeeBpsUpdated(uint16 bps);
     event ExitFeesUpdated(uint16 feeBps, uint16 fineBps);
     event HookFunded(uint256 quoteAmount, uint256 equityAmount);
+    event ExternalSettlementOpened(uint256 quotePerShare, uint256 equityPerShare, uint256 shares);
+    event ExternalSettlementClaimed(address indexed user, uint256 shares, uint256 quoteAmount, uint256 equityAmount);
     event QuoteWrapped(address indexed caller, address indexed receiver, uint256 quoteAmount, uint256 shares);
     event QuoteUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 quoteAmount);
     event EquityUnwrapped(address indexed caller, address indexed receiver, uint256 shares, uint256 equityAmount);
@@ -194,6 +208,9 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     error AccountantUnset();
     error VaultsUnset();
     error SettlementNotReady();
+    error ExternalSettlementClosed();
+    error AccountantTimelockActive(uint64 executableAt);
+    error NothingPending();
     error InvalidOracleDecimals(uint8 decimals);
     error SpotDeviation(uint256 deviationBps, uint16 maxDeviationBps);
     error IsHalted();
@@ -264,6 +281,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         oracleDecimals = decimals_;
         quoteDecimals = IERC20MetadataLite(address(quote_)).decimals();
         equityDecimals = IERC20MetadataLite(address(equity_)).decimals();
+        if (uint256(decimals_) + equityDecimals < quoteDecimals) revert InvalidOracleDecimals(decimals_);
         expiry = expiry_;
         _venueKey = key_;
         shareToken = new HookShareToken(address(this), address(quote_));
@@ -281,8 +299,35 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     function setAccountant(address newAccountant) external onlyOwner {
         if (newAccountant == address(0)) revert ZeroAddress();
-        accountant = newAccountant;
-        emit AccountantUpdated(newAccountant);
+        if (newAccountant == accountant) return;
+        // First wiring is immediate (deploy bootstrap); every rotation waits 24h.
+        if (accountant == address(0)) {
+            accountant = newAccountant;
+            emit AccountantUpdated(newAccountant);
+            return;
+        }
+        pendingAccountant = newAccountant;
+        accountantExecutableAt = uint64(block.timestamp) + ACCOUNTANT_TIMELOCK;
+        emit AccountantSubmitted(newAccountant, accountantExecutableAt);
+    }
+
+    /// @notice Executes a scheduled accountant rotation after the 24h delay.
+    function executeAccountant() external {
+        address pending = pendingAccountant;
+        if (pending == address(0)) revert NothingPending();
+        if (block.timestamp < accountantExecutableAt) revert AccountantTimelockActive(accountantExecutableAt);
+        delete pendingAccountant;
+        delete accountantExecutableAt;
+        accountant = pending;
+        emit AccountantUpdated(pending);
+    }
+
+    /// @notice Cancels a scheduled accountant rotation.
+    function cancelAccountant() external onlyOwner {
+        if (pendingAccountant == address(0)) revert NothingPending();
+        delete pendingAccountant;
+        delete accountantExecutableAt;
+        emit AccountantSubmitted(address(0), 0);
     }
 
     function setConversionFeeBps(uint16 bps) external onlyOwner {
@@ -325,7 +370,7 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
     function _deductExitFees(uint256 gross) internal view returns (uint256 net) {
         uint256 bps = uint256(redemptionFeeBps) + _fineBps();
         if (bps == 0) return gross;
-        net = gross - Math.mulDiv(gross, bps, BPS);
+        net = gross - Math.mulDiv(gross, bps, BPS, Math.Rounding.Ceil);
     }
 
     function setVenue(address lendingPool, address aToken_) external onlyOwner {
@@ -843,6 +888,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
+        // The quote/equity split here is marked off pool spot. When the spot-vs-oracle
+        // read is unavailable the band cannot protect it, so the exit stays open only
+        // with explicit slippage bounds on both legs.
+        (bool bandOk,) = hook.oracleDeviationBps();
+        if (!bandOk && (minQuoteOut == 0 || minEquityOut == 0)) revert OracleInvalid();
+        _requireSpotBand();
+
         hook.unwindClaims();
 
         uint256 supply = shareToken.totalSupply();
@@ -853,6 +905,12 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         (uint256 posQuote, uint256 posEquity) = _positionUnits();
         uint256 quoteUnits = quote.balanceOf(address(this)) + hook.quoteIdle() + posQuote;
         if (address(aToken) != address(0)) quoteUnits += aToken.balanceOf(address(this));
+        address module = strategyModule;
+        if (module != address(0)) {
+            uint256 strategyAssets = IStrategyModule(module).totalAssets();
+            uint256 bad = IStrategyModule(module).badDebt();
+            quoteUnits += bad > strategyAssets ? 0 : strategyAssets - bad;
+        }
         uint256 equityUnits = equity.balanceOf(address(this)) + hook.equityIdle() + posEquity;
 
         uint256 scaledSupply = (supply + VIRTUAL_SHARES) * SHARE_SCALE;
@@ -908,9 +966,10 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (!expired()) revert NotExpired();
         if (settled) revert AlreadySettled();
         settled = true;
-        LedgerSettlement.finalize(
+        (uint256 externalQuote, uint256 externalEquity, uint256 externalShares) = LedgerSettlement.finalize(
             hook, strategyModule, address(venue), aToken, shareToken, quote, equity, accountant, false
         );
+        _openExternalSettlement(externalQuote, externalEquity, externalShares);
     }
 
     /// @notice Owner escape hatch for a pathological book: settles with a senior haircut.
@@ -918,9 +977,32 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
         if (!expired()) revert NotExpired();
         if (settled) revert AlreadySettled();
         settled = true;
-        LedgerSettlement.finalize(
+        (uint256 externalQuote, uint256 externalEquity, uint256 externalShares) = LedgerSettlement.finalize(
             hook, strategyModule, address(venue), aToken, shareToken, quote, equity, accountant, true
         );
+        _openExternalSettlement(externalQuote, externalEquity, externalShares);
+    }
+
+    /// @notice Claims the frozen settlement value of hook shares that were held outside
+    ///         the two tranche vaults at settlement. The vault keeps the shares; the
+    ///         holder's balance decreases, so the claim cannot be repeated.
+    function claimExternalSettlement(uint256 shares) external nonReentrant {
+        if (!externalSettlementOpen) revert ExternalSettlementClosed();
+        if (shares == 0) revert ZeroAmount();
+        IERC20(address(shareToken)).safeTransferFrom(msg.sender, address(this), shares);
+        uint256 quoteAmount = shares.mulDiv(settlementQuotePerShare, 1e18);
+        uint256 equityAmount = shares.mulDiv(settlementEquityPerShare, 1e18);
+        if (quoteAmount != 0) quote.safeTransfer(msg.sender, quoteAmount);
+        if (equityAmount != 0) equity.safeTransfer(msg.sender, equityAmount);
+        emit ExternalSettlementClaimed(msg.sender, shares, quoteAmount, equityAmount);
+    }
+
+    function _openExternalSettlement(uint256 externalQuote, uint256 externalEquity, uint256 externalShares) internal {
+        if (externalShares == 0) return;
+        settlementQuotePerShare = externalQuote * 1e18 / externalShares;
+        settlementEquityPerShare = externalEquity * 1e18 / externalShares;
+        externalSettlementOpen = true;
+        emit ExternalSettlementOpened(settlementQuotePerShare, settlementEquityPerShare, externalShares);
     }
 
     // ---------------------------------------------------------------------
@@ -1029,11 +1111,13 @@ contract LedgerVault is IHookSharePipe, ITrancheHookValue, Ownable2Step, Reentra
 
     function _equityUnitsToQuote(uint256 amount, uint256 mid) internal view returns (uint256) {
         if (mid == 0) return 0;
-        return Math.mulDiv(amount, mid, 10 ** (oracleDecimals + equityDecimals - quoteDecimals));
+        uint256 exponent = uint256(oracleDecimals) + equityDecimals - quoteDecimals;
+        return Math.mulDiv(amount, mid, 10 ** exponent);
     }
 
     function _quoteToEquityUnits(uint256 quoteAmount, uint256 mid) internal view returns (uint256) {
-        return Math.mulDiv(quoteAmount, 10 ** (oracleDecimals + equityDecimals - quoteDecimals), mid);
+        uint256 exponent = uint256(oracleDecimals) + equityDecimals - quoteDecimals;
+        return Math.mulDiv(quoteAmount, 10 ** exponent, mid);
     }
 }
 

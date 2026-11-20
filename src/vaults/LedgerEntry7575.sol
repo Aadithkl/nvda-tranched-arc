@@ -145,7 +145,9 @@ contract LedgerEntry7575 is IERC7575 {
     }
 
     function maxDeposit(address) public view returns (uint256) {
-        return _entryOpen() ? type(uint256).max : 0;
+        // D2: only registered tranche vaults can wrap. This entry is not a tranche,
+        // so advertising a deposit capacity would be a lie.
+        return 0;
     }
 
     function maxMint(address) external view returns (uint256) {
@@ -241,7 +243,7 @@ contract LedgerEntry7575 is IERC7575 {
         // the old `safeTransfer(receiver, assets)` reverted on any fee. Forward the
         // ACTUAL unwrapped amount and fail closed when it misses the request.
         shares = previewWithdraw(assets);
-        shareToken.transferFrom(owner, address(this), shares);
+        IERC20(address(shareToken)).safeTransferFrom(owner, address(this), shares);
         uint256 got = ILedgerVaultPipe(vault).unwrapQuote(shares, address(this), 0);
         if (got < assets) revert SlippageExceeded(got, assets);
         quote.safeTransfer(receiver, got);
@@ -256,7 +258,7 @@ contract LedgerEntry7575 is IERC7575 {
         if (shares == 0) revert ZeroAmount();
         if (receiver == address(0)) revert ZeroAddress();
 
-        shareToken.transferFrom(owner, address(this), shares);
+        IERC20(address(shareToken)).safeTransferFrom(owner, address(this), shares);
         assets = ILedgerVaultPipe(vault).unwrapQuote(shares, receiver, 0);
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }

@@ -391,12 +391,22 @@ contract LedgerVaultTest is Test {
         uint256 juniorBal = quote.balanceOf(address(junior));
         assertApproxEqAbs(seniorBal, 1_050e6, 2);
         assertGt(juniorBal, 0);
-        assertEq(quote.balanceOf(address(vault)), 0);
+        // Hook shares held outside the tranche vaults (the test's seed) reserve a
+        // pro-rata slice of the pool for `claimExternalSettlement`.
+        assertGt(quote.balanceOf(address(vault)), 0, "external reserve");
+        assertTrue(vault.externalSettlementOpen());
 
         uint256 seniorShares = senior.balanceOf(address(this));
         uint256 before = quote.balanceOf(address(this));
         senior.redeemAtExpiry(seniorShares, address(this));
         assertGe(quote.balanceOf(address(this)) - before, 1_049e6);
+
+        uint256 externalShares = share.balanceOf(address(this));
+        if (externalShares != 0) {
+            share.approve(address(vault), externalShares);
+            vault.claimExternalSettlement(externalShares);
+        }
+        assertEq(quote.balanceOf(address(vault)), 0, "external reserve paid");
     }
 
     function test_finalizeSettlement_beforeExpiry_reverts() public {
@@ -491,6 +501,38 @@ contract LedgerVaultTest is Test {
         uint256 before = quote.balanceOf(address(vault));
         controller.submitRebalance(true, 1e15, 2_975_000, block.timestamp + 60);
         assertGt(quote.balanceOf(address(vault)) - before, 2_970_000);
+    }
+
+    function test_setAccountant_timelockedAfterFirstSet() public {
+        address next = address(0xBEEF);
+        vault.setAccountant(next);
+        assertEq(vault.pendingAccountant(), next);
+        vm.expectRevert(
+            abi.encodeWithSelector(LedgerVault.AccountantTimelockActive.selector, vault.accountantExecutableAt())
+        );
+        vault.executeAccountant();
+        vm.warp(block.timestamp + vault.ACCOUNTANT_TIMELOCK());
+        vault.executeAccountant();
+        assertEq(vault.accountant(), next);
+    }
+
+    function test_controllerPointer_repointRequiresKnobQueue() public {
+        VaultStrategyController c = new VaultStrategyController(address(this));
+
+        // First wiring is deploy bootstrap: instant.
+        c.setVault(address(0xA11CE));
+        assertEq(c.vault(), address(0xA11CE));
+
+        // A later re-point routes user funds: it must queue, not apply (M-05).
+        c.setVault(address(0xB0B));
+        assertEq(c.vault(), address(0xA11CE), "re-point did not apply instantly");
+
+        bytes32 key = keccak256(abi.encodeCall(VaultStrategyController._setVaultQueued, (address(0xB0B))));
+        (, uint64 at) = c.pendingKnobs(key);
+        assertTrue(at != 0, "re-point queued");
+        vm.warp(block.timestamp + c.KNOB_TIMELOCK() + 1);
+        c.executeKnob(key);
+        assertEq(c.vault(), address(0xB0B), "re-point applies after the delay");
     }
 }
 
