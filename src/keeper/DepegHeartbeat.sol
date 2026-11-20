@@ -42,8 +42,11 @@ contract DepegHeartbeat {
 
     /// @notice Seconds until the next heartbeat, based on the current session.
     function interval() public view returns (uint32) {
-        (bool ok,, uint8 session) = hook.oracleStatus();
-        return ok && session != 0 ? intervalOpen : intervalClosed;
+        try hook.oracleStatus() returns (bool ok, uint256, uint8 session) {
+            return ok && session != 0 ? intervalOpen : intervalClosed;
+        } catch {
+            return intervalClosed;
+        }
     }
 
     function checkUpkeep(bytes calldata) external view returns (bool upkeepNeeded, bytes memory performData) {

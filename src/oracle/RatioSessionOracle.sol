@@ -108,7 +108,7 @@ contract RatioSessionOracle {
     function setNvdaFeed(address feed) external onlyOwner {
         if (feed == address(0)) revert ZeroAddress();
         uint8 feedDecimals = IRatioChainlinkAggregator(feed).decimals();
-        if (feedDecimals > 18) revert InvalidFeed();
+        if (feedDecimals > 18 || feedDecimals != nvdaDecimals) revert InvalidFeed();
         nvdaFeed = IRatioChainlinkAggregator(feed);
         nvdaDecimals = feedDecimals;
         emit NvdaFeedUpdated(feed);
@@ -117,7 +117,7 @@ contract RatioSessionOracle {
     function setEthFeed(address feed) external onlyOwner {
         if (feed == address(0)) revert ZeroAddress();
         uint8 feedDecimals = IRatioChainlinkAggregator(feed).decimals();
-        if (feedDecimals > 18) revert InvalidFeed();
+        if (feedDecimals > 18 || feedDecimals != ethDecimals) revert InvalidFeed();
         ethFeed = IRatioChainlinkAggregator(feed);
         ethDecimals = feedDecimals;
         emit EthFeedUpdated(feed);
@@ -149,13 +149,17 @@ contract RatioSessionOracle {
         Session session = sessionFor(status);
 
         uint256 updatedAt = nvdaUpdatedAt < ethUpdatedAt ? nvdaUpdatedAt : ethUpdatedAt;
+        // Mixing a stale equity print with a live ETH price moves the ratio by the
+        // gap; both legs must be fresh AND close together.
+        uint256 skew = nvdaUpdatedAt > ethUpdatedAt ? nvdaUpdatedAt - ethUpdatedAt : ethUpdatedAt - nvdaUpdatedAt;
+        bool legsAligned = skew <= maxPriceAge;
         int192 mid;
         // Either leg dated in the future must fail closed, not underflow-revert.
         bool nvdaFresh =
             nvdaUpdatedAt != 0 && nvdaUpdatedAt <= block.timestamp && block.timestamp - nvdaUpdatedAt <= maxPriceAge;
         bool ethFresh =
             ethUpdatedAt != 0 && ethUpdatedAt <= block.timestamp && block.timestamp - ethUpdatedAt <= maxPriceAge;
-        if (nvdaAnswer > 0 && ethAnswer > 0 && nvdaFresh && ethFresh) {
+        if (nvdaAnswer > 0 && ethAnswer > 0 && nvdaFresh && ethFresh && legsAligned) {
             uint256 nvdaUsd18 = uint256(nvdaAnswer) * 10 ** (18 - nvdaDecimals);
             uint256 ethUsd18 = uint256(ethAnswer) * 10 ** (18 - ethDecimals);
             if (ethUsd18 != 0) {

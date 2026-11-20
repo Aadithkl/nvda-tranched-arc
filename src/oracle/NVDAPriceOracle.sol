@@ -26,7 +26,11 @@ contract NVDAPriceOracle {
     address public pendingOwner;
     bool public paused;
     uint32 public maxStaleness;
+    uint16 public maxStepBps;
     uint32 public marketStatus;
+    /// @notice Push time of the current `marketStatus`. Composites use it to reject a
+    ///         closed market whose status line stopped updating.
+    uint32 public marketStatusUpdatedAt;
 
     mapping(address => bool) public writers;
 
@@ -40,6 +44,7 @@ contract NVDAPriceOracle {
     event PausedSet(bool paused);
     event WriterUpdated(address indexed writer, bool allowed);
     event MaxStalenessUpdated(uint32 maxStaleness);
+    event MaxStepUpdated(uint16 maxStepBps);
     event MarketStatusUpdated(uint32 marketStatus);
     event PriceUpdated(
         address indexed writer,
@@ -58,6 +63,7 @@ contract NVDAPriceOracle {
     error InvalidMarketStatus(uint32 marketStatus);
     error InvalidPrice(int192 mid);
     error NoPriceData();
+    error InvalidSourceTimestamp(uint32 sourceTimestamp);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner(msg.sender);
@@ -88,6 +94,14 @@ contract NVDAPriceOracle {
         emit MaxStalenessUpdated(maxStaleness_);
     }
 
+    /// @notice Maximum single-push move from the previous mid. Stops a compromised
+    ///         writer from repricing the book in one transaction.
+    function setMaxStepBps(uint16 maxStepBps_) external onlyOwner {
+        if (maxStepBps_ > 10_000) revert InvalidMarketStatus(maxStepBps_);
+        maxStepBps = maxStepBps_;
+        emit MaxStepUpdated(maxStepBps_);
+    }
+
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
         emit PausedSet(paused_);
@@ -113,6 +127,15 @@ contract NVDAPriceOracle {
         if (paused) revert IsPaused();
         if (mid <= 0) revert InvalidPrice(mid);
         if (marketStatus_ > 5) revert InvalidMarketStatus(marketStatus_);
+        if (sourceTimestamp == 0 || sourceTimestamp > block.timestamp) {
+            revert InvalidSourceTimestamp(sourceTimestamp);
+        }
+        if (maxStepBps != 0 && _mid != 0) {
+            uint256 oldMid = uint256(uint192(_mid));
+            uint256 newMid = uint256(uint192(mid));
+            uint256 diff = newMid > oldMid ? newMid - oldMid : oldMid - newMid;
+            if (diff * 10_000 > oldMid * maxStepBps) revert InvalidPrice(mid);
+        }
 
         _mid = mid;
         _sourceTimestamp = sourceTimestamp;
@@ -120,6 +143,7 @@ contract NVDAPriceOracle {
         _updatedAt = block.timestamp;
 
         marketStatus = marketStatus_;
+        marketStatusUpdatedAt = uint32(block.timestamp);
         emit MarketStatusUpdated(marketStatus_);
         emit PriceUpdated(msg.sender, mid, marketStatus_, sourceTimestamp, paymentRef, block.timestamp);
     }
@@ -146,7 +170,13 @@ contract NVDAPriceOracle {
         // A future-dated `updatedAt` (misconfigured feed) must read invalid,
         // not underflow-revert (which would brick every swap).
         bool fresh = _updatedAt != 0 && _updatedAt <= block.timestamp && block.timestamp - _updatedAt <= maxStaleness;
-        data.valid = _mid > 0 && session != Session.None && fresh;
+        // `updatedAt` is the push time; `sourceTimestamp` is the vendor observation.
+        // Both must be fresh, otherwise a writer can re-push a cached quote.
+        bool sourceFresh = _sourceTimestamp != 0 && _sourceTimestamp <= block.timestamp
+            && block.timestamp - _sourceTimestamp <= maxStaleness;
+        bool statusFresh = marketStatusUpdatedAt != 0 && marketStatusUpdatedAt <= block.timestamp
+            && block.timestamp - marketStatusUpdatedAt <= maxStaleness;
+        data.valid = _mid > 0 && session != Session.None && fresh && sourceFresh && statusFresh;
     }
 
     function latestRoundData()
@@ -154,7 +184,9 @@ contract NVDAPriceOracle {
         view
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
-        if (_updatedAt == 0) revert NoPriceData();
+        if (_updatedAt == 0 || paused || _mid <= 0 || sessionFor(marketStatus) == Session.None) {
+            revert NoPriceData();
+        }
         return (uint80(_sourceTimestamp), int256(_mid), uint256(_sourceTimestamp), _updatedAt, uint80(_sourceTimestamp));
     }
 

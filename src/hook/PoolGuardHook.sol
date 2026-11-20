@@ -487,7 +487,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
             input.guardLo = lo;
             input.guardHi = hi;
         }
-        input.guardLiquidity = _params.guardLiquidity;
+        input.guardLiquidity = guardPresent ? guardPosition.liquidity : _params.guardLiquidity;
         input.guardIncluded = guardPresent;
         input.baseLo = basePosition.tickLower;
         input.baseHi = basePosition.tickUpper;
@@ -497,7 +497,12 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         input.equity = equity;
         input.equityDecimals = equityDecimals;
 
-        INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
+        INVDAPriceOracle.PriceData memory data;
+        try INVDAPriceOracle(priceOracle).getPrice() returns (INVDAPriceOracle.PriceData memory d) {
+            data = d;
+        } catch {
+            return (false, int256(0), uint256(0), int256(0), uint256(0));
+        }
         if (data.mid <= 0 || oracleDecimals > 18) return (false, int256(0), uint256(0), int256(0), uint256(0));
         input.mid1e18 = uint256(uint192(data.mid)) * (10 ** (18 - oracleDecimals));
         if (sqrtPrice == 0) return (false, int256(0), uint256(0), int256(0), uint256(0));
@@ -549,7 +554,7 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
         uint16 maxDev = _params.recheckMaxDeviationBps;
         if (maxDev != 0) {
             (bool ok, uint256 deviationBps) = oracleDeviationBps();
-            if (ok && deviationBps > maxDev) revert GuardOffBand(deviationBps, maxDev);
+            if (!ok || deviationBps > maxDev) revert GuardOffBand(deviationBps, maxDev);
         }
         (int24 lo, int24 hi) = _guardBounds(_currentTick());
         uint128 liquidity = _params.guardLiquidity;
@@ -717,7 +722,12 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     }
 
     function _requireOracle() internal view {
-        INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
+        INVDAPriceOracle.PriceData memory data;
+        try INVDAPriceOracle(priceOracle).getPrice() returns (INVDAPriceOracle.PriceData memory d) {
+            data = d;
+        } catch {
+            revert OracleInvalid();
+        }
         if (!data.valid || data.mid <= 0) revert OracleInvalid();
         if (data.updatedAt > block.timestamp) revert OracleStale(data.updatedAt);
         if (block.timestamp > data.updatedAt + _params.maxPriceAge) revert OracleStale(data.updatedAt);
@@ -761,7 +771,12 @@ contract PoolGuardHook is BaseHook, Ownable2Step, IBookHook, ReentrancyGuard {
     }
 
     function oracleDeviationBps() public view returns (bool ok, uint256 deviationBps) {
-        INVDAPriceOracle.PriceData memory data = INVDAPriceOracle(priceOracle).getPrice();
+        INVDAPriceOracle.PriceData memory data;
+        try INVDAPriceOracle(priceOracle).getPrice() returns (INVDAPriceOracle.PriceData memory d) {
+            data = d;
+        } catch {
+            return (false, 0);
+        }
         if (!data.valid || data.mid <= 0) return (false, 0);
         if (data.updatedAt == 0 || data.updatedAt > block.timestamp) return (false, 0);
         if (block.timestamp > data.updatedAt + _params.maxPriceAge) return (false, 0);

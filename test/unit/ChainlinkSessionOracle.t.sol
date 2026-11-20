@@ -74,8 +74,9 @@ contract ChainlinkSessionOracleTest is Test {
         assertEq(oracle.maxPriceAge(), 600);
 
         MockAggregator feed18 = new MockAggregator(18, 1e18);
+        vm.expectRevert(ChainlinkSessionOracle.InvalidFeed.selector);
         oracle.setPriceFeed(address(feed18));
-        assertEq(oracle.decimals(), 18);
+        assertEq(oracle.decimals(), 8);
 
         MockSessionStatus newSessions = new MockSessionStatus(2);
         oracle.setSessionSource(address(newSessions));

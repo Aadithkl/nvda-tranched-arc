@@ -15,6 +15,7 @@ contract DeployOracle is Script {
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
         NVDAPriceOracle oracle = new NVDAPriceOracle(8, oracleOwner);
         oracle.setMaxStaleness(maxStaleness);
+        oracle.setMaxStepBps(2_000);
         if (writer != address(0)) {
             oracle.setWriter(writer, true);
         }

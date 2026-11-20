@@ -16,6 +16,11 @@ interface ISessionStatus {
     function marketStatus() external view returns (uint32);
 }
 
+/// @notice Optional extension: session sources that record their own push time.
+interface ISessionStatusAge {
+    function marketStatusUpdatedAt() external view returns (uint32);
+}
+
 /// @notice Composite oracle for the Robinhood-chain book: the mid price comes from the stock
 ///         token's Chainlink feed (which already includes the ERC-8056 corporate-action
 ///         multiplier), while the trading session/status comes from the pushed session layer (the
@@ -96,7 +101,7 @@ contract ChainlinkSessionOracle {
     function setPriceFeed(address feed) external onlyOwner {
         if (feed == address(0)) revert ZeroAddress();
         uint8 feedDecimals = IChainlinkAggregator(feed).decimals();
-        if (feedDecimals > 18) revert InvalidFeed();
+        if (feedDecimals > 18 || feedDecimals != decimals) revert InvalidFeed();
         priceFeed = IChainlinkAggregator(feed);
         decimals = feedDecimals;
         emit PriceFeedUpdated(feed);
@@ -125,6 +130,13 @@ contract ChainlinkSessionOracle {
         (, int256 answer,, uint256 updatedAt,) = priceFeed.latestRoundData();
         uint32 status = sessionSource.marketStatus();
         Session session = sessionFor(status);
+        // A frozen session line can keep a closed market reading `valid` while the
+        // price leg keeps updating. If the source records its push time, enforce age.
+        bool statusFresh = true;
+        try ISessionStatusAge(address(sessionSource)).marketStatusUpdatedAt() returns (uint32 statusUpdatedAt) {
+            statusFresh = statusUpdatedAt != 0 && statusUpdatedAt <= block.timestamp
+                && block.timestamp - statusUpdatedAt <= maxPriceAge;
+        } catch { }
 
         int192 mid;
         if (answer > 0 && answer <= type(int192).max) mid = int192(answer);
@@ -139,7 +151,7 @@ contract ChainlinkSessionOracle {
         data.paymentRef = bytes32(0);
         // Future-dated feed must read invalid, not underflow-revert.
         bool fresh = updatedAt != 0 && updatedAt <= block.timestamp && block.timestamp - updatedAt <= maxPriceAge;
-        data.valid = mid > 0 && fresh && session != Session.None;
+        data.valid = mid > 0 && fresh && session != Session.None && statusFresh;
     }
 }
 
