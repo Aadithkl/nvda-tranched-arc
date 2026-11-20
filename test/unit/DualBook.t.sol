@@ -60,6 +60,35 @@ contract DualBookTest is Test {
     address internal agent = makeAddr("agent");
     int24 internal initialTick;
 
+    /// @dev Controller defaults with the per-call funding caps lifted, for tests that
+    ///      move the whole book through `submitSwitchBook` atomically.
+    function _uncappedFundBounds() internal pure returns (VaultStrategyController.Bounds memory b) {
+        b = VaultStrategyController.Bounds({
+            maxGuardTickWidth: 3_000,
+            maxBaseTickWidth: 6_000,
+            maxGuardLiquidity: 5_000e12,
+            maxBaseLiquidity: 500e12,
+            minGuardTickWidth: 0,
+            minBaseTickWidth: 6_000,
+            minGuardLiquidity: 0,
+            minBaseLiquidity: 0,
+            maxMinEvBps: 100,
+            minRecheckInterval: 60,
+            maxRecheckInterval: 3_600,
+            maxRecheckMaxDeviationBps: 500,
+            maxMaxPriceAge: 900,
+            maxFundQuotePerCall: type(uint256).max,
+            maxFundEquityPerCall: type(uint256).max,
+            maxRebalanceSwapQuote: 10_000e6,
+            maxAllocatePerCall: 100_000e6,
+            maxCollateralPerCall: 1_000e18,
+            maxBorrowPerCall: 10_000e6,
+            recenterCooldown: 60,
+            rebalanceCooldown: 3_600,
+            maxRebalanceQuotePerDay: 50_000e6
+        });
+    }
+
     function setUp() public {
         manager = IPoolManager(deployCode("PoolManager.sol:PoolManager", abi.encode(address(this))));
         simulator = new PoolGuardSimulator();
@@ -134,6 +163,19 @@ contract DualBookTest is Test {
         hub.acceptHookOwnership();
 
         controller = new VaultStrategyController(address(this));
+        // The switch funding legs are capped like `submitFund` now; this test moves
+        // the whole book atomically, so raise the caps through the knob queue.
+        // NOTE: compute the post-warp time BEFORE `vm.warp` and pass it explicitly —
+        // with `via_ir`, `uint32(block.timestamp)` reads after an in-setUp warp can be
+        // folded back to the pre-warp value, which would stale every later push here.
+        uint32 ts = uint32(block.timestamp + controller.KNOB_TIMELOCK() + 1);
+        {
+            VaultStrategyController.Bounds memory b = _uncappedFundBounds();
+            bytes32 knob = controller.proposeBounds(b);
+            vm.warp(ts);
+            controller.executeKnob(knob);
+            oracle.updatePrice(200e8, 2, ts, bytes32(0));
+        }
         vault = new LedgerVault(
             manager,
             IBookHook(address(hub)),
@@ -166,7 +208,7 @@ contract DualBookTest is Test {
         hub.pushToActive();
         vault.initializeHook(keyA, TickMath.getSqrtPriceAtTick(initialTick));
         vault.initializeHook(keyB, TickMath.getSqrtPriceAtTick(initialTick));
-        oracle.updatePrice(int192(int256(bookA.poolPrice1e18() / 1e10)), 2, uint32(block.timestamp), bytes32(0));
+        oracle.updatePrice(int192(int256(bookA.poolPrice1e18() / 1e10)), 2, ts, bytes32(0));
         // Arm the deviation band on both books now that init prices and oracle agree
         // (hub forwards to the active book only; the inactive book is hub-owned).
         vm.prank(address(vault));

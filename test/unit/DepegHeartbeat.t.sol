@@ -235,10 +235,15 @@ contract DepegHeartbeatTest is Test {
         vm.expectRevert(VaultStrategyController.DepegPaused.selector);
         controller.submitFund(1e6, 0);
 
-        // Recall + resume relay work through the controller.
+        // Recall + resume relay work through the controller. Resume is owner-only now:
+        // the agent the latch restrains must not be able to clear it.
         vm.prank(agent);
         controller.submitRecall();
+        controller.submitResumeFromDepeg();
+
+        // The agent the latch restrains must not be able to clear it.
         vm.prank(agent);
+        vm.expectRevert();
         controller.submitResumeFromDepeg();
     }
 

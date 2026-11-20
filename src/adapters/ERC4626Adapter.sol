@@ -25,6 +25,7 @@ contract ERC4626Adapter is IStrategyAdapter {
     }
 
     error AssetMismatch();
+    error DepositSlippage(uint256 expected, uint256 received);
 
     modifier onlyAuthority() {
         if (msg.sender != authority) revert NotAuthority(msg.sender);
@@ -48,8 +49,10 @@ contract ERC4626Adapter is IStrategyAdapter {
         IERC20(asset).forceApprove(address(target), amount);
         // `target.deposit` returns SHARES, not assets. Accounting it as assets
         // double-counts when pps>1 and underflows when pps<1.
+        uint256 expectedShares = target.previewDeposit(amount);
         uint256 shares = target.deposit(amount, address(this));
         IERC20(asset).forceApprove(address(target), 0);
+        if (shares < expectedShares) revert DepositSlippage(expectedShares, shares);
         deployed = shares == 0 ? 0 : target.convertToAssets(shares);
         if (deployed > amount) deployed = amount;
     }

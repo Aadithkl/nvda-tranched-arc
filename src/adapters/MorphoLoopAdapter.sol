@@ -131,9 +131,24 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
         (, uint128 borrowShares,) = morpho.position(marketId, address(this));
         if (borrowShares == 0) return 0;
         IMorpho.Market memory m = morpho.market(marketId);
+        // `m.totalBorrowAssets` is the last-accrued snapshot. `repay` accrues first and
+        // then prices the shares off the post-accrual totals, so NAV and caps must not
+        // read the stale number: project the accrued-but-unrealised interest with the
+        // IRM's per-second rate. Markets without an IRM or without a recorded update
+        // (test mocks) keep the stored-totals path.
+        uint256 totalBorrowAssets = m.totalBorrowAssets;
+        if (m.lastUpdate != 0 && block.timestamp > m.lastUpdate && _marketParams.irm != address(0)) {
+            try IIrm(_marketParams.irm).borrowRateView(_marketParams, m) returns (uint256 ratePerSecondWad) {
+                if (ratePerSecondWad != 0) {
+                    uint256 elapsed = block.timestamp - m.lastUpdate;
+                    uint256 interest = Math.mulDiv(totalBorrowAssets, ratePerSecondWad * elapsed, WAD);
+                    totalBorrowAssets += interest;
+                }
+            } catch { }
+        }
         return Math.mulDiv(
             uint256(borrowShares),
-            uint256(m.totalBorrowAssets) + VIRTUAL_ASSETS,
+            totalBorrowAssets + VIRTUAL_ASSETS,
             uint256(m.totalBorrowShares) + VIRTUAL_SHARES,
             Math.Rounding.Ceil
         );
@@ -221,6 +236,10 @@ contract MorphoLoopAdapter is IStrategyAdapter, IMorphoLoopAdapter {
     ///         all collateral and idle quote to `to`.
     function exit(uint256, address to) external onlyAuthority returns (uint256 withdrawn) {
         if (to == address(0)) revert ZeroAddress();
+        // `repay(shares)` accrues interest first and then pulls the post-accrual asset
+        // amount. Accrue here so `debt()` and the approval are post-accrual too; without
+        // this the repay reverts by the accrued interest and exitAll swallows it.
+        morpho.accrueInterest(_marketParams);
         (, uint128 borrowShares,) = morpho.position(marketId, address(this));
         if (borrowShares != 0) {
             uint256 owedAssets = debt();

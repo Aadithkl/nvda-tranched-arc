@@ -25,6 +25,10 @@ interface IMorpho {
 
     function market(bytes32 id_) external view returns (Market memory);
 
+    /// @notice Accrues interest up to the current block. Morpho's `repay` does this
+    ///         internally; calling it first makes `debt()` the post-accrual amount.
+    function accrueInterest(MarketParams memory marketParams) external;
+
     function position(bytes32 id_, address user)
         external
         view

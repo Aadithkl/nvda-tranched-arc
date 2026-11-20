@@ -111,6 +111,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
     error OracleNotAllowlisted(address oracle);
     error MorphoNotCanonical(address morpho);
     error InvalidMarketParams();
+    error VaultLocked();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert NotVault(msg.sender);
@@ -143,6 +144,15 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
 
     function setVault(address vault_) external onlyOwner {
         if (vault_ == address(0)) revert ZeroAddress();
+        // Once an adapter is listed the module can hold user assets; re-pointing the
+        // vault would let the owner redirect every future withdrawal. Rotation needs a
+        // new module, not an instant setter.
+        if (
+            vault != address(0) && vault != vault_
+                && (adapterList.length != 0 || IERC20(asset).balanceOf(address(this)) != 0)
+        ) {
+            revert VaultLocked();
+        }
         vault = vault_;
         emit VaultUpdated(vault_);
     }
@@ -185,7 +195,7 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         // shortening the delay is itself timelocked so it cannot fast-path evil adapters.
         // Exception: bootstrap wiring — before ANY adapter has ever been listed the
         // curator may still tune freely (no liquidity is gated yet; tests use this).
-        if (timelock_ >= timelock || adapterList.length == 0) {
+        if (timelock_ >= timelock || (adapterList.length == 0 && totalAssets() == 0)) {
             timelock = timelock_;
             emit TimelockUpdated(timelock_);
         } else {
@@ -306,7 +316,9 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         uint256 count = adapterList.length;
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
-            total += IStrategyAdapter(adapter).realAssets();
+            try IStrategyAdapter(adapter).realAssets() returns (uint256 value) {
+                total += value;
+            } catch { }
         }
     }
 
@@ -317,7 +329,11 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         uint256 count = adapterList.length;
         for (uint256 i = 0; i < count; ++i) {
             address adapter = adapterList[i];
-            if (adapters[adapter].isLoop) total += IMorphoLoopAdapter(adapter).badDebt();
+            if (adapters[adapter].isLoop) {
+                try IMorphoLoopAdapter(adapter).badDebt() returns (uint256 value) {
+                    total += value;
+                } catch { }
+            }
         }
     }
 
@@ -330,7 +346,9 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
             address adapter = adapterList[i];
             AdapterConfig memory cfg = adapters[adapter];
             if (cfg.enabled && cfg.redemptionSafe && !cfg.isLoop) {
-                total += IStrategyAdapter(adapter).maxWithdrawable();
+                try IStrategyAdapter(adapter).maxWithdrawable() returns (uint256 value) {
+                    total += value;
+                } catch { }
             }
         }
     }
@@ -405,11 +423,16 @@ contract StrategyModule is Ownable2Step, ReentrancyGuard {
         for (uint256 i = 0; i < count && pulled < amount; ++i) {
             address adapter = adapterList[i];
             AdapterConfig memory cfg = adapters[adapter];
-            if (!cfg.enabled || !cfg.redemptionSafe || cfg.isLoop) continue;
+            // Withdrawals are de-risking: a disabled adapter still owes its assets and
+            // must stay in the redemption ladder. Only non-redemption-safe and loop
+            // sleeves are skipped.
+            if (!cfg.redemptionSafe || cfg.isLoop) continue;
             uint256 limit = IStrategyAdapter(adapter).maxWithdrawable();
             if (limit == 0) continue;
             uint256 want = amount - pulled;
-            pulled += IStrategyAdapter(adapter).withdraw(want < limit ? want : limit, vault);
+            try IStrategyAdapter(adapter).withdraw(want < limit ? want : limit, vault) returns (uint256 got) {
+                pulled += got;
+            } catch { }
         }
         emit PulledToVault(pulled);
     }

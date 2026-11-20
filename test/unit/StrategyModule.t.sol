@@ -126,6 +126,21 @@ contract StrategyModuleTest is Test {
         assertEq(quote.balanceOf(address(mockVault)), 10_000e6);
     }
 
+    function test_pullToVault_includesDisabledAdapter() public {
+        _enableLendAdapter();
+        vm.prank(allocator);
+        module.allocate(address(lendAdapter), 500e6);
+
+        vm.prank(sentinel);
+        module.disableAdapter(address(lendAdapter));
+
+        // The redemption ladder still draws from a disabled redemption-safe adapter (M-27).
+        vm.prank(address(mockVault));
+        uint256 pulled = module.pullToVault(500e6);
+        assertEq(pulled, 500e6);
+        assertEq(lendAdapter.realAssets(), 0);
+    }
+
     function test_cancelPending() public {
         module.setTimelock(24 hours);
         module.submitAdapter(address(lendAdapter), true, false, 5_000e6, 4_000);
@@ -307,6 +322,23 @@ contract StrategyModuleTest is Test {
         assertEq(pulled, 0);
     }
 
+    function test_loopDebt_projectsAccruedInterest() public {
+        MorphoLoopAdapter loop = _loopSetup();
+        vm.startPrank(allocator);
+        module.allocateCollateral(address(loop), 1e18);
+        module.borrow(address(loop), 500e6);
+        vm.stopPrank();
+
+        uint256 atBorrow = loop.debt();
+        assertGt(atBorrow, 0);
+
+        // Backdate the market's last accrual: NAV must price the accrued-but-unrealised
+        // interest instead of the stored totals (M-18).
+        vm.warp(3 days);
+        MockMorpho(address(loop.morpho())).setLastUpdate(loop.marketId(), uint128(1 days));
+        assertGt(loop.debt(), atBorrow, "accrued interest projected into debt");
+    }
+
     function test_loop_exitAll() public {
         MorphoLoopAdapter loop = _loopSetup();
         vm.startPrank(allocator);
@@ -472,6 +504,11 @@ contract StrategyModuleTest is Test {
         module.setVault(address(vault));
         module.submitAdapter(address(lendAdapter), true, false, 1_000_000e6, 10_000);
         module.executeAdapter(address(lendAdapter));
+
+        // Once an adapter is listed the module can hold user assets; re-pointing the
+        // vault must not be an instant owner action.
+        vm.expectRevert(StrategyModule.VaultLocked.selector);
+        module.setVault(address(0xBEEF));
 
         quote.mint(address(vault), 1_000e6);
         uint256 baseBefore = vault.baseManagedAssets();

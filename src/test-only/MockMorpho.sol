@@ -33,6 +33,15 @@ contract MockMorpho is IMorpho {
         return _markets[id_];
     }
 
+    /// @notice Test-only: backdate the market's last accrual so the adapter's
+    ///         projected-interest path can be exercised.
+    function setLastUpdate(bytes32 id_, uint128 lastUpdate_) external {
+        _markets[id_].lastUpdate = lastUpdate_;
+    }
+
+    /// @notice Interest-free mock: no accrual to apply.
+    function accrueInterest(MarketParams memory) external { }
+
     function position(bytes32 id_, address user) external view returns (uint256, uint128, uint128) {
         Position memory p = _positions[id_][user];
         return (p.supplyShares, p.borrowShares, p.collateral);

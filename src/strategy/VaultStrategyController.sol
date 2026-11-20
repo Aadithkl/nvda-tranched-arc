@@ -327,12 +327,27 @@ contract VaultStrategyController is ReentrancyGuard {
 
     function setVault(address vault_) external onlyOwner {
         if (vault_ == address(0)) revert ZeroAddress();
+        // First wiring is deploy bootstrap; every later re-point routes user flows and
+        // must not be an instant owner action (M-05).
+        if (vault == address(0)) {
+            vault = vault_;
+            emit VaultUpdated(vault_);
+            return;
+        }
+        _queueKnob(abi.encodeCall(this._setVaultQueued, (vault_)));
+    }
+
+    function _setVaultQueued(address vault_) external {
+        if (msg.sender != address(this)) revert NotOwner(msg.sender);
         vault = vault_;
         emit VaultUpdated(vault_);
     }
 
     function setAgent(address agent, bool allowed) external onlyOwner {
         if (agent == address(0)) revert ZeroAddress();
+        // Agent grants stay instant by design: the surface is per-call bounded and a
+        // grant is instantly revocable by owner or guardian. The fund-routing pointers
+        // (vault/books/hub/module) are the re-points that wait out the queue.
         agents[agent] = allowed;
         emit AgentUpdated(agent, allowed);
     }
@@ -446,6 +461,17 @@ contract VaultStrategyController is ReentrancyGuard {
     ///         The module owner must separately set this controller as allocator/sentinel.
     function setStrategyModule(address module_) external onlyOwner {
         if (module_ == address(0)) revert ZeroAddress();
+        // First wiring is bootstrap; later re-points route allocation and wait 24h (M-05).
+        if (strategyModule == address(0)) {
+            strategyModule = module_;
+            emit StrategyModuleUpdated(module_);
+            return;
+        }
+        _queueKnob(abi.encodeCall(this._setStrategyModuleQueued, (module_)));
+    }
+
+    function _setStrategyModuleQueued(address module_) external {
+        if (msg.sender != address(this)) revert NotOwner(msg.sender);
         strategyModule = module_;
         emit StrategyModuleUpdated(module_);
     }
@@ -453,6 +479,17 @@ contract VaultStrategyController is ReentrancyGuard {
     /// @notice Registers the two book hooks (A = low fee, B = high fee). Must differ.
     function setBooks(address bookA_, address bookB_) external onlyOwner {
         if (bookA_ == address(0) || bookB_ == address(0) || bookA_ == bookB_) revert InvalidBooks();
+        if (bookA == address(0)) {
+            bookA = bookA_;
+            bookB = bookB_;
+            emit BooksUpdated(bookA_, bookB_);
+            return;
+        }
+        _queueKnob(abi.encodeCall(this._setBooksQueued, (bookA_, bookB_)));
+    }
+
+    function _setBooksQueued(address bookA_, address bookB_) external {
+        if (msg.sender != address(this)) revert NotOwner(msg.sender);
         bookA = bookA_;
         bookB = bookB_;
         emit BooksUpdated(bookA_, bookB_);
@@ -539,7 +576,8 @@ contract VaultStrategyController is ReentrancyGuard {
     }
 
     /// @notice Manual override relay: clears the depeg latch until the next check.
-    function submitResumeFromDepeg() external onlyAgent {
+    ///         Owner-only: the agent that the latch restrains must not be able to clear it.
+    function submitResumeFromDepeg() external onlyOwner {
         _vault().resumeFromDepeg();
     }
 
@@ -589,6 +627,8 @@ contract VaultStrategyController is ReentrancyGuard {
         _requireNotDepegged();
         if (amount == 0) revert ZeroAmount();
         if (amount > 1e36) revert AllocateTooLarge(amount, 1e36);
+        uint256 cap = token == address(_vault().quote()) ? bounds.maxAllocatePerCall : bounds.maxCollateralPerCall;
+        if (amount > cap) revert AllocateTooLarge(amount, cap);
         _vault().approveStrategy(token, amount);
         emit ApproveStrategySubmitted(msg.sender, token, amount);
     }
@@ -601,7 +641,10 @@ contract VaultStrategyController is ReentrancyGuard {
         address module_ = _module();
         if (amount == 0) revert ZeroAmount();
         if (amount > bounds.maxAllocatePerCall) revert AllocateTooLarge(amount, bounds.maxAllocatePerCall);
+        address token = address(_vault().quote());
+        _vault().approveStrategy(token, amount);
         IStrategyModule(module_).allocate(adapter, amount);
+        _vault().approveStrategy(token, 0);
         emit AllocateSubmitted(msg.sender, adapter, amount);
     }
 
@@ -676,7 +719,10 @@ contract VaultStrategyController is ReentrancyGuard {
         address module_ = _module();
         if (amount == 0) revert ZeroAmount();
         if (amount > bounds.maxCollateralPerCall) revert CollateralTooLarge(amount, bounds.maxCollateralPerCall);
+        address token = address(_vault().equity());
+        _vault().approveStrategy(token, amount);
         IStrategyModule(module_).allocateCollateral(adapter, amount);
+        _vault().approveStrategy(token, 0);
         emit CollateralAllocatedSubmitted(msg.sender, adapter, amount);
     }
 
@@ -695,6 +741,18 @@ contract VaultStrategyController is ReentrancyGuard {
 
     /// @notice Owner sets the dual-book hub that owns both hooks (zero = single-book mode).
     function setHub(address hub_) external onlyOwner {
+        if (hub_ == address(0)) revert ZeroAddress();
+        // First wiring is bootstrap; a later hub re-point moves the migration path (M-05).
+        if (hub == address(0)) {
+            hub = hub_;
+            emit HubUpdated(hub_);
+            return;
+        }
+        _queueKnob(abi.encodeCall(this._setHubQueued, (hub_)));
+    }
+
+    function _setHubQueued(address hub_) external {
+        if (msg.sender != address(this)) revert NotOwner(msg.sender);
         hub = hub_;
         emit HubUpdated(hub_);
     }
@@ -729,6 +787,11 @@ contract VaultStrategyController is ReentrancyGuard {
             uint256 loopDebt = strategyModule == address(0) ? 0 : IStrategyModule(strategyModule).totalLoopDebt();
             uint256 freeQuote = quoteBal > loopDebt ? quoteBal - loopDebt : 0;
             uint256 equityBal = vault_.equity().balanceOf(vaultAddr);
+            // The switch must not bypass the per-call funding caps that bind
+            // `submitFund` — a single agent call cannot push the whole book.
+            Bounds memory b = bounds;
+            if (freeQuote > b.maxFundQuotePerCall) freeQuote = b.maxFundQuotePerCall;
+            if (equityBal > b.maxFundEquityPerCall) equityBal = b.maxFundEquityPerCall;
             vault_.fundHook(freeQuote, equityBal);
             IDualBookHub(hub).pushToActive();
             IDualBookHub(hub).activateAndDeploy();
