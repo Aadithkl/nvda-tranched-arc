@@ -36,8 +36,10 @@ contract DeployLending is Script {
         provider.setAddress(provider.LENDING_POOL(), address(pool));
         provider.setAddress(provider.LENDING_POOL_CONFIGURATOR(), address(configurator));
 
-        oracle.setAssetPrice(quote, usdcPeg);
-        oracle.setAssetPrice(nvda, nvdaPrice);
+        oracle.seedAssetPrice(quote, usdcPeg);
+        oracle.seedAssetPrice(nvda, nvdaPrice);
+        // NVDA is a volatile single stock: a 20%/day cap cannot track a gap day.
+        oracle.setMaxDeviationBps(5_000);
 
         DefaultReserveInterestRateStrategy strategy =
             new DefaultReserveInterestRateStrategy(baseRate, slope1, slope2, optimal);

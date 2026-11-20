@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { DataTypes } from "./libraries/DataTypes.sol";
 import { ReserveConfiguration } from "./libraries/ReserveConfiguration.sol";
 import { WadRayMath } from "./libraries/WadRayMath.sol";
@@ -67,6 +68,7 @@ contract LendingPool is IAaveV2Pool {
     error HealthyPosition(uint256 healthFactor);
     error CloseFactorExceeded(uint256 debtToCover, uint256 maxCover);
     error InsufficientCollateral(uint256 seized, uint256 balance);
+    error InvalidReserveConfig();
 
     modifier onlyConfigurator() {
         if (msg.sender != ILendingPoolAddressesProvider(ADDRESSES_PROVIDER).getLendingPoolConfigurator()) {
@@ -157,6 +159,7 @@ contract LendingPool is IAaveV2Pool {
     {
         DataTypes.ReserveData storage reserve = _reserves[asset];
         if (!_reserveInitialized[asset]) revert ReserveNotInitialized(asset);
+        if (ltv > BPS || liquidationThreshold > BPS || liquidationThreshold < ltv) revert InvalidReserveConfig();
         DataTypes.ReserveConfigurationMap memory config;
         config.data = reserve.configuration;
         config.setLtv(ltv);
@@ -230,8 +233,9 @@ contract LendingPool is IAaveV2Pool {
         emit Deposit(asset, msg.sender, onBehalfOf, amount, referralCode);
     }
 
-    function withdraw(address asset, uint256 amount, address to) external whenNotPaused returns (uint256) {
+    function withdraw(address asset, uint256 amount, address to) external returns (uint256) {
         _updateState(asset);
+        _updateAllStates();
         DataTypes.ReserveData storage reserve = _reserves[asset];
         _requireActive(reserve, asset, false);
 
@@ -268,6 +272,7 @@ contract LendingPool is IAaveV2Pool {
         if (amount == 0) revert InvalidAmount();
 
         _updateState(asset);
+        _updateAllStates();
         DataTypes.ReserveData storage reserve = _reserves[asset];
         _requireActive(reserve, asset, true);
 
@@ -322,13 +327,11 @@ contract LendingPool is IAaveV2Pool {
     ///         Close factor 50%: one call covers at most half the user's debt.
     ///         Collateral seized = debt value × (1 + liquidationBonus) in collateral
     ///         units, capped at the user's aToken balance.
-    function liquidationCall(address collateralAsset, address debtAsset, address user, uint256 debtToCover)
-        external
-        whenNotPaused
-    {
+    function liquidationCall(address collateralAsset, address debtAsset, address user, uint256 debtToCover) external {
         if (debtToCover == 0) revert InvalidAmount();
         _updateState(collateralAsset);
         _updateState(debtAsset);
+        _updateAllStates();
         if (!_reserveInitialized[collateralAsset]) revert ReserveNotInitialized(collateralAsset);
         if (!_reserveInitialized[debtAsset]) revert ReserveNotInitialized(debtAsset);
 
@@ -362,16 +365,24 @@ contract LendingPool is IAaveV2Pool {
 
         IAToken aToken = IAToken(collReserve.aTokenAddress);
         uint256 userColl = aToken.balanceOf(user);
+        uint256 seizeBeforeCap = seizeAmount;
         if (seizeAmount > userColl) seizeAmount = userColl;
         if (seizeAmount == 0) revert InsufficientCollateral(0, userColl);
-        uint256 liquidity = IERC20(collateralAsset).balanceOf(collReserve.aTokenAddress);
-        if (seizeAmount > liquidity) revert InsufficientLiquidity();
+        // If the collateral cap binds, reduce the debt the liquidator covers to what
+        // the seized collateral actually supports. Otherwise the liquidator overpays
+        // and the residual bad debt is left with zero collateral.
+        if (seizeAmount < seizeBeforeCap) {
+            uint256 coveredValue = seizeAmount * collPrice * BPS / (collUnit * bonusBps);
+            debtToCover = coveredValue * debtUnit / debtPrice;
+            if (debtToCover == 0) revert InsufficientCollateral(seizeAmount, userColl);
+        }
 
-        // Effects: take debt funds, burn debt, burn collateral claim, pay liquidator.
+        // Effects: take debt funds, burn debt, move the collateral claim to the
+        // liquidator. Paying underlying cash would let a borrower drain the reserve
+        // and make every liquidation revert with InsufficientLiquidity.
         IERC20(debtAsset).safeTransferFrom(msg.sender, debtReserve.aTokenAddress, debtToCover);
         debtToken.burn(user, debtToCover);
-        aToken.burn(user, seizeAmount);
-        aToken.transferUnderlyingTo(msg.sender, seizeAmount);
+        aToken.transferOnLiquidation(user, msg.sender, seizeAmount);
 
         emit LiquidationCall(collateralAsset, debtAsset, user, debtToCover, seizeAmount, msg.sender);
     }
@@ -424,7 +435,14 @@ contract LendingPool is IAaveV2Pool {
 
         healthFactor = totalDebtBase == 0
             ? type(uint256).max
-            : ((totalCollateralBase * currentLiquidationThreshold) / BPS) * 1e18 / totalDebtBase;
+            : Math.mulDiv(totalCollateralBase * currentLiquidationThreshold, 1e18, BPS * totalDebtBase);
+    }
+
+    function _updateAllStates() internal {
+        address[] memory reserves = _reservesList;
+        for (uint256 i; i < reserves.length; ++i) {
+            _updateState(reserves[i]);
+        }
     }
 
     function _updateState(address asset) internal {

@@ -12,7 +12,10 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     ///         (e.g. `1_000_000e8`, borrow the pool, then reset) cannot clear in one
     ///         transaction. Updates wait out the timelock with a per-update deviation bound.
     uint256 public constant PRICE_TIMELOCK = 24 hours;
-    uint256 public constant MAX_DEVIATION_BPS = 2_000; // 20% per update
+    /// @notice Owner-set per-update deviation bound. Default 20%; a volatile equity
+    ///         market needs a wider bound or its price cannot track a gap day.
+    uint256 public maxDeviationBps = 2_000;
+    uint256 public constant MAX_PRICE_AGE = 30 days;
     uint256 internal constant BPS = 10_000;
 
     mapping(address => uint256) private _prices;
@@ -27,8 +30,11 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     event AssetPriceUpdated(address indexed asset, uint256 price);
     event AssetPriceSubmitted(address indexed asset, uint256 price, uint64 executableAt);
     event AssetPriceCancelled(address indexed asset);
+    event MaxDeviationBpsUpdated(uint256 bps);
 
     error PriceNotSet(address asset);
+    error PriceStale(address asset);
+    error PriceAlreadySet(address asset);
     error InvalidPrice(uint256 price);
     error LengthMismatch();
     error NothingPending(address asset);
@@ -37,20 +43,33 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
 
     constructor(address owner_) Ownable(owner_) { }
 
-    /// @notice Schedules a price update. The FIRST price for an asset seeds
-    ///         immediately (deploy bootstrap — no liquidity exists to borrow against
-    ///         yet); every CHANGE waits out the timelock + deviation bound at execute.
+    /// @notice Deploy bootstrap only: seeds a first price immediately. Every later
+    ///         change, including a first price added after launch, must use the
+    ///         timelocked `setAssetPrice`.
+    function seedAssetPrice(address asset, uint256 price) external onlyOwner {
+        if (price == 0) revert InvalidPrice(price);
+        if (_prices[asset] != 0) revert PriceAlreadySet(asset);
+        _prices[asset] = price;
+        _updatedAt[asset] = block.timestamp;
+        emit AssetPriceUpdated(asset, price);
+    }
+
+    /// @notice Sets the per-update deviation bound. Zero would freeze every price
+    ///         change, so it is rejected.
+    function setMaxDeviationBps(uint256 bps) external onlyOwner {
+        if (bps == 0 || bps > 10_000) revert InvalidPrice(bps);
+        maxDeviationBps = bps;
+        emit MaxDeviationBpsUpdated(bps);
+    }
+
+    /// @notice Schedules a price update. Every change waits out the 24h timelock and
+    ///         the per-update deviation bound at execute; first prices come from
+    ///         `seedAssetPrice`.
     function setAssetPrice(address asset, uint256 price) external onlyOwner {
         if (price == 0) revert InvalidPrice(price);
-        if (_prices[asset] == 0) {
-            _prices[asset] = price;
-            _updatedAt[asset] = block.timestamp;
-            emit AssetPriceUpdated(asset, price);
-        } else {
-            pendingPrices[asset] =
-                PendingPrice({ price: price, executableAt: uint64(block.timestamp) + uint64(PRICE_TIMELOCK) });
-            emit AssetPriceSubmitted(asset, price, uint64(block.timestamp) + uint64(PRICE_TIMELOCK));
-        }
+        pendingPrices[asset] =
+            PendingPrice({ price: price, executableAt: uint64(block.timestamp) + uint64(PRICE_TIMELOCK) });
+        emit AssetPriceSubmitted(asset, price, uint64(block.timestamp) + uint64(PRICE_TIMELOCK));
     }
 
     /// @notice Executes a scheduled price update (permissionless post-timelock).
@@ -62,7 +81,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
         uint256 old = _prices[asset];
         if (old != 0) {
             uint256 diff = p.price > old ? p.price - old : old - p.price;
-            if (diff * BPS > old * MAX_DEVIATION_BPS) revert DeviationTooLarge(old, p.price);
+            if (diff * BPS > old * maxDeviationBps) revert DeviationTooLarge(old, p.price);
         }
         delete pendingPrices[asset];
         _prices[asset] = p.price;
@@ -81,14 +100,8 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
         uint64 executableAt = uint64(block.timestamp) + uint64(PRICE_TIMELOCK);
         for (uint256 i; i < assets.length; ++i) {
             if (prices[i] == 0) revert InvalidPrice(prices[i]);
-            if (_prices[assets[i]] == 0) {
-                _prices[assets[i]] = prices[i];
-                _updatedAt[assets[i]] = block.timestamp;
-                emit AssetPriceUpdated(assets[i], prices[i]);
-            } else {
-                pendingPrices[assets[i]] = PendingPrice({ price: prices[i], executableAt: executableAt });
-                emit AssetPriceSubmitted(assets[i], prices[i], executableAt);
-            }
+            pendingPrices[assets[i]] = PendingPrice({ price: prices[i], executableAt: executableAt });
+            emit AssetPriceSubmitted(assets[i], prices[i], executableAt);
         }
     }
 
@@ -101,7 +114,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
             uint256 old = _prices[assets[i]];
             if (old != 0) {
                 uint256 diff = p.price > old ? p.price - old : old - p.price;
-                if (diff * BPS > old * MAX_DEVIATION_BPS) revert DeviationTooLarge(old, p.price);
+                if (diff * BPS > old * maxDeviationBps) revert DeviationTooLarge(old, p.price);
             }
             delete pendingPrices[assets[i]];
             _prices[assets[i]] = p.price;
@@ -113,6 +126,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
     function getAssetPrice(address asset) external view returns (uint256) {
         uint256 price = _prices[asset];
         if (price == 0) revert PriceNotSet(asset);
+        if (block.timestamp > _updatedAt[asset] + MAX_PRICE_AGE) revert PriceStale(asset);
         return price;
     }
 
@@ -121,6 +135,7 @@ contract PeggedPriceOracle is Ownable2Step, IPriceOracleGetter {
         for (uint256 i; i < assets.length; ++i) {
             uint256 price = _prices[assets[i]];
             if (price == 0) revert PriceNotSet(assets[i]);
+            if (block.timestamp > _updatedAt[assets[i]] + MAX_PRICE_AGE) revert PriceStale(assets[i]);
             prices[i] = price;
         }
         return prices;

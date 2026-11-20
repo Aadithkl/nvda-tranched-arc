@@ -50,8 +50,8 @@ contract LendingPoolTest is Test {
         provider.setAddress(provider.LENDING_POOL(), address(pool));
         provider.setAddress(provider.LENDING_POOL_CONFIGURATOR(), address(configurator));
 
-        oracle.setAssetPrice(address(quote), 1e8);
-        oracle.setAssetPrice(address(nvda), 200e8);
+        oracle.seedAssetPrice(address(quote), 1e8);
+        oracle.seedAssetPrice(address(nvda), 200e8);
 
         strategy = new DefaultReserveInterestRateStrategy(0, 0.04e27, 0.6e27, 0.8e27);
 
@@ -432,5 +432,46 @@ contract LendingPoolTest is Test {
         _deposit(alice, quote, 1_000e6);
         (,,,,, uint256 hf) = pool.getUserAccountData(alice);
         assertEq(hf, type(uint256).max);
+    }
+
+    function test_liquidation_paysATokenClaimNotCash() public {
+        _deposit(alice, quote, 2_000e6);
+        _deposit(bob, nvda, 10e18);
+
+        vm.prank(bob);
+        pool.borrow(address(quote), 1_500e6, 2, 0, bob);
+
+        // 20% step down to $160: Bob's HF is 0.85, liquidatable.
+        oracle.setAssetPrice(address(nvda), 160e8);
+        vm.warp(block.timestamp + 24 hours);
+        oracle.executeAssetPrice(address(nvda));
+
+        uint256 aNvdaBefore = aNvda.balanceOf(alice);
+        uint256 nvdaCashBefore = nvda.balanceOf(alice);
+
+        vm.prank(alice);
+        pool.liquidationCall(address(nvda), address(quote), bob, 500e6);
+
+        // The liquidator receives the collateral claim, not the underlying cash.
+        assertGt(aNvda.balanceOf(alice), aNvdaBefore);
+        assertEq(nvda.balanceOf(alice), nvdaCashBefore);
+    }
+
+    function test_oracleDeviationBound_configurable() public {
+        // The per-update bound is owner-set: a volatile market can widen it, but a
+        // step past the bound still reverts at execute (M-29).
+        oracle.setMaxDeviationBps(5_000);
+
+        oracle.setAssetPrice(address(nvda), 250e8); // +25% step
+        vm.warp(86_401); // first schedule was made at block 1: exactly 24h later
+        oracle.executeAssetPrice(address(nvda));
+        assertEq(oracle.getAssetPrice(address(nvda)), 250e8);
+
+        // +100% over the live price exceeds even the widened 50% bound.
+        oracle.setAssetPrice(address(nvda), 500e8);
+        vm.warp(172_802); // 24h after the second schedule
+        vm.expectRevert(abi.encodeWithSelector(PeggedPriceOracle.DeviationTooLarge.selector, 250e8, 500e8));
+        oracle.executeAssetPrice(address(nvda));
+        assertEq(oracle.getAssetPrice(address(nvda)), 250e8, "rejected change never applies");
     }
 }

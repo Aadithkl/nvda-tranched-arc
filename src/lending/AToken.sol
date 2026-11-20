@@ -116,6 +116,17 @@ contract AToken is IAToken {
         IERC20(UNDERLYING_ASSET_ADDRESS).safeTransfer(target, amount);
     }
 
+    /// @notice Liquidators receive the collateral claim, not the underlying cash.
+    ///         Paying cash lets a borrower drain the reserve and block liquidations.
+    function transferOnLiquidation(address from, address to, uint256 amount) external onlyPool {
+        uint256 scaled = WadRayMath.rayDiv(amount, _index());
+        uint256 balance = _scaledBalances[from];
+        if (scaled > balance) revert InsufficientBalance(from, amount);
+        _scaledBalances[from] = balance - scaled;
+        _scaledBalances[to] += scaled;
+        emit Transfer(from, to, amount);
+    }
+
     function _transferScaled(address from, address to, uint256 amount) internal {
         uint256 scaled = WadRayMath.rayDiv(amount, _index());
         uint256 balance = _scaledBalances[from];

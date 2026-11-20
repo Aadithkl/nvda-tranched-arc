@@ -18,4 +18,8 @@ interface IAToken is IERC20, IERC20Metadata {
     function burn(address user, uint256 amount) external returns (bool);
 
     function transferUnderlyingTo(address target, uint256 amount) external;
+
+    /// @notice Moves a borrower's collateral claim to a liquidator without paying cash.
+    ///         Liquidation reduces debt, so the usual health-factor gate is not applied.
+    function transferOnLiquidation(address from, address to, uint256 amount) external;
 }
