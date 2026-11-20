@@ -18,18 +18,19 @@ __pycache__/
 .pytest_cache/
 .venv/
 
-# Python
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-
 # Research downloads (local, regenerable)
 research/data/
 research/out/
 
 # Static-analysis raw output (regenerable via slither; reports are not committed)
 slither-static.json
+slither-report.json
+slither-report.sarif
+
+# Certora generated artifacts (regenerable; specs/confs are committed)
+.certora_*
+.configuration_layout.json
+/run.conf
 
 # OS
 .DS_Store
